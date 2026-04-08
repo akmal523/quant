@@ -50,27 +50,26 @@ def deep_score(pe, peg, roe, rsi_val, upside, geo, vol,
     """
     bd: dict = {}
 
-    # ── Fundamental (40) ─────────────────────────────────────────────────────
+# ── Fundamental (40) ─────────────────────────────────────────────────────
     f = 0
     if pe is not None:
-    pe_f = float(pe)
-    if pe_f <= 0:
-        pass  # loss-making, 0 pts
-    elif pe_f < 20:
-        f += 15
-    elif pe_f < 30:
-        f += 10
-    else:
-        f += 5
+        pe_f = float(pe)
+        if pe_f <= 0:
+            pass
+        elif pe_f < 20:
+            f += 15
+        elif pe_f < 30:
+            f += 10
+        else:
+            f += 5
     if peg is not None:
-    peg_f = float(peg)
-    if 0 < peg_f < 1:
-        f += 15
-    elif 1 <= peg_f < 2:
-        f += 8
-    elif peg_f >= 2:
-        f += 3
-    # peg_f <= 0: 0 pts (loss-making or negative growth)
+        peg_f = float(peg)
+        if 0 < peg_f < 1:
+            f += 15
+        elif 1 <= peg_f < 2:
+            f += 8
+        elif peg_f >= 2:
+            f += 3
     if roe is not None:
         r = float(roe)
         f += 10 if r > 0.20 else (6 if r > 0.10 else (3 if r > 0 else 0))
