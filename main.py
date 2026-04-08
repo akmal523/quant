@@ -165,7 +165,7 @@ def _write_run_summary(df: pd.DataFrame, csv_path: str, xlsx_path: str):
 
 
 
-    def main(config=None) -> pd.DataFrame: # Add config parameter
+def main(config=None) -> pd.DataFrame: # Add config parameter
     _ensure_output_dir()
     print("=" * 80)
     print(f"  Trade Republic — Quant-AI Edition v{VERSION}")
