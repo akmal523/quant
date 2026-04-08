@@ -344,7 +344,13 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
         bt = run_backtest(symbol, hist, currency=raw_currency)
         r.update({k: v for k, v in bt.items() if k != "bt_trades"})
 
-    except Exception as e:
-        r["Note"] = str(e)[:120]
+        except Exception as e:
+            return {
+                "Asset": name,
+                "Ticker": sym, 
+                "Score": None,
+                "Note": f"Error: {str(e)}",
+                "Signal": "N/A"
+            }
 
     return r
