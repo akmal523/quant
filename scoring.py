@@ -104,7 +104,7 @@ def deep_score(
     # macd / bollinger (optional, used as confirmation only)
     macd_bullish_cross=False, bb_pct_b=None,
     # macro/sentiment
-    geo, vol, ai_sentiment,
+    geo=None, vol=None, ai_sentiment=None,
     # asset type
     is_etf: bool = False,
 ) -> tuple[int, dict]:
