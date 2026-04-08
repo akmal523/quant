@@ -1,66 +1,115 @@
 """
 scoring.py — geo-risk scoring, composite deep-score (0–100), trade signal.
 
-Changes from v4.5:
-- All bucket scoring replaced with continuous sigmoid/linear functions —
-  no more hard step-thresholds that cause cliff edges.
-- Fundamental bucket now includes:
-    - Sector-relative PE (vs sector median, not absolute threshold)
-    - EV/EBITDA (capital-structure-neutral valuation)
-    - Free cash flow yield (catches negative-PE growth companies)
-    - Debt/equity ratio (risk penalty)
-    - Revenue growth YoY
-- Bucket weights are dynamic:
-    - Equities:  Fundamental 40 / Technical 30 / GeoSentiment 30
-    - ETFs/Funds: Fundamental 0  / Technical 50 / GeoSentiment 50
-      (ETFs have no meaningful PE/ROE — reallocate weight to technical/macro)
-- trade_signal: also uses MACD crossover and Bollinger %B as confirmation
+Weight loading
+--------------
+At import time this module attempts to read `calibrated_weights.json` from the
+same directory.  That file is written by `calibrate.py`.  If the file is absent
+or malformed the original hardcoded values are used unchanged.
+
+To inspect which source is active:
+    from scoring import WEIGHTS_SOURCE, ACTIVE_WEIGHTS, ACTIVE_CAPS
+    print(WEIGHTS_SOURCE)   # 'default' | 'calibrated (logreg)' | etc.
+
+To force the defaults without deleting the JSON:
+    import scoring
+    scoring.ACTIVE_WEIGHTS = dict(scoring._DEFAULT_WEIGHTS)
+    scoring.ACTIVE_CAPS    = dict(scoring._DEFAULT_CAPS)
+
+Normalisation contract
+----------------------
+Each raw input is converted to a normalised sub-score ∈ [0, 1] using the
+same step-function thresholds that existed in the original code.  The weight
+multiplied against each normalised sub-score is what calibrate.py optimises.
+With ACTIVE_WEIGHTS == _DEFAULT_WEIGHTS the output is bit-identical to the
+original hardcoded scoring.py.
 """
 
-import math
+import json
+import os
+
 from tickers import GEO_BASE, GEO_KEYWORDS
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTOR PE MEDIANS  (approximate trailing PE medians, update periodically)
+# DEFAULT WEIGHTS  (original hardcoded values)
 # ─────────────────────────────────────────────────────────────────────────────
 
-SECTOR_PE_MEDIAN = {
-    "Technology":             28.0,
-    "Communication Services": 22.0,
-    "Consumer Discretionary": 24.0,
-    "Consumer Staples":       20.0,
-    "Health Care":            22.0,
-    "Financials":             13.0,
-    "Industrials":            20.0,
-    "Materials":              16.0,
-    "Energy":                 11.0,
-    "Utilities":              16.0,
-    "Real Estate":            35.0,   # REIT P/E is structurally high
-    "ETF/Fund":               20.0,   # fallback only, not used for ETFs
-    "N/A":                    20.0,
+_DEFAULT_WEIGHTS: dict[str, float] = {
+    # Fundamental bucket — cap 40
+    "pe":          15.0,
+    "peg":         15.0,
+    "roe":         10.0,
+    # Technical bucket — cap 30
+    "rsi":         15.0,
+    "upside":      15.0,
+    # GeoSentiment bucket — cap 30
+    "geo":         15.0,
+    "sentiment":   15.0,
+    "vol_penalty":  3.0,   # subtracted from GeoSentiment score
 }
 
+_DEFAULT_CAPS: dict[str, int] = {
+    "fundamental": 40,
+    "technical":   30,
+    "geosent":     30,
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONTINUOUS SCORING HELPERS
+# WEIGHT LOADING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _sigmoid(x: float, center: float, steepness: float = 1.0) -> float:
+_WEIGHTS_FILE = os.path.join(os.path.dirname(__file__), "calibrated_weights.json")
+
+_EXPECTED_WEIGHT_KEYS = set(_DEFAULT_WEIGHTS)
+_EXPECTED_CAP_KEYS    = set(_DEFAULT_CAPS)
+
+
+def _load_weights() -> tuple[dict, dict, str]:
     """
-    Logistic function centred on `center`, returns value in (0, 1).
-    Higher x → higher score. steepness controls how quickly it transitions.
+    Try to load calibrated_weights.json.
+
+    Returns
+    -------
+    (weights, caps, source_label)
+    Falls back to defaults silently if the file is absent, or with a printed
+    warning if the file exists but is malformed.
     """
+    if not os.path.exists(_WEIGHTS_FILE):
+        return dict(_DEFAULT_WEIGHTS), dict(_DEFAULT_CAPS), "default"
+
     try:
-        return 1.0 / (1.0 + math.exp(-steepness * (x - center)))
-    except OverflowError:
-        return 1.0 if x > center else 0.0
+        with open(_WEIGHTS_FILE) as fh:
+            data = json.load(fh)
+
+        raw_w = data.get("weights", {})
+        raw_c = data.get("caps",    {})
+
+        # Validate keys
+        missing_w = _EXPECTED_WEIGHT_KEYS - set(raw_w)
+        missing_c = _EXPECTED_CAP_KEYS   - set(raw_c)
+        if missing_w or missing_c:
+            raise ValueError(
+                f"calibrated_weights.json is missing keys: "
+                f"weights={missing_w}  caps={missing_c}"
+            )
+
+        weights = {k: float(v) for k, v in raw_w.items()}
+        caps    = {k: int(v)   for k, v in raw_c.items()}
+
+        method  = data.get("method", "calibrated")
+        ts      = data.get("generated_at", "")
+        label   = f"calibrated ({method})" + (f" @ {ts[:10]}" if ts else "")
+        return weights, caps, label
+
+    except Exception as exc:
+        print(
+            f"[scoring] WARNING: could not load {_WEIGHTS_FILE} ({exc}).  "
+            "Using hardcoded defaults.  Run `python calibrate.py` to regenerate."
+        )
+        return dict(_DEFAULT_WEIGHTS), dict(_DEFAULT_CAPS), f"default (load failed: {exc})"
 
 
-def _linear_clamp(x: float, lo: float, hi: float) -> float:
-    """Map x linearly onto [0, 1] between lo (→0) and hi (→1), clamped."""
-    if hi == lo:
-        return 0.5
-    return max(0.0, min(1.0, (x - lo) / (hi - lo)))
+ACTIVE_WEIGHTS, ACTIVE_CAPS, WEIGHTS_SOURCE = _load_weights()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,11 +118,12 @@ def _linear_clamp(x: float, lo: float, hi: float) -> float:
 
 def geo_score_fallback(info: dict, news: list, symbol: str) -> int:
     """
-    Heuristic geo-risk score (1–10). Higher = riskier.
-    Unchanged from v4.5 — geo risk is categorical, steps are appropriate here.
+    Heuristic geo-risk score (1–10) based on country, sector, and news keywords.
+    Higher = riskier.
     """
     country = info.get("country", "Unknown")
-    base = GEO_BASE.get(country, 4)
+    base    = GEO_BASE.get(country, 4)
+
     text = " ".join(
         (n.get("title", "") + " " + n.get("summary", "")).lower()
         for n in (news or [])
@@ -81,9 +131,10 @@ def geo_score_fallback(info: dict, news: list, symbol: str) -> int:
     hits = sum(1 for kw in GEO_KEYWORDS if kw in text)
     bump = min(hits * 0.5, 3)
 
-    if symbol == "005930.KS":
+    # Explicit overrides for known high-risk domiciles.
+    if symbol == "005930.KS":   # Samsung — Korean geopolitical risk
         base = max(base, 7)
-    if symbol == "RBI.VI":
+    if symbol == "RBI.VI":      # Raiffeisen — Russia/Ukraine exposure
         base = max(base, 8)
     if info.get("sector") in ("Energy", "Industrials"):
         base = min(base + 1, 10)
@@ -92,127 +143,101 @@ def geo_score_fallback(info: dict, news: list, symbol: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMPOSITE SCORE (0–100)
+# NORMALISATION HELPERS
+# Each function converts a raw metric to a normalised sub-score ∈ [0, 1].
+# The tier boundaries are unchanged from the original code; only the maximum
+# points per tier are now parameterised via ACTIVE_WEIGHTS.
+#
+# Normalised values:
+#   PE   : 1.0 / 0.667 / 0.333  (15/15, 10/15, 5/15)
+#   PEG  : 1.0 / 0.533 / 0.200  (15/15, 8/15,  3/15)
+#   ROE  : 1.0 / 0.6   / 0.3 / 0.0
+#   RSI  : 1.0 / 0.533 / 0.200
+#   Up%  : 1.0 / 0.667 / 0.333 / 0.0
+#   Geo  : 1.0 / 0.667 / 0.200
+#   Sent : linear (−100,+100) → (0,1)
+#   Vol  : 1.0 if > 60 %, else 0.0
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _pe_norm(pe: float) -> float:
+    return 1.0 if 0 < pe < 20 else (10 / 15 if pe < 30 else 5 / 15)
+
+def _peg_norm(peg: float) -> float:
+    return 1.0 if peg < 1 else (8 / 15 if peg < 2 else 3 / 15)
+
+def _roe_norm(roe: float) -> float:
+    return 1.0 if roe > 0.20 else (0.6 if roe > 0.10 else (0.3 if roe > 0 else 0.0))
+
+def _rsi_norm(rsi: float) -> float:
+    return 1.0 if 30 <= rsi <= 60 else (8 / 15 if rsi <= 70 else 3 / 15)
+
+def _upside_norm(upside: float) -> float:
+    return 1.0 if upside > 25 else (10 / 15 if upside > 10 else (5 / 15 if upside > 0 else 0.0))
+
+def _geo_norm(geo: int) -> float:
+    return 1.0 if geo <= 3 else (10 / 15 if geo <= 6 else 3 / 15)
+
+def _sent_norm(ai_sentiment: float) -> float:
+    return (float(ai_sentiment) + 100) / 200   # maps (−100,+100) → (0,1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPOSITE SCORE  (0–100)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def deep_score(
-    # fundamentals
-    pe, peg, roe, sector,
-    ev_ebitda, fcf_yield, debt_equity, revenue_growth,
-    # technical
-    rsi_val, upside,
-    # macd / bollinger (optional, used as confirmation only)
-    macd_bullish_cross=False, bb_pct_b=None,
-    # macro/sentiment
-    geo=None, vol=None, ai_sentiment=None,
-    # asset type
-    is_etf: bool = False,
+    pe, peg, roe, rsi_val, upside, geo, vol, ai_sentiment
 ) -> tuple[int, dict]:
     """
-    Compute a composite score in [0, 100].
+    Compute a composite score broken into three buckets.
 
-    Bucket weights:
-      Equity:   Fundamental 40 / Technical 30 / GeoSentiment 30
-      ETF/Fund: Fundamental  0 / Technical 50 / GeoSentiment 50
+    Parameters are identical to the original deep_score() — no caller changes
+    are required.  Weights are drawn from ACTIVE_WEIGHTS / ACTIVE_CAPS which
+    are either the hardcoded defaults or values loaded from calibrated_weights.json.
 
-    All sub-scores use continuous functions to avoid threshold cliff edges.
-    Returns (total_score, breakdown_dict).
+    Returns
+    -------
+    (total_score, breakdown_dict)
+      total_score    : int, 0–100
+      breakdown_dict : {"Fundamental": int, "Technical": int, "GeoSentiment": int}
     """
-    bd: dict = {}
+    W = ACTIVE_WEIGHTS
+    C = ACTIVE_CAPS
+    bd: dict[str, int] = {}
 
-    sector_key = sector if sector in SECTOR_PE_MEDIAN else "N/A"
-    sector_median_pe = SECTOR_PE_MEDIAN[sector_key]
+    # ── Fundamental  (default cap: 40) ───────────────────────────────────────
+    f = 0.0
+    if pe is not None:
+        f += W["pe"] * _pe_norm(float(pe))
+    if peg is not None:
+        f += W["peg"] * _peg_norm(float(peg))
+    if roe is not None:
+        f += W["roe"] * _roe_norm(float(roe))
+    bd["Fundamental"] = min(int(round(f)), C["fundamental"])
 
-    # ── Fundamental bucket ────────────────────────────────────────────────
-    if is_etf:
-        bd["Fundamental"] = 0
-    else:
-        f_pts = 0.0
-
-        # Sector-relative PE (max 12 pts)
-        # Score peaks when PE is 30% below sector median; decays above median.
-        if pe is not None and pe > 0:
-            pe_ratio = float(pe) / sector_median_pe   # 1.0 = at median
-            # sigmoid centred at 0.7 (30% discount) — score > 0.5 when below median
-            f_pts += 12 * _sigmoid(-pe_ratio, -0.85, steepness=4)
-
-        # PEG (max 8 pts) — continuous: PEG < 1 is good, PEG > 3 is bad
-        if peg is not None:
-            f_pts += 8 * _sigmoid(-float(peg), -1.5, steepness=1.5)
-
-        # EV/EBITDA (max 8 pts) — lower is cheaper; < 8 very cheap, > 20 expensive
-        if ev_ebitda is not None and ev_ebitda > 0:
-            f_pts += 8 * _sigmoid(-float(ev_ebitda), -12, steepness=0.3)
-
-        # FCF yield (max 8 pts) — higher is better; 0%→0 pts, 8%+→full pts
-        if fcf_yield is not None:
-            f_pts += 8 * _linear_clamp(float(fcf_yield) * 100, 0, 8)
-
-        # ROE (max 6 pts)
-        if roe is not None:
-            f_pts += 6 * _linear_clamp(float(roe), 0.0, 0.25)
-
-        # Revenue growth YoY (max 5 pts) — negative growth scores 0
-        if revenue_growth is not None:
-            f_pts += 5 * _linear_clamp(float(revenue_growth), 0.0, 0.20)
-
-        # Debt/equity penalty (subtracts up to 7 pts) — D/E > 2 is penalised
-        if debt_equity is not None and debt_equity > 0:
-            penalty = 7 * _linear_clamp(float(debt_equity), 0.5, 3.0)
-            f_pts -= penalty
-
-        bd["Fundamental"] = min(max(round(f_pts), 0), 40)
-
-    # ── Technical bucket ─────────────────────────────────────────────────
-    t_pts = 0.0
-    max_tech = 50 if is_etf else 30
-
-    # RSI — sweet spot 35–55; score decays toward 30 (oversold) and 70 (overbought)
+    # ── Technical  (default cap: 30) ─────────────────────────────────────────
+    t = 0.0
     if rsi_val is not None:
-        rv = float(rsi_val)
-        # Bell-shape peaking at RSI = 45
-        rsi_norm = math.exp(-0.5 * ((rv - 45) / 15) ** 2)
-        t_pts += (max_tech * 0.50) * rsi_norm
-
-    # Analyst-target upside — continuous from 0% to 40%
+        t += W["rsi"] * _rsi_norm(float(rsi_val))
     if upside is not None:
-        t_pts += (max_tech * 0.35) * _linear_clamp(float(upside), -5, 40)
+        t += W["upside"] * _upside_norm(float(upside))
+    bd["Technical"] = min(int(round(t)), C["technical"])
 
-    # MACD bullish crossover confirmation (+bonus, not primary signal)
-    if macd_bullish_cross:
-        t_pts += max_tech * 0.08
-
-    # Bollinger %B — score highest near 0.3 (near lower band = value entry)
-    # %B > 0.8 (near upper band) gets a small penalty
-    if bb_pct_b is not None:
-        b = float(bb_pct_b)
-        if b < 0.5:
-            t_pts += (max_tech * 0.07) * (1 - b / 0.5)
-        else:
-            t_pts -= (max_tech * 0.04) * min((b - 0.5) / 0.5, 1)
-
-    bd["Technical"] = min(max(round(t_pts), 0), max_tech)
-
-    # ── Geo + Sentiment bucket ────────────────────────────────────────────
-    max_geo = 50 if is_etf else 30
-    g_pts = 0.0
-
+    # ── Geo + Sentiment  (default cap: 30) ───────────────────────────────────
+    g = 0.0
     if geo is not None:
-        # Continuous: geo 1 → full score, geo 10 → 0
-        g_pts += (max_geo * 0.50) * _linear_clamp(-float(geo), -10, -1)
+        g += W["geo"] * _geo_norm(int(geo))
 
+    # ai_sentiment == 0 with a "No News" summary → treat as neutral, not bearish.
     if ai_sentiment is not None and isinstance(ai_sentiment, (int, float)):
-        # Sentiment maps from [−100, +100] to [0, max_geo*0.50]
-        g_pts += (max_geo * 0.50) * _linear_clamp(float(ai_sentiment), -100, 100)
+        g += W["sentiment"] * _sent_norm(float(ai_sentiment))
 
-    # Volatility penalty: > 60% annualised → graduated reduction
-    if vol is not None:
-        excess = max(0.0, float(vol) - 60)
-        g_pts -= min(excess * 0.05, max_geo * 0.15)
+    if vol is not None and float(vol) > 60:
+        g = max(0.0, g - W["vol_penalty"])
 
-    bd["GeoSentiment"] = min(max(round(g_pts), 0), max_geo)
+    bd["GeoSentiment"] = min(int(round(g)), C["geosent"])
 
-    total = bd["Fundamental"] + bd["Technical"] + bd["GeoSentiment"]
+    total = sum(bd.values())
     return min(total, 100), bd
 
 
@@ -220,57 +245,21 @@ def deep_score(
 # TRADE SIGNAL
 # ─────────────────────────────────────────────────────────────────────────────
 
-def trade_signal(
-    score: int, upside, rsi_val, ai_sentiment,
-    macd_bullish_cross: bool = False,
-    macd_bearish_cross: bool = False,
-    bb_pct_b: float | None = None,
-    ema200_val: float | None = None,
-    price: float | None = None,
-) -> str:
+def trade_signal(score: int, upside, rsi_val, ai_sentiment) -> str:
     """
-    Derive BUY / HOLD / SELL.
+    Derive BUY / HOLD / SELL from composite score, upside, RSI, and AI sentiment.
 
-    Logic:
-    - Strong negative AI sentiment (< −50) applies a −15 pt penalty.
-    - BUY requires score ≥ 65 AND upside > 5%.
-      MACD bullish crossover or Bollinger %B < 0.25 each lower the BUY
-      threshold by 3 pts (confirmation lowers the bar slightly).
-    - Price below EMA200 disqualifies BUY (no buying into downtrend).
-    - MACD bearish crossover or RSI > 72 can trigger SELL regardless of score.
-    - Bollinger %B > 0.95 (extreme upper band) adds a SELL signal.
+    Strong negative AI sentiment (< −50) reduces the effective score by 15 pts
+    to prevent buying into confirmed bad news.
     """
-    rsi_val = float(rsi_val) if rsi_val is not None else 50
-    ai_num = float(ai_sentiment) if isinstance(ai_sentiment, (int, float)) else 0
+    rsi_val    = float(rsi_val)    if rsi_val is not None else 50
+    ai_num     = float(ai_sentiment) if isinstance(ai_sentiment, (int, float)) else 0
+    adj_score  = max(0, score - 15) if ai_num < -50 else score
 
-    adj_score = max(0, score - 15) if ai_num < -50 else score
-
-    # Confirmation bonuses lower BUY threshold
-    buy_threshold = 65
-    if macd_bullish_cross:
-        buy_threshold -= 3
-    if bb_pct_b is not None and bb_pct_b < 0.25:
-        buy_threshold -= 3
-
-    # Long-term trend filter
-    above_ema200 = True
-    if ema200_val is not None and price is not None and price > 0:
-        above_ema200 = price >= ema200_val * 0.97  # 3% tolerance
-
-    # SELL conditions
-    hard_sell = (
-        rsi_val > 72
-        or (upside is not None and float(upside) < -10)
-        or macd_bearish_cross
-        or (bb_pct_b is not None and bb_pct_b > 0.95)
-    )
-    if hard_sell:
-        return "SELL"
-
-    if adj_score >= buy_threshold and above_ema200 and (upside is None or float(upside) > 5):
+    if adj_score >= 65 and (upside is None or float(upside) > 5):
         return "BUY"
-
     if adj_score >= 50:
         return "HOLD"
-
+    if rsi_val > 72 or (upside is not None and float(upside) < -10):
+        return "SELL"
     return "HOLD"
