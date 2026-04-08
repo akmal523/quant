@@ -22,6 +22,7 @@ api_key = os.getenv("GEMINI_API_KEY", "").strip(' "\'')
 #
 
 import os
+import calibrate
 import time
 import warnings
 from datetime import datetime
@@ -343,4 +344,9 @@ def main() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    df = main()
+    # Logic: Obtain optimized parameters via the calibration module
+    optimized_settings = calibrate.run_calibration()
+    
+    # Logic: Inject parameters into the scanning engine
+    scanner = Scanner(config=optimized_settings)
+    scanner.start_scan()

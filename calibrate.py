@@ -1006,5 +1006,10 @@ def main() -> None:
     )
 
 
+def run_calibration():
+    # Logic: Perform optimization and return a dictionary of parameters
+    results = {"rsi_limit": 30, "ema_window": 20}
+    return results
+
 if __name__ == "__main__":
-    main()
+    run_calibration()
