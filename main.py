@@ -13,11 +13,13 @@ Usage:
     python main.py
 """
 # Load .env before any config import so os.getenv() sees the values.
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # python-dotenv is optional; fall back to exported env vars.
+import os
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+api_key = os.getenv("GEMINI_API_KEY", "").strip(' "\'')
+#
 
 import os
 import time

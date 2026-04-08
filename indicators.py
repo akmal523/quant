@@ -15,8 +15,8 @@ def rsi(series: pd.Series, period: int = 14) -> float | None:
     if len(series) < period + 5:
         return None
     delta = series.diff().dropna()
-    gain  = delta.clip(lower=0).rolling(period).mean()
-    loss  = (-delta.clip(upper=0)).rolling(period).mean()
+    gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
     rs    = gain / loss.replace(0, np.nan)
     rsi_s = 100 - (100 / (1 + rs))
     v = rsi_s.iloc[-1]

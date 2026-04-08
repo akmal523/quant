@@ -8,9 +8,12 @@ from datetime import datetime, timedelta
 from config     import ATR_MULTIPLIER
 from indicators import ema, rsi, atr
 
+from scoring import deep_score, trade_signal
 
 def run_backtest(symbol: str, hist: pd.DataFrame,
-                 currency: str = "USD") -> dict:
+                 currency: str = "USD",
+                 pe=None, peg=None, roe=None,
+                 geo=None, ai_sentiment=None) -> dict:
     """
     Simulate what signal would have been generated 12 months ago,
     then measure the resulting P&L to the current price.
@@ -65,12 +68,25 @@ def run_backtest(symbol: str, hist: pd.DataFrame,
     if len(c_past) < 20:
         result["bt_note"] = "Insufficient history"
         return result
-
-    rsi_past   = rsi(c_past)
+    rsi_past = rsi(c_past)
     ema50_past = float(ema(c_past, 50).iloc[-1])
     price_past = float(c_past.iloc[-1])
-    atr_past   = atr(h_past, l_past, c_past)
-    stop_past  = (price_past - ATR_MULTIPLIER * atr_past) if atr_past else None
+    atr_past = atr(h_past, l_past, c_past)
+    stop_past = (price_past - ATR_MULTIPLIER * atr_past) if atr_past else None
+    ret_past = c_past.pct_change().dropna().tail(252)
+    vol_past = round(float(ret_past.std()) * np.sqrt(252) * 100, 1) if len(ret_past) > 20 else None
+
+    # Upside is unknowable historically — omit it (None → 0 pts in technical bucket)
+    # PE/PEG/ROE/geo/sentiment use current values as proxy
+    bt_score, _ = deep_score(
+        pe=pe, peg=peg, roe=roe,
+        rsi_val=rsi_past,
+        upside=None,          # not available historically
+        geo=geo,
+        vol=vol_past,
+        ai_sentiment=ai_sentiment,
+    )
+    past_sig = trade_signal(bt_score, upside=None, rsi_val=rsi_past, ai_sentiment=ai_sentiment)
 
     # Reconstruct the signal that would have been generated 12 months ago.
     if rsi_past and 30 <= rsi_past <= 65 and price_past >= ema50_past * 0.97:

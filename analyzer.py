@@ -229,7 +229,15 @@ def analyze(name: str, symbol: str, macro: dict,
         r["Signal"] = trade_signal(total, r["Upside_Pct"], r["RSI"], r["AI_Sentiment"])
 
         # Backtest — pass raw_currency so run_backtest normalises correctly.
-        bt = run_backtest(symbol, hist, currency=raw_currency)
+        bt = run_backtest(
+            symbol, hist,
+            currency=raw_currency,
+            pe=r["PE"],
+            peg=r["PEG"],
+            roe=r["ROE"],
+            geo=gs,
+            ai_sentiment=r["AI_Sentiment"],
+        )
         r.update(bt)
 
     except Exception as e:

@@ -53,9 +53,24 @@ def deep_score(pe, peg, roe, rsi_val, upside, geo, vol,
     # ── Fundamental (40) ─────────────────────────────────────────────────────
     f = 0
     if pe is not None:
-        f += 15 if 0 < float(pe) < 20 else (10 if float(pe) < 30 else 5)
+    pe_f = float(pe)
+    if pe_f <= 0:
+        pass  # loss-making, 0 pts
+    elif pe_f < 20:
+        f += 15
+    elif pe_f < 30:
+        f += 10
+    else:
+        f += 5
     if peg is not None:
-        f += 15 if float(peg) < 1 else (8 if float(peg) < 2 else 3)
+    peg_f = float(peg)
+    if 0 < peg_f < 1:
+        f += 15
+    elif 1 <= peg_f < 2:
+        f += 8
+    elif peg_f >= 2:
+        f += 3
+    # peg_f <= 0: 0 pts (loss-making or negative growth)
     if roe is not None:
         r = float(roe)
         f += 10 if r > 0.20 else (6 if r > 0.10 else (3 if r > 0 else 0))
@@ -77,7 +92,7 @@ def deep_score(pe, peg, roe, rsi_val, upside, geo, vol,
         g += 15 if geo <= 3 else (10 if geo <= 6 else 3)
     # ai_sentiment == 0 with "No News" summary → treat as neutral, not bearish.
     if ai_sentiment is not None and isinstance(ai_sentiment, (int, float)):
-        sent_pts = int((float(ai_sentiment) + 100) / 200 * 15)
+        sent_pts = round((float(ai_sentiment) + 100) / 200 * 15)
         g += sent_pts
     if vol is not None and float(vol) > 60:
         g = max(0, g - 3)  # slight penalty for very high annualised volatility
@@ -101,7 +116,7 @@ def trade_signal(score: int, upside, rsi_val, ai_sentiment) -> str:
     ai_num  = float(ai_sentiment) if isinstance(ai_sentiment, (int, float)) else 0
     adj_score = max(0, score - 15) if ai_num < -50 else score
 
-    if adj_score >= 65 and (upside is None or float(upside) > 5):
+    if adj_score >= 65 and (upside is not None and float(upside) > 5):
         return "BUY"
     if adj_score >= 50:
         return "HOLD"
