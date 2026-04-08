@@ -32,9 +32,16 @@ from scoring import geo_score_fallback, deep_score, trade_signal
 from backtest import run_backtest
 
 
-def analyze(name: str, symbol: str, macro: dict,
-            prefetched_ai: tuple | None = None,
-            prefetched_news: list | None = None) -> dict:
+# analyzer.py
+
+def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=None):
+    """
+    Accepts config dictionary to override technical/fundamental constants.
+    """
+    config = config or {}
+    # Logic: Use calibrated values if they exist, otherwise use defaults from config.py
+    rsi_period = config.get('rsi_period', 14)
+    ema_fast = config.get('ema_fast', 12)
     """
     Run the full analysis pipeline for a single instrument.
 

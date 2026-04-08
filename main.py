@@ -164,9 +164,9 @@ def _write_run_summary(df: pd.DataFrame, csv_path: str, xlsx_path: str):
     print(f"Run summary: {path}")
 
 
-def main() -> pd.DataFrame:
-    _ensure_output_dir()
 
+    def main(config=None) -> pd.DataFrame: # Add config parameter
+    _ensure_output_dir()
     print("=" * 80)
     print(f"  Trade Republic — Quant-AI Edition v{VERSION}")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  "
@@ -232,8 +232,8 @@ def main() -> pd.DataFrame:
             name, sym, macro,
             prefetched_ai=(ai_score, ai_summary),
             prefetched_news=ticker_news.get(sym, []),
+            config=config  # <--- Add this line
         ))
-
     df = pd.DataFrame(records)
 
     # Coerce numeric columns.
@@ -344,9 +344,12 @@ def main() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    # Logic: Obtain optimized parameters via the calibration module
-    optimized_settings = calibrate.run_calibration()
-    
-    # Logic: Inject parameters into the scanning engine
-    scanner = Scanner(config=optimized_settings)
-    scanner.start_scan()
+    # 1. Obtain optimized parameters via the calibration module
+    try:
+        optimized_settings = calibrate.run_calibration()
+    except Exception as e:
+        print(f"Calibration failed: {e}. using defaults.")
+        optimized_settings = {}
+
+    # 2. Start the main pipeline with the settings
+    main(config=optimized_settings)
