@@ -247,19 +247,30 @@ def deep_score(
 
 def trade_signal(score: int, upside, rsi_val, ai_sentiment, macd_bullish_cross=False) -> str:
     """
-    Derive BUY / HOLD / SELL from composite score, upside, RSI, and AI sentiment.
-
-    Strong negative AI sentiment (< −50) reduces the effective score by 15 pts
-    to prevent buying into confirmed bad news.
+    Derive STRONG BUY / BUY / HOLD / SELL from composite score, upside, RSI, AI sentiment, and MACD.
+    Strong negative AI sentiment (< -50) reduces the effective score by 15 pts.
     """
-    rsi_val    = float(rsi_val)    if rsi_val is not None else 50
-    ai_num     = float(ai_sentiment) if isinstance(ai_sentiment, (int, float)) else 0
-    adj_score  = max(0, score - 15) if ai_num < -50 else score
+    # Нормализация данных
+    rsi_val = float(rsi_val) if rsi_val is not None else 50.0
+    ai_num = float(ai_sentiment) if isinstance(ai_sentiment, (int, float, str)) and str(ai_sentiment).replace('.', '', 1).lstrip('-').isdigit() else 0.0
+    
+    # Штраф за негативный фон
+    adj_score = max(0, score - 15) if ai_num < -50 else score
 
-    if adj_score >= 65 and (upside is None or float(upside) > 5):
-        return "BUY"
-    if adj_score >= 50:
-        return "HOLD"
+    # 1. Жесткие условия выхода (приоритет риск-менеджмента)
     if rsi_val > 72 or (upside is not None and float(upside) < -10):
         return "SELL"
+
+    # 2. Катализатор сильной покупки (техническое подтверждение при допустимом фундаменте)
+    if macd_bullish_cross and adj_score >= 50:
+        return "STRONG BUY"
+
+    # 3. Стандартная покупка
+    if adj_score >= 65 and (upside is None or float(upside) > 5):
+        return "BUY"
+
+    # 4. Удержание
+    if adj_score >= 50:
+        return "HOLD"
+
     return "HOLD"

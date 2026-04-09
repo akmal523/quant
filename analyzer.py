@@ -316,7 +316,7 @@ def analyze(name, symbol, macro, prefetched_ai=None, prefetched_news=None, confi
             debt_equity=r["Debt_Equity"],
             revenue_growth=r["Revenue_Growth"],
             rsi_val=r["RSI"], upside=r["Upside_Pct"],
-            #macd_bullish_cross=r["MACD_Bullish_Cross"],
+            macd_bullish_cross=r["MACD_Bullish_Cross"],
             bb_pct_b=r["BB_PctB"],
             geo=gs, vol=r["Vol_Ann_pct"], ai_sentiment=r["AI_Sentiment"],
             is_etf=is_etf,
