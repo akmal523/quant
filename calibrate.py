@@ -1006,10 +1006,140 @@ def main() -> None:
     )
 
 
-def run_calibration():
-    # Logic: Perform optimization and return a dictionary of parameters
-    results = {"rsi_limit": 30, "ema_window": 20}
-    return results
+def run_calibration(
+    method: str = "logreg",
+    lookback_months: int = 24,
+    forward_days: int = 63,
+    topk: int = 7,
+    save_dataset: bool = False,
+    force: bool = False,
+) -> dict:
+    """
+    Programmatic entry point called by main.py before the analysis pipeline.
+
+    Runs the calibration, writes calibrated_weights.json (consumed by
+    scoring.py at import time), and returns a config dict of indicator-period
+    overrides for analyze().
+
+    Parameters
+    ----------
+    method          : "logreg" | "nelder" | "grid" | "all"  (default "logreg")
+    lookback_months : Entry-point history in months (default 24).
+    forward_days    : Forward return window in trading days (default 63 ≈ 3 months).
+    topk            : Assets per time-slice for portfolio ranking (default 7).
+    save_dataset    : Also write calibration_dataset.csv when True.
+    force           : Re-run even if a fresh calibrated_weights.json exists.
+
+    Returns
+    -------
+    dict with keys understood by analyze():
+        rsi_period, ema_fast, ema_slow, macd_signal
+    These are derived from the winning bucket weights; currently they map the
+    calibrated RSI/upside weights back to a practical period range.
+    """
+    import warnings as _warnings
+    _warnings.filterwarnings("ignore")
+
+    # Skip re-running if weights are fresh (< 12 hours old) and force=False.
+    if not force and os.path.exists(WEIGHTS_FILE):
+        age_h = (
+            datetime.now().timestamp() - os.path.getmtime(WEIGHTS_FILE)
+        ) / 3600
+        if age_h < 12:
+            print(
+                f"[calibrate] Skipping — calibrated_weights.json is "
+                f"{age_h:.1f}h old (< 12h).  Pass force=True to re-run.\n"
+            )
+            return _load_config_from_weights()
+
+    # ── Build dataset ────────────────────────────────────────────────────────
+    df = build_dataset(lookback_months=lookback_months, forward_days=forward_days)
+
+    # ── Reliability warnings ─────────────────────────────────────────────────
+    warns = reliability_report(df)
+    print(f"\n{'─'*70}\nRELIABILITY WARNINGS\n{'─'*70}")
+    for w in warns:
+        print(f"  ! {w}")
+    print()
+
+    if save_dataset:
+        ds_path = os.path.join(os.path.dirname(WEIGHTS_FILE), "calibration_dataset.csv")
+        df.to_csv(ds_path, index=False)
+        print(f"[calibrate] Dataset saved → {ds_path}\n")
+
+    # ── Run requested methods ────────────────────────────────────────────────
+    all_results: list[tuple] = []
+
+    if method in ("logreg", "all"):
+        w, c, m = run_logistic(df)
+        all_results.append(("logreg", w, c, m))
+
+    if method in ("nelder", "all"):
+        w, c, m = run_nelder_mead(df)
+        all_results.append(("nelder", w, c, m))
+
+    if method in ("grid", "all"):
+        w, c, m = run_grid_search(df)
+        all_results.append(("grid", w, c, m))
+
+    # ── Select winner and write JSON ─────────────────────────────────────────
+    if len(all_results) == 1:
+        method_name, best_weights, best_caps, best_meta = all_results[0]
+    else:
+        method_name, best_weights, best_caps, best_meta = _choose_best(all_results)
+
+    print(
+        f"{'─'*70}\n"
+        f"WINNING METHOD : {method_name}\n"
+        f"{'─'*70}"
+    )
+    print("Final weights:")
+    for key, val in best_weights.items():
+        default = DEFAULT_WEIGHTS.get(key, "—")
+        delta   = val - float(default) if isinstance(default, (int, float)) else 0.0
+        bar     = "▲" if delta > 0.5 else ("▼" if delta < -0.5 else "─")
+        print(f"  {key:<14} {val:6.2f}   (default {default:5.1f})  {bar}")
+    print(f"\nBucket caps: {best_caps}")
+
+    save_weights(
+        weights=best_weights,
+        caps=best_caps,
+        method=method_name,
+        meta=best_meta,
+        caveats=warns,
+    )
+
+    return _load_config_from_weights()
+
+
+def _load_config_from_weights() -> dict:
+    """
+    Load calibrated_weights.json and derive indicator period overrides.
+
+    The RSI period is mapped linearly from the calibrated RSI weight:
+      weight ∈ [0, 30] → period ∈ [21, 9]  (higher weight → shorter, more reactive period)
+    MACD fast/slow/signal remain at standard values unless overridden.
+    """
+    if not os.path.exists(WEIGHTS_FILE):
+        return {}
+
+    try:
+        with open(WEIGHTS_FILE) as f:
+            payload = json.load(f)
+        weights = payload.get("weights", {})
+        rsi_w   = float(weights.get("rsi", DEFAULT_WEIGHTS["rsi"]))
+        # Linear interpolation: weight 0→period 21, weight 30→period 9
+        rsi_period = int(round(21 - (rsi_w / 30) * 12))
+        rsi_period = max(9, min(21, rsi_period))  # clamp to [9, 21]
+        return {
+            "rsi_period":  rsi_period,
+            "ema_fast":    12,   # standard; extend here if grid search covers MACD
+            "ema_slow":    26,
+            "macd_signal":  9,
+        }
+    except Exception:
+        return {}
+
 
 if __name__ == "__main__":
-    run_calibration()
+    main()

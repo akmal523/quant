@@ -32,15 +32,7 @@ from scoring import geo_score_fallback, deep_score, trade_signal
 from backtest import run_backtest
 
 
-def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=None):
-    """
-    Accepts config dictionary to override technical/fundamental constants.
-    """
-    config = config or {}
-    # Logic: Use calibrated values if they exist, otherwise use defaults
-    rsi_period = config.get('rsi_period', 14)
-    ema_fast = config.get('ema_fast', 12)
-
+def analyze(name, symbol, macro, prefetched_ai=None, prefetched_news=None, config=None):
     """
     Run the full analysis pipeline for a single instrument.
 
@@ -51,13 +43,21 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
     macro           : Pre-loaded macro series dict (from macro.load_macro).
     prefetched_ai   : (score, summary) tuple from batch AI phase, or None.
     prefetched_news : News list from batch news phase, or None.
+    config          : Optional dict of calibrated parameter overrides.
 
     Returns
     -------
     Flat dict of all metrics (DataFrame row).
     """
+    config = config or {}
+    # Calibrated indicator periods — passed to indicator functions below.
+    rsi_period  = config.get("rsi_period",  14)
+    ema_fast    = config.get("ema_fast",     12)
+    ema_slow    = config.get("ema_slow",     26)
+    macd_signal = config.get("macd_signal",   9)
+
     r = dict(
-        Asset=name, Ticker=sym, Sector="N/A", Country="N/A",
+        Asset=name, Ticker=symbol, Sector="N/A", Country="N/A",
         Type="Equity", Currency="N/A", CurrencySymbol="",
         Entry_Price=None, EMA50=None, EMA200=None, Target_Price=None,
         Stop_Loss=None, ATR=None, Resistance=None,
@@ -162,15 +162,14 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
             r["EV_EBITDA"] = safe_float(info.get("enterpriseToEbitda"))
 
             # Free cash flow yield = FCF / market cap
-            fcf = safe_float(info.get("freeCashflow"))
+            fcf    = safe_float(info.get("freeCashflow"))
             mktcap = safe_float(info.get("marketCap"))
             if fcf is not None and mktcap and mktcap > 0:
                 r["FCF_Yield"] = round(fcf / mktcap, 4)
 
-            # Debt/equity (use totalDebt / totalStockholdersEquity if D/E ratio absent)
+            # Debt/equity — yfinance returns as percentage (e.g. 120 = 1.2×), normalise
             r["Debt_Equity"] = safe_float(info.get("debtToEquity"))
             if r["Debt_Equity"] is not None:
-                # yfinance returns this as a percentage (e.g. 120 = 1.2x), normalise
                 r["Debt_Equity"] = round(r["Debt_Equity"] / 100, 3)
 
             # Revenue growth YoY
@@ -197,8 +196,8 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
             return r
 
         close_raw = hist["Close"].squeeze()
-        high_raw  = hist["High"].squeeze() if "High" in hist.columns else close_raw
-        low_raw   = hist["Low"].squeeze()  if "Low"  in hist.columns else close_raw
+        high_raw  = hist["High"].squeeze() if "High"   in hist.columns else close_raw
+        low_raw   = hist["Low"].squeeze()  if "Low"    in hist.columns else close_raw
         vol_raw   = hist["Volume"].squeeze() if "Volume" in hist.columns else None
 
         close = close_raw / 100 if is_pence else close_raw
@@ -227,7 +226,7 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
         # ATR and stop-loss
         atr_val = atr(high, low, close)
         if atr_val:
-            r["ATR"] = round(atr_val, 4)
+            r["ATR"]       = round(atr_val, 4)
             r["Stop_Loss"] = round(r["Entry_Price"] - ATR_MULTIPLIER * atr_val, 4)
 
         # Resistance: 60-bar swing high
@@ -249,17 +248,17 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
         r["Target_Fmt"] = fp(r["Target_Price"])
         r["Stop_Fmt"]   = fp(r["Stop_Loss"])
 
-        # RSI
-        rsi_val = rsi(close)
+        # RSI — uses calibrated period
+        rsi_val = rsi(close, period=rsi_period)
         r["RSI"] = round(rsi_val, 1) if rsi_val else None
 
-        # MACD
-        m = calc_macd(close)
-        r["MACD_Line"]         = round(m["macd_line"], 4) if m["macd_line"] else None
-        r["MACD_Signal"]       = round(m["signal_line"], 4) if m["signal_line"] else None
-        r["MACD_Histogram"]    = m["histogram"]
-        r["MACD_Bullish_Cross"]= m["bullish_cross"]
-        r["MACD_Bearish_Cross"]= m["bearish_cross"]
+        # MACD — uses calibrated fast/slow/signal periods
+        m = calc_macd(close, fast=ema_fast, slow=ema_slow, signal=macd_signal)
+        r["MACD_Line"]          = round(m["macd_line"],   4) if m["macd_line"]   else None
+        r["MACD_Signal"]        = round(m["signal_line"], 4) if m["signal_line"] else None
+        r["MACD_Histogram"]     = m["histogram"]
+        r["MACD_Bullish_Cross"] = m["bullish_cross"]
+        r["MACD_Bearish_Cross"] = m["bearish_cross"]
 
         # Bollinger Bands
         bb = calc_bollinger(close)
@@ -288,16 +287,14 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
 
         # Macro correlations (full + rolling) and ROC
         corrs = corr_with_macro(close, macro)
-        # Full-history
-        r["Corr_CPI"]    = corrs.get("full_TIPS_INF")
-        r["Corr_CB_Rate"]= corrs.get("full_FED_PROXY")
-        r["Corr_Oil"]    = corrs.get("full_OIL")
-        r["Corr_Gold"]   = corrs.get("full_GOLD")
-        r["Corr_SP500"]  = corrs.get("full_SP500")
-        # Rolling 6-month
-        r["RollCorr_Oil"]  = corrs.get("roll_OIL")
-        r["RollCorr_Gold"] = corrs.get("roll_GOLD")
-        r["RollCorr_SP500"]= corrs.get("roll_SP500")
+        r["Corr_CPI"]     = corrs.get("full_TIPS_INF")
+        r["Corr_CB_Rate"] = corrs.get("full_FED_PROXY")
+        r["Corr_Oil"]     = corrs.get("full_OIL")
+        r["Corr_Gold"]    = corrs.get("full_GOLD")
+        r["Corr_SP500"]   = corrs.get("full_SP500")
+        r["RollCorr_Oil"]   = corrs.get("roll_OIL")
+        r["RollCorr_Gold"]  = corrs.get("roll_GOLD")
+        r["RollCorr_SP500"] = corrs.get("roll_SP500")
 
         roc = macro_roc(macro)
         r["ROC1M_Oil"]   = roc.get("roc1m_OIL")
@@ -324,10 +321,10 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
             geo=gs, vol=r["Vol_Ann_pct"], ai_sentiment=r["AI_Sentiment"],
             is_etf=is_etf,
         )
-        r["Score"]               = total
-        r["Score_Fundamental"]   = bd["Fundamental"]
-        r["Score_Technical"]     = bd["Technical"]
-        r["Score_GeoSentiment"]  = bd["GeoSentiment"]
+        r["Score"]              = total
+        r["Score_Fundamental"]  = bd["Fundamental"]
+        r["Score_Technical"]    = bd["Technical"]
+        r["Score_GeoSentiment"] = bd["GeoSentiment"]
 
         # Trade signal
         r["Signal"] = trade_signal(
@@ -344,13 +341,8 @@ def analyze(name, sym, macro, prefetched_ai=None, prefetched_news=None, config=N
         bt = run_backtest(symbol, hist, currency=raw_currency)
         r.update({k: v for k, v in bt.items() if k != "bt_trades"})
 
-        except Exception as e:
-            return {
-                "Asset": name,
-                "Ticker": sym, 
-                "Score": None,
-                "Note": f"Error: {str(e)}",
-                "Signal": "N/A"
-            }
+    except Exception as e:
+        r["Note"]   = str(e)[:100]
+        r["Signal"] = "N/A"
 
     return r

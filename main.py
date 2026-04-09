@@ -19,9 +19,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 api_key = os.getenv("GEMINI_API_KEY", "").strip(' "\'')
-#
 
-import os
 import calibrate
 import time
 import warnings
@@ -164,8 +162,7 @@ def _write_run_summary(df: pd.DataFrame, csv_path: str, xlsx_path: str):
     print(f"Run summary: {path}")
 
 
-
-def main(config=None) -> pd.DataFrame: # Add config parameter
+def main(config=None) -> pd.DataFrame:
     _ensure_output_dir()
     print("=" * 80)
     print(f"  Trade Republic — Quant-AI Edition v{VERSION}")
@@ -232,7 +229,7 @@ def main(config=None) -> pd.DataFrame: # Add config parameter
             name, sym, macro,
             prefetched_ai=(ai_score, ai_summary),
             prefetched_news=ticker_news.get(sym, []),
-            config=config  # <--- Add this line
+            config=config,
         ))
     df = pd.DataFrame(records)
 
@@ -344,12 +341,13 @@ def main(config=None) -> pd.DataFrame: # Add config parameter
 
 
 if __name__ == "__main__":
-    # 1. Obtain optimized parameters via the calibration module
+    # 1. Run calibration to update calibrated_weights.json (used by scoring.py).
+    #    Returns a config dict with indicator period overrides for analyze().
     try:
         optimized_settings = calibrate.run_calibration()
     except Exception as e:
-        print(f"Calibration failed: {e}. using defaults.")
+        print(f"Calibration failed: {e}. Using defaults.")
         optimized_settings = {}
 
-    # 2. Start the main pipeline with the settings
+    # 2. Start the main pipeline with the calibrated settings.
     main(config=optimized_settings)
