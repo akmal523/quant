@@ -130,8 +130,7 @@ def normalize_features(
         pg = float(peg)
         nf["peg_norm"] = 1.0 if pg < 1 else (8 / 15 if pg < 2 else 3 / 15)
     else:
-        nf["peg_norm"] = float("nan")
-
+        nf["peg_norm"] = 0.0
     # ROE tiers: 10 / 6 / 3 / 0 → norms 1.0 / 0.6 / 0.3 / 0.0
     if roe is not None:
         rv = float(roe)

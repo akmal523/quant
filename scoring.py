@@ -186,7 +186,7 @@ def _sent_norm(ai_sentiment: float) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def deep_score(
-    pe, peg, roe, rsi_val, upside, geo, vol, ai_sentiment
+    pe, peg, roe, rsi_val, upside, geo, vol, ai_sentiment, sector=None, **kwargs
 ) -> tuple[int, dict]:
     """
     Compute a composite score broken into three buckets.
