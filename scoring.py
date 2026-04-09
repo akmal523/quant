@@ -245,7 +245,7 @@ def deep_score(
 # TRADE SIGNAL
 # ─────────────────────────────────────────────────────────────────────────────
 
-def trade_signal(score: int, upside, rsi_val, ai_sentiment, macd_bullish_cross=False, macd_bearish_cross=False) -> str:
+def trade_signal(score: int, upside, rsi_val, ai_sentiment, macd_bullish_cross=False, macd_bearish_cross=False, bb_pct_b=None) -> str:
     """
     Derive STRONG BUY / BUY / HOLD / SELL from composite score, upside, RSI, AI sentiment, and MACD.
     Strong negative AI sentiment (< -50) reduces the effective score by 15 pts.
