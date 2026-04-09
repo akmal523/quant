@@ -245,7 +245,7 @@ def deep_score(
 # TRADE SIGNAL
 # ─────────────────────────────────────────────────────────────────────────────
 
-def trade_signal(score: int, upside, rsi_val, ai_sentiment) -> str:
+def trade_signal(score: int, upside, rsi_val, ai_sentiment, macd_bullish_cross=False) -> str:
     """
     Derive BUY / HOLD / SELL from composite score, upside, RSI, and AI sentiment.
 
