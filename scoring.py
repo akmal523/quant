@@ -1,216 +1,220 @@
+"""
+scoring.py — Composite scoring, horizon classification, sector medians, trade signal.
+
+Score architecture (0–100):
+  Fundamental   max 40  — PE, PEG, ROE; sector-relative PE bonus
+  Technical     max 30  — RSI(14), Price vs SMA50
+  GeoSentiment  max 30  — geo-risk heuristic + FinBERT score [-100,+100]
+  Volatility penalty    — up to −3 pts for annualised vol > 60%
+"""
+from __future__ import annotations
 import pandas as pd
-import numpy as np
-
-def classify_horizon(dividend_yield: float, volatility: float, roe: float, pe: float) -> str:
-    """
-    Классификация активов по целям.
-    """
-    div = dividend_yield if dividend_yield else 0.0
-    
-    # 1. СТАБИЛЬНОСТЬ (Для пенсии/залога): Низкий риск + доход
-    if div > 0.035 and volatility < 0.22:
-        return "PENSION (Залог/Доход)"
-    
-    # 2. РОСТ (Для открытия бизнеса/капитала): Высокий КПД капитала
-    if roe > 0.18 and pe < 30:
-        return "GROWTH (Разгон капитала)"
-        
-    # 3. СПЕКУЛЯЦИЯ: Высокий риск или переоцененность
-    if pe > 40:
-        return "HIGH-VALUE (Риск переплаты)"
-        
-    return "BALANCED"
-
-def calculate_payback_penalty(pe: float, peg: float) -> float:
-    """
-    Штраф за экстремальную окупаемость.
-    Если P/E > 35 и рост не оправдывает цену (PEG > 2.0).
-    """
-    if pe > 35 and peg > 2.0:
-        return 20.0 # Тяжелый штраф
-    return 0.0
-
-def calculate_sector_medians(metrics_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Агрегирует медианные значения метрик по секторам.
-    Если выборка слишком мала (менее 3 компаний), использует глобальные исторические медианы (S&P 500 / STOXX 600) для предотвращения нулевых баллов.
-    """
-    # 1. Сбор медиан на основе текущего сканирования
-    local_medians = metrics_df.groupby('Sector')[['PE', 'PEG', 'ROE']].median()
-    sector_counts = metrics_df['Sector'].value_counts()
-    
-    # 2. Глобальная матрица справедливых значений для подмены (Fallback)
-    global_baselines = {
-        'Technology': {'PE': 25.0, 'PEG': 1.5, 'ROE': 0.15},
-        'Basic Materials': {'PE': 15.0, 'PEG': 1.2, 'ROE': 0.12},
-        'Industrials': {'PE': 18.0, 'PEG': 1.3, 'ROE': 0.14},
-        'Energy': {'PE': 10.0, 'PEG': 1.0, 'ROE': 0.15},
-        'Healthcare': {'PE': 22.0, 'PEG': 1.6, 'ROE': 0.12},
-        'Financial Services': {'PE': 12.0, 'PEG': 1.0, 'ROE': 0.10},
-        'Consumer Defensive': {'PE': 20.0, 'PEG': 1.8, 'ROE': 0.18},
-        'Utilities': {'PE': 16.0, 'PEG': 2.0, 'ROE': 0.09},
-        'Real Estate': {'PE': 30.0, 'PEG': 2.5, 'ROE': 0.08}, # Высокий PE из-за амортизации FFO
-        'Unknown': {'PE': 18.0, 'PEG': 1.5, 'ROE': 0.12}
-    }
-    
-    # 3. Синтез данных: подмена локальных данных глобальными, если в секторе дефицит тикеров
-    for sector in local_medians.index:
-        count = sector_counts.get(sector, 0)
-        
-        # Если в секторе меньше 3 акций, статистика недостоверна. Подставляем эталон.
-        if count < 3 and sector in global_baselines:
-            local_medians.at[sector, 'PE'] = global_baselines[sector]['PE']
-            local_medians.at[sector, 'PEG'] = global_baselines[sector]['PEG']
-            local_medians.at[sector, 'ROE'] = global_baselines[sector]['ROE']
-            
-    return local_medians
-
-def score_fundamental(asset_pe: float, asset_peg: float, asset_roe: float, 
-                      sector_pe: float, sector_peg: float, sector_roe: float) -> float:
-    """Оценка (макс. 40 баллов) относительно отраслевой нормы."""
-    score = 0.0
-    
-    # Оценка стоимости (P/E)
-    if pd.notna(asset_pe) and pd.notna(sector_pe) and sector_pe > 0:
-        if asset_pe < (sector_pe * 0.8):
-            score += 15.0
-        elif asset_pe < sector_pe:
-            score += 7.5
-
-    # Оценка темпов роста (PEG)
-    if pd.notna(asset_peg) and pd.notna(sector_peg) and sector_peg > 0:
-        if asset_peg < (sector_peg * 0.8):
-            score += 15.0
-        elif asset_peg < sector_peg:
-            score += 7.5
-
-    # Оценка рентабельности (ROE)
-    if pd.notna(asset_roe) and pd.notna(sector_roe):
-        if asset_roe > (sector_roe * 1.2):
-            score += 10.0
-        elif asset_roe > sector_roe:
-            score += 5.0
-            
-    return score
-
-def score_technical(rsi: float, price_vs_sma50: float) -> float:
-    """Оценка (макс. 30 баллов) на основе импульса и возврата к среднему."""
-    score = 0.0
-    
-    # Статистически обоснованный диапазон накопления
-    if 35 <= rsi <= 55:
-        score += 15.0
-        
-    # Дисконт к среднесрочному тренду (потенциал возврата)
-    if price_vs_sma50 < 0.95:  # Цена ниже SMA50 на 5%+
-        score += 15.0
-        
-    return score
-
-def geo_score_fallback(geo_risk: int) -> float:
-    """
-    Упрощенная оценка геополитического риска (макс. 30 баллов).
-    Используется как резервная функция (fallback) в calibrate.py, когда сентимент-анализ недоступен.
-    geo_risk: от 1 (безопасно) до 5 (опасно).
-    """
-    score = 0.0
-    
-    # Геополитический базис (макс 15)
-    if geo_risk <= 2:
-        score += 15.0
-    elif geo_risk == 3:
-        score += 7.5
-        
-    # Компенсация отсутствия FinBERT (макс 15)
-    # Предполагаем нейтральный фон (0.0), что в новой шкале FinBERT дает 7.5 баллов
-    # ((0.0 + 1.0) / 2.0) * 15.0 = 7.5
-    score += 7.5 
-    
-    return score
+from universe import GEO_BASE, GEO_KEYWORDS
 
 
-def score_geosentiment(geo_risk: int, finbert_signal: float) -> float:
-    """
-    Оценка (макс. 30 баллов). 
-    geo_risk: от 1 (безопасно) до 5 (опасно).
-    finbert_signal: от -1.0 до 1.0.
-    """
-    score = 0.0
-    
-    # Геополитический базис (макс 15)
-    if geo_risk <= 2:
-        score += 15.0
-    elif geo_risk == 3:
-        score += 7.5
-        
-    # Интеграция взвешенного сентимента (макс 15)
-    # Нормализация из [-1.0, 1.0] в [0, 15]
-    if pd.notna(finbert_signal):
-        sentiment_score = ((finbert_signal + 1.0) / 2.0) * 15.0
-        score += sentiment_score
-        
-    return score
+# ─── Investment Horizon Classification ───────────────────────────────────────
 
-def calculate_volatility_penalty(annual_volatility: float) -> float:
+def classify_horizon(div_yield, vol, roe, pe) -> str:
     """
-    Прогрессивный штраф за превышение базового риска.
-    Порог отсечения: 40% годовой волатильности (0.40).
-    Каждый 1% свыше порога снимает 1 балл.
-    """
-    if pd.isna(annual_volatility):
-        return 0.0
-        
-    threshold = 0.40
-    if annual_volatility > threshold:
-        penalty = (annual_volatility - threshold) * 100.0
-        return min(penalty, 100.0) # Ограничение штрафа до 100 баллов
-    return 0.0
+    Classify asset into one of three investment horizon buckets.
 
-def generate_signal(total_score: float, rsi: float, finbert_signal: float) -> str:
+    RETIREMENT (20yr+)        — low vol, dividend payer, sound fundamentals
+    BUSINESS COLLATERAL (10yr) — stable growth, low beta proxy, suitable as
+                                 collateral for Lombard / corporate loans
+    SPECULATIVE (short-term)  — high momentum / volatility, news-driven
     """
-    Синтез итогового торгового приказа.
-    Жесткие условия отмены превалируют над общим баллом.
+    div = float(div_yield) if div_yield else 0.0
+    v   = float(vol)       if vol       else 1.0
+    r   = float(roe)       if roe       else 0.0
+    p   = float(pe)        if pe        else 999.0
+
+    if div >= 0.02 and v < 0.25 and r > 0.10 and 0 < p < 30:
+        return "RETIREMENT (20yr+)"
+    if v < 0.35 and r > 0.05 and 0 < p < 40:
+        return "BUSINESS COLLATERAL (10yr)"
+    return "SPECULATIVE (short-term)"
+
+
+# ─── Geo Risk ─────────────────────────────────────────────────────────────────
+
+def geo_score(country: str, sector: str, symbol: str, headlines: list[dict]) -> int:
     """
-    # Экстренная блокировка по перегреву или критическому новостному фону
-    if rsi > 70 or finbert_signal < -0.5:
-        return "SELL"
-        
-    if total_score >= 65:
+    Heuristic geo-risk score in [1, 10]. Higher = riskier.
+    Components:
+      • Country base score (GEO_BASE table)
+      • News keyword bump (max +3)
+      • Sector override (+1 for Energy / Industrials)
+      • Symbol-level overrides (Samsung, Raiffeisen)
+    """
+    base = GEO_BASE.get(country, 4)
+
+    text = " ".join(
+        (h.get("title", "") + " " + h.get("summary", "")).lower()
+        for h in (headlines or [])
+    )
+    hits = sum(1 for kw in GEO_KEYWORDS if kw in text)
+    bump = min(hits * 0.5, 3.0)
+
+    if symbol in ("005930.KS",):           # Samsung — Korean peninsula risk
+        base = max(base, 7)
+    if symbol in ("RBI.VI",):              # Raiffeisen — Russia/Ukraine exposure
+        base = max(base, 8)
+    if sector in ("Energy", "Industrials"):
+        base = min(base + 1, 10)
+
+    return min(int(round(base + bump)), 10)
+
+
+# ─── Sector Medians ───────────────────────────────────────────────────────────
+
+def calculate_sector_medians(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-sector medians for PE, PEG, ROE.
+    Used by composite_score() for relative valuation bonus.
+    Returns a DataFrame indexed by Sector.
+    """
+    cols      = ["PE", "PEG", "ROE"]
+    available = [c for c in cols if c in df.columns]
+    if not available:
+        return pd.DataFrame()
+    return df.groupby("Sector")[available].median()
+
+
+# ─── Composite Score (0–100) ──────────────────────────────────────────────────
+
+def composite_score(
+    pe,
+    peg,
+    roe,
+    rsi_val,
+    price_vs_sma50,
+    geo_val,
+    vol,
+    finbert_score,
+    sector_medians: pd.Series | None = None,
+) -> tuple[int, dict]:
+    """
+    Three-bucket composite score.
+    Returns (total_score: int, breakdown: dict).
+    All inputs accept None gracefully.
+    """
+    bd: dict = {}
+
+    # ── Fundamental (max 40) ─────────────────────────────────────────────────
+    f = 0
+
+    pe_f  = float(pe)  if pe  is not None else None
+    peg_f = float(peg) if peg is not None else None
+    roe_f = float(roe) if roe is not None else None
+
+    if pe_f is not None and pe_f > 0:
+        f += 15 if pe_f < 20 else (10 if pe_f < 30 else 4)
+
+    if peg_f is not None and peg_f > 0:
+        f += 15 if peg_f < 1 else (8 if peg_f < 2 else 3)
+
+    if roe_f is not None:
+        f += 10 if roe_f > 0.20 else (6 if roe_f > 0.10 else (3 if roe_f > 0 else 0))
+
+    # Sector-relative bonus: asset PE ≤ 80% of sector median → value discount
+    if sector_medians is not None and pe_f is not None and pe_f > 0:
+        med_pe = sector_medians.get("PE") if hasattr(sector_medians, "get") else None
+        if med_pe and float(med_pe) > 0 and pe_f < float(med_pe) * 0.80:
+            f = min(f + 5, 40)
+
+    bd["Fundamental_Score"] = min(f, 40)
+
+    # ── Technical (max 30) ───────────────────────────────────────────────────
+    t = 0
+
+    if rsi_val is not None:
+        rv = float(rsi_val)
+        # 30–60: accumulation zone; 60–70: extended; >70: overbought
+        t += 15 if 30 <= rv <= 60 else (8 if rv <= 70 else 2)
+
+    if price_vs_sma50 is not None:
+        pv = float(price_vs_sma50)
+        # Price in 0.97–1.15× SMA50 = healthy uptrend
+        t += 15 if 0.97 <= pv <= 1.15 else (8 if pv < 0.97 else 3)
+
+    bd["Technical_Score"] = min(t, 30)
+
+    # ── GeoSentiment (max 30) ────────────────────────────────────────────────
+    g = 0
+
+    if geo_val is not None:
+        g += 15 if int(geo_val) <= 3 else (10 if int(geo_val) <= 6 else 3)
+
+    if finbert_score is not None and isinstance(finbert_score, (int, float)):
+        # Map [-100, +100] → [0, 15]
+        sent_pts = int((float(finbert_score) + 100) / 200 * 15)
+        g += max(0, min(sent_pts, 15))
+
+    # Volatility penalty: annualised vol > 60% → −3 pts from geo-sentiment bucket
+    vol_penalty = 0
+    if vol is not None and float(vol) > 0.60:
+        vol_penalty = 3
+        g = max(0, g - vol_penalty)
+
+    bd["GeoSentiment_Score"] = min(g, 30)
+    bd["Volatility_Penalty"] = vol_penalty
+
+    total = bd["Fundamental_Score"] + bd["Technical_Score"] + bd["GeoSentiment_Score"]
+    return min(total, 100), bd
+
+
+# ─── Trade Signal ─────────────────────────────────────────────────────────────
+
+def trade_signal(score: int, rsi_val, finbert_score, upside=None) -> str:
+    """
+    Derive BUY / HOLD / SELL.
+
+    Adjusted score rule: if FinBERT score < −50 (confirmed bearish news),
+    effective score is reduced by 15 pts to prevent buying into bad news.
+    """
+    rsi = float(rsi_val)      if rsi_val      is not None          else 50.0
+    fb  = float(finbert_score) if isinstance(finbert_score, (int, float)) else 0.0
+
+    adj = max(0, score - 15) if fb < -50 else score
+
+    if adj >= 65 and (upside is None or float(upside) > 5):
         return "BUY"
-    elif total_score < 40:
-        return "SELL"
-    else:
+    if adj >= 50:
         return "HOLD"
+    if rsi > 72 or (upside is not None and float(upside) < -10):
+        return "SELL"
+    return "HOLD"
 
-def execute_scoring_pipeline(asset_data: dict, sector_medians: pd.Series) -> dict:
-    """Главная функция расчета итогового рейтинга актива."""
-    
-    fund_score = score_fundamental(
-        asset_data.get('PE'), asset_data.get('PEG'), asset_data.get('ROE'),
-        sector_medians.get('PE'), sector_medians.get('PEG'), sector_medians.get('ROE')
+
+# ─── Pipeline Wrapper ─────────────────────────────────────────────────────────
+
+def execute_scoring_pipeline(row: dict, sector_medians: pd.Series | None) -> dict:
+    """
+    Run composite_score + trade_signal on a single asset data row.
+    Returns a dict of new columns to merge back into the main DataFrame.
+    """
+    total, bd = composite_score(
+        pe              = row.get("PE"),
+        peg             = row.get("PEG"),
+        roe             = row.get("ROE"),
+        rsi_val         = row.get("RSI"),
+        price_vs_sma50  = row.get("Price_vs_SMA50"),
+        geo_val         = row.get("Geo_Risk"),
+        vol             = row.get("Volatility"),
+        finbert_score   = row.get("FinBERT_Score"),
+        sector_medians  = sector_medians,
     )
-    
-    tech_score = score_technical(
-        asset_data.get('RSI', 50), asset_data.get('Price_vs_SMA50', 1.0)
+    signal = trade_signal(
+        total,
+        row.get("RSI"),
+        row.get("FinBERT_Score"),
+        row.get("Upside_pct"),
     )
-    
-    geo_score = score_geosentiment(
-        asset_data.get('GeoRisk', 3), asset_data.get('FinbertSignal', 0.0)
-    )
-    
-    raw_score = fund_score + tech_score + geo_score
-    
-    penalty = calculate_volatility_penalty(asset_data.get('Volatility', 0.0))
-    
-    final_score = max(0.0, raw_score - penalty)
-    
-    signal = generate_signal(final_score, asset_data.get('RSI', 50), asset_data.get('FinbertSignal', 0.0))
-    
     return {
-        'Fundamental_Score': fund_score,
-        'Technical_Score': tech_score,
-        'GeoSentiment_Score': geo_score,
-        'Volatility_Penalty': penalty,
-        'Total_Score': round(final_score, 1),
-        'Signal': signal
+        "Total_Score":        total,
+        "Fundamental_Score":  bd.get("Fundamental_Score", 0),
+        "Technical_Score":    bd.get("Technical_Score",   0),
+        "GeoSentiment_Score": bd.get("GeoSentiment_Score",0),
+        "Volatility_Penalty": bd.get("Volatility_Penalty",0),
+        "Signal":             signal,
     }

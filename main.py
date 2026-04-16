@@ -1,147 +1,195 @@
-import pandas as pd
-import yfinance as yf
-import numpy as np
+"""
+main.py — Three-phase pipeline:
+  1. SCAN    — yfinance data, EUR-normalised, all indicators
+  2. SCORE   — FinBERT sentiment + composite scoring + horizon classification
+  3. REPORT  — terminal table, Excel, CSV, portfolio audit
+"""
+from __future__ import annotations
+import logging
 import os
 
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
 import config
-from universe import get_market_universe
-from currency import apply_fx_conversion
-import sentiment
-from scoring import calculate_sector_medians, execute_scoring_pipeline, classify_horizon
-from backtest import run_historical_backtest
-import news
-import indicators
+from universe   import get_market_universe, symbol_to_sector
+from currency   import apply_fx_conversion
+from indicators import add_all_indicators
+import news        as news_module
+import sentiment   as sentiment_module
+from scoring    import (
+    calculate_sector_medians,
+    execute_scoring_pipeline,
+    classify_horizon,
+    geo_score,
+)
+from backtest   import run_historical_backtest
+import portfolio as portfolio_module
 import reporting
-import portfolio 
 
-def load_local_portfolio(filepath: str = "portfolio.csv") -> dict:
-    portfolio_dict = {}
-    if not os.path.exists(filepath): return portfolio_dict
-    try:
-        df = pd.read_csv(filepath).dropna(how='all')
-        for _, row in df.iterrows():
-            portfolio_dict[str(row['Symbol']).strip()] = {
-                "buy_price": float(row['Buy_Price']),
-                "amount": float(row['Amount_EUR'])
-            }
-    except: pass
-    return portfolio_dict
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s  %(message)s")
 
-MY_PORTFOLIO = load_local_portfolio()
 
-def generate_reasoning(row: pd.Series) -> str:
-    reasons = []
-    if row.get('Signal') == 'SELL':
-        if row.get('Total_Score', 0) < 40: reasons.append("СЛАБАЯ СТРУКТУРА")
-        if row.get('RSI', 50) > 70: reasons.append("ПЕРЕГРЕВ")
-    
-    risk_drivers = row.get('Risk_Drivers', "")
-    if risk_drivers: reasons.append(f"УГРОЗА: {risk_drivers}")
-    
-    if row.get('Fundamental_Score', 0) >= 15.0: reasons.append("Дисконт к сектору")
-    if row.get('Volatility_Penalty', 0) > 0: reasons.append(f"Риск-штраф: -{int(row['Volatility_Penalty'])}")
-    
-    return " | ".join(reasons) if reasons else "Стабильный фон"
+# ─── Reasoning String ─────────────────────────────────────────────────────────
 
-def print_terminal_report(df: pd.DataFrame):
-    print("\n" + "="*150)
-    print(" СЕКТОРНЫЙ СКАНЕР: ЛИДЕРЫ РЫНКА И ИНВЕСТИЦИОННЫЕ ГОРИЗОНТЫ")
-    print("="*150)
+def _reasoning(row: pd.Series) -> str:
+    parts: list[str] = []
+    signal  = row.get("Signal", "")
+    rsi     = row.get("RSI")
+    fb      = row.get("FinBERT_Score", 0.0) or 0.0
+    score   = row.get("Total_Score", 0)
+    drivers = str(row.get("Risk_Drivers", "") or "")
 
-    # 1. Глобальный Топ-3 рынка
-    print("\n[ АБСОЛЮТНЫЕ ЛИДЕРЫ РЫНКА (ГЛОБАЛЬНЫЙ ТОП-3) ]")
-    global_top = df.sort_values('Total_Score', ascending=False).head(3)
-    for _, row in global_top.iterrows():
-        print(f" {row['Symbol']:<8} | Score: {row['Total_Score']:<5} | Горизонт: {row['Horizon']:<20} | {row['Reasoning']}")
+    if signal == "SELL":
+        if score < 40: parts.append("Weak structure")
+        if rsi and float(rsi) > 70:
+            parts.append(f"Overbought RSI={float(rsi):.0f}")
+    if float(fb) < -30:
+        parts.append(f"Bearish news ({float(fb):+.0f})")
+    elif float(fb) > 30:
+        parts.append(f"Bullish news ({float(fb):+.0f})")
+    if row.get("Volatility_Penalty", 0):
+        parts.append("High-vol penalty")
+    if row.get("Fundamental_Score", 0) >= 30:
+        parts.append("Strong fundamentals")
+    if drivers:
+        parts.append(drivers[:60])
 
-    # 2. Посекторный анализ
-    print("\n[ ТОП-3 ПО СТРАТЕГИЧЕСКИМ СЕКТОРАМ ]")
-    # Группируем по сектору и берем 3 лучших
-    for sector, group in df.groupby('Sector'):
-        if sector == 'Unknown': continue
-        print(f"\n--- Сектор: {sector.upper()} ---")
-        sector_top = group.sort_values('Total_Score', ascending=False).head(3)
-        for _, row in sector_top.iterrows():
-            print(f"  {row['Symbol']:<8} | Score: {row['Total_Score']:<5} | {row['Horizon']:<22} | {row['Reasoning']}")
+    return " | ".join(parts) if parts else "Neutral backdrop"
 
-def main():
-    universe = get_market_universe()
-    print(f"Запуск сканирования {len(universe)} активов...")
-    
-    results = []
-    processed_count = 0
-    
-    for name, symbol in universe.items():
-        processed_count += 1
-        print(f"[{processed_count}/{len(universe)}] Анализ: {symbol:<8}", end="\r")
-        
+
+# ─── Phase 1: Scan ────────────────────────────────────────────────────────────
+
+def scan_universe() -> list[dict]:
+    universe  = get_market_universe()
+    total     = len(universe)
+    results: list[dict] = []
+
+    print(f"\n  Scanning {total} assets...\n")
+
+    for i, (name, symbol) in enumerate(universe.items(), 1):
+        print(f"  [{i:>3}/{total}]  {symbol:<14}  {name[:38]}", end="\r")
+
         try:
-            # Ограничиваем время ожидания ответа от Yahoo
-            t = yf.Ticker(symbol)
-            inf = t.info
-            
-            # Если info пустое (признак блокировки или таймаута)
-            if not inf or 'sector' not in inf:
+            t   = yf.Ticker(symbol)
+            inf = t.info or {}
+
+            # Skip if yfinance returned no meaningful price data
+            if not (inf.get("regularMarketPrice") or inf.get("currentPrice")):
                 continue
 
-            h = t.history(period="5y")
-            if h.empty: continue
-            
-            # Математический конвейер
-            h = apply_fx_conversion(h, inf.get("currency", "USD"), "EUR")
-            h = indicators.add_all_indicators(h)
-            curr = h.iloc[-1]
-            
-            n_items = news.get_recent_headlines(symbol)
-            sent = sentiment.analyze_news_context(n_items)
-            
-            vol = h['Close'].pct_change().std() * np.sqrt(252)
-            div = inf.get('dividendYield', 0.0)
-            roe = inf.get('returnOnEquity', np.nan)
-            pe = inf.get('trailingPE', np.nan)
-            
-            data = {
-                'Symbol': symbol, 'Name': name, 'Sector': inf.get('sector', 'Unknown'),
-                'PE': pe, 'PEG': inf.get('pegRatio', np.nan),
-                'ROE': roe, 'Dividend_Yield': div, 'RSI': curr['RSI'],
-                'Volatility': vol, 'FinbertSignal': sent['score'],
-                'Risk_Drivers': " // ".join(sent['drivers']),
-                'Horizon': classify_horizon(div, vol, roe, pe),
-                'Close': curr['Close'], 'ATR': curr['ATR'],
-                'Price_vs_SMA50': curr['Close'] / curr['SMA50'] if curr['SMA50'] else 1.0
+            hist = t.history(period=config.HIST_PERIOD, auto_adjust=True)
+            if hist.empty or len(hist) < 60:
+                continue
+
+            # ── Currency normalisation → EUR ─────────────────────────────────
+            src_ccy = inf.get("currency", "USD")
+            hist    = apply_fx_conversion(hist, src_ccy, "EUR")
+            hist    = add_all_indicators(hist)
+            curr    = hist.iloc[-1]
+
+            # ── News + FinBERT ────────────────────────────────────────────────
+            headlines = news_module.get_recent_headlines(symbol, name)
+            sent      = sentiment_module.analyze_news_context(headlines)
+
+            # ── Derived metrics ───────────────────────────────────────────────
+            vol        = float(hist["Close"].pct_change().dropna().std() * np.sqrt(252))
+            div        = float(inf.get("dividendYield") or 0.0)
+            roe        = inf.get("returnOnEquity")
+            pe         = inf.get("trailingPE")
+            peg        = inf.get("pegRatio")
+            country    = inf.get("country", "Unknown")
+            sector     = symbol_to_sector(symbol) or inf.get("sector", "Unknown")
+
+            close_eur  = float(curr["Close"])
+            sma50      = float(curr["SMA50"]) if pd.notna(curr.get("SMA50")) else None
+            rsi_val    = float(curr["RSI"])   if pd.notna(curr.get("RSI"))   else None
+            atr_val    = float(curr["ATR"])   if pd.notna(curr.get("ATR"))   else None
+
+            # Analyst consensus upside
+            target = inf.get("targetMeanPrice")
+            upside: float | None = None
+            if target and close_eur > 0:
+                upside = (float(target) - close_eur) / close_eur * 100
+
+            geo = geo_score(country, sector, symbol, headlines)
+
+            row: dict = {
+                "Symbol":          symbol,
+                "Name":            name,
+                "Sector":          sector,
+                "Country":         country,
+                "Close_EUR":       round(close_eur, 4),
+                "PE":              pe,
+                "PEG":             peg,
+                "ROE":             roe,
+                "Dividend_Yield":  round(div, 4),
+                "RSI":             rsi_val,
+                "ATR":             atr_val,
+                "SMA50_EUR":       sma50,
+                "Price_vs_SMA50":  (close_eur / sma50) if sma50 else None,
+                "Volatility":      round(vol, 4),
+                "Geo_Risk":        geo,
+                "FinBERT_Score":   sent["score"],
+                "Risk_Drivers":    " // ".join(sent["drivers"]),
+                "Headline_Count":  sent["headline_count"],
+                "Upside_pct":      round(upside, 2) if upside is not None else None,
+                "Horizon":         classify_horizon(div, vol, roe, pe),
             }
-            data.update(run_historical_backtest(h))
-            results.append(data)
-            
-        except Exception as e:
-            # Логируем ошибку, но идем дальше
+            row.update(run_historical_backtest(hist))
+            results.append(row)
+
+        except Exception as exc:
+            logging.debug("[%s] Skipped: %s", symbol, exc)
             continue
 
-    print("\nСканирование завершено. Формирование отчета...")
-    
-    if not results:
-        print("!!! КРИТИЧЕСКАЯ ОШИБКА: Ни один актив не был обработан. Проверьте VPN/интернет.")
-        return
+    print(f"\n\n  Scan complete: {len(results)}/{total} assets processed.\n")
+    return results
 
-    df = pd.DataFrame(results)
-    
-    # Расчет медиан и скоринг
-    s_meds = calculate_sector_medians(df)
+
+# ─── Phase 2: Score ───────────────────────────────────────────────────────────
+
+def score_results(results: list[dict]) -> pd.DataFrame:
+    df      = pd.DataFrame(results)
+    s_meds  = calculate_sector_medians(df)
+
     for idx, row in df.iterrows():
-        # Передаем пустую серию, если сектор неизвестен
-        med_val = s_meds.loc[row['Sector']] if row['Sector'] in s_meds.index else pd.Series(dtype=float)
-        res = execute_scoring_pipeline(row.to_dict(), med_val)
-        for k, v in res.items(): 
+        sector  = row["Sector"]
+        med     = s_meds.loc[sector] if sector in s_meds.index else None
+        scored  = execute_scoring_pipeline(row.to_dict(), med)
+        for k, v in scored.items():
             df.at[idx, k] = v
 
-    df['Reasoning'] = df.apply(generate_reasoning, axis=1)
-    df = df.sort_values(['Sector', 'Total_Score'], ascending=[True, False])
-    
-    print_terminal_report(df)
-    
-    # Создаем папку если нет
+    df["Reasoning"] = df.apply(_reasoning, axis=1)
+    return df.sort_values(["Sector", "Total_Score"], ascending=[True, False])
+
+
+# ─── Phase 3: Report ──────────────────────────────────────────────────────────
+
+def report(df: pd.DataFrame) -> None:
+    portfolio_df = portfolio_module.load_portfolio("portfolio.csv")
+    audit_df     = portfolio_module.audit(portfolio_df, df)
+
+    reporting.print_terminal_report(df, audit_df if not audit_df.empty else None)
+
     os.makedirs("outputs", exist_ok=True)
-    df.to_csv("outputs/market_scan.csv", index=False)
+    reporting.export_csv(df, audit_df if not audit_df.empty else None)
+    reporting.export_excel(df, audit_df if not audit_df.empty else None)
+
+
+# ─── Entry Point ─────────────────────────────────────────────────────────────
+
+def main() -> None:
+    results = scan_universe()
+
+    if not results:
+        print("CRITICAL: No assets processed. Check network / VPN.")
+        return
+
+    df = score_results(results)
+    report(df)
+
 
 if __name__ == "__main__":
     main()

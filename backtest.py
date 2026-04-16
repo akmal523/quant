@@ -1,72 +1,66 @@
+"""
+backtest.py — 12-month lookback backtest. No lookahead bias.
+
+Entry rule  : RSI(14) in [30, 65] AND Close ≥ EMA50 × 0.97 (12 months ago)
+Stop-loss   : entry_price − ATR(14) × 2.5
+Exit price  : today's Close
+P&L         : (exit − entry) / entry × 100
+
+No transaction costs, slippage, or taxes. Results are hypothetical.
+"""
+from __future__ import annotations
 import pandas as pd
-import numpy as np
+from indicators import rsi as calc_rsi, atr
 
-def run_historical_backtest(df: pd.DataFrame) -> dict:
+_EMPTY = {"Backtest_PnL_pct": None, "Backtest_StopHit": False, "Backtest_Signal": "N/A"}
+
+
+def run_historical_backtest(hist: pd.DataFrame) -> dict:
     """
-    Симуляция торговли по историческому ряду с динамическим управлением риском.
-    Требует DataFrame с колонками: Open, High, Low, Close, RSI, SMA50, ATR.
+    Apply the entry rule on data from ~252 trading days ago.
+    Returns a result dict safe to merge into the main DataFrame.
     """
-    if df is None or len(df) < 50:
-        return {"Trades": 0, "Win_Rate": 0.0, "Total_Return": 0.0, "Max_Drawdown": 0.0}
+    if hist is None or len(hist) < 280:
+        return _EMPTY
 
-    in_position = False
-    entry_price = 0.0
-    trailing_stop = 0.0
-    trades = []
+    try:
+        # Slice history up to the signal date (252 bars ago)
+        entry_idx  = max(0, len(hist) - 252)
+        hist_past  = hist.iloc[: entry_idx + 1]
 
-    # Итерация по вектору цен, начиная с бара, где сформированы индикаторы
-    for i in range(50, len(df)):
-        current_row = df.iloc[i]
-        
-        # Симуляция открытой позиции
-        if in_position:
-            # 1. Проверка срабатывания стоп-лосса (Low пробивает уровень защиты)
-            if current_row['Low'] <= trailing_stop:
-                exit_price = trailing_stop # Исполнение по уровню стопа (с учетом проскальзывания)
-                pnl = (exit_price - entry_price) / entry_price
-                trades.append(pnl)
-                in_position = False
-            else:
-                # 2. Обновление трейлинг-стопа, если цена растет
-                new_stop = current_row['Close'] - (2.5 * current_row['ATR'])
-                if new_stop > trailing_stop:
-                    trailing_stop = new_stop
-                    
-        # Поиск точки входа
-        else:
-            # Условия: RSI в зоне накопления и цена с дисконтом к среднесрочному тренду
-            if 35 <= current_row['RSI'] <= 55 and current_row['Close'] < (current_row['SMA50'] * 0.97):
-                in_position = True
-                entry_price = current_row['Close']
-                # Инициализация первичного стоп-лосса
-                trailing_stop = entry_price - (2.5 * current_row['ATR'])
+        if len(hist_past) < 20:
+            return _EMPTY
 
-    # Фиксация открытой позиции по последней доступной цене (Mark-to-Market)
-    if in_position:
-        final_price = df.iloc[-1]['Close']
-        pnl = (final_price - entry_price) / entry_price
-        trades.append(pnl)
+        rsi_val     = calc_rsi(hist_past["Close"], 14)
+        ema50       = hist_past["Close"].ewm(span=50, adjust=False).mean().iloc[-1]
+        entry_price = float(hist_past["Close"].iloc[-1])
 
-    # Агрегация статистики
-    if not trades:
-        return {"Trades": 0, "Win_Rate": 0.0, "Total_Return": 0.0, "Max_Drawdown": 0.0}
+        # Entry condition
+        if not (
+            rsi_val is not None
+            and 30 <= rsi_val <= 65
+            and entry_price >= float(ema50) * 0.97
+        ):
+            return {**_EMPTY, "Backtest_Signal": "NO_ENTRY"}
 
-    trades_array = np.array(trades)
-    winning_trades = trades_array[trades_array > 0]
-    
-    win_rate = len(winning_trades) / len(trades_array) * 100
-    
-    # Расчет кривой капитала (Equity Curve) для поиска максимальной просадки
-    cumulative_returns = np.cumprod(1 + trades_array)
-    peak = np.maximum.accumulate(cumulative_returns)
-    drawdown = (cumulative_returns - peak) / peak
-    max_drawdown = abs(drawdown.min()) * 100
+        # Stop-loss level
+        atr_val    = atr(hist_past["High"], hist_past["Low"], hist_past["Close"], 14)
+        stop_price = (entry_price - atr_val * 2.5) if atr_val else None
 
-    total_return = (cumulative_returns[-1] - 1) * 100
+        # Check stop-hit over holding period
+        holding  = hist.iloc[entry_idx:]
+        stop_hit = False
+        if stop_price is not None and not holding.empty:
+            stop_hit = bool((holding["Low"] < stop_price).any())
 
-    return {
-        "Trades": len(trades_array),
-        "Win_Rate": round(win_rate, 2),
-        "Total_Return": round(total_return, 2),
-        "Max_Drawdown": round(max_drawdown, 2)
-    }
+        exit_price = float(hist["Close"].iloc[-1])
+        pnl        = (exit_price - entry_price) / entry_price * 100 if entry_price else 0.0
+
+        return {
+            "Backtest_PnL_pct":  round(pnl, 2),
+            "Backtest_StopHit":  stop_hit,
+            "Backtest_Signal":   "BUY",
+        }
+
+    except Exception:
+        return _EMPTY

@@ -1,48 +1,112 @@
-import yfinance as yf
+"""
+currency.py — FX helpers: rate fetching, OHLCV normalisation to EUR.
+"""
+from __future__ import annotations
+import numpy as np
 import pandas as pd
+import yfinance as yf
 
-def get_fx_ticker(asset_currency: str, base_currency: str) -> str:
-    """Определяет корректный тикер для Yahoo Finance."""
-    if asset_currency == "GBp":
-        return f"GBP{base_currency}=X"
-    return f"{asset_currency}{base_currency}=X"
+from config   import CONVERT_TO_EUR
+from universe import CURRENCY_SYMBOLS
 
-def apply_fx_conversion(asset_df: pd.DataFrame, asset_currency: str, base_currency: str = "EUR") -> pd.DataFrame:
+# Module-level EUR/USD rate cache (fetched once per process).
+_eur_rate_cache: float | None = None
+
+
+def get_eur_rate() -> float:
     """
-    Приводит исторические цены актива к базовой валюте с учетом исторического кросс-курса.
+    Fetch live EUR/USD rate. Cached for lifetime of the process.
+    Falls back to 1.08 on failure.
     """
-    if asset_currency == base_currency:
-        return asset_df
+    global _eur_rate_cache
+    if _eur_rate_cache is not None:
+        return _eur_rate_cache
+    try:
+        df = yf.download("EURUSD=X", period="5d", auto_adjust=True, progress=False)
+        if not df.empty:
+            rate = float(df["Close"].iloc[-1])
+            _eur_rate_cache = rate
+            print(f"  [FX] EUR/USD = {rate:.4f}")
+            return rate
+    except Exception:
+        pass
+    _eur_rate_cache = 1.08
+    print(f"  [FX] EUR/USD fallback = {_eur_rate_cache}")
+    return _eur_rate_cache
 
-    fx_ticker = get_fx_ticker(asset_currency, base_currency)
-    
-    # Приведение индекса актива к единому абсолютному времени (отсечение часовых поясов)
-    if asset_df.index.tz is not None:
-        asset_df.index = asset_df.index.tz_localize(None)
-    
-    start_date = asset_df.index.min()
-    end_date = asset_df.index.max() + pd.Timedelta(days=1)
-    
-    fx_data = yf.download(fx_ticker, start=start_date, end=end_date, progress=False)
-    
-    if fx_data.empty:
-        raise ValueError(f"Отсутствуют исторические данные для кросс-курса {fx_ticker}")
 
-    # Приведение индекса валюты к единому абсолютному времени
-    if fx_data.index.tz is not None:
-        fx_data.index = fx_data.index.tz_localize(None)
+def currency_symbol(code: str) -> str:
+    return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "") + " ")
 
-    fx_close = fx_data['Close'].squeeze()
 
-    aligned_df = asset_df.join(fx_close.rename('FX_Rate'), how='left')
-    aligned_df['FX_Rate'] = aligned_df['FX_Rate'].ffill().bfill()
+def apply_fx_conversion(
+    hist: pd.DataFrame,
+    from_currency: str,
+    to_currency: str = "EUR",
+) -> pd.DataFrame:
+    """
+    Normalise OHLCV Close/High/Low/Open columns to target currency.
 
-    multiplier = 0.01 if asset_currency == "GBp" else 1.0
+    Conversion chain:
+      GBX → GBP  (divide by 100, pence normalisation)
+      USD → EUR  (via EURUSD=X rate — 1/rate)
+      GBP → EUR  (via GBPEUR=X direct rate)
+      other → EUR  (via <CCY>EUR=X, fallback to USD intermediary)
+      EUR → EUR  (pass-through)
+    """
+    src = (from_currency or "").upper().strip()
+    tgt = (to_currency  or "EUR").upper().strip()
 
-    for col in ['Open', 'High', 'Low', 'Close']:
-        if col in aligned_df.columns:
-            aligned_df[col] = aligned_df[col] * aligned_df['FX_Rate'] * multiplier
+    price_cols = [c for c in ("Open", "High", "Low", "Close") if c in hist.columns]
+    h = hist.copy()
 
-    aligned_df.drop(columns=['FX_Rate'], inplace=True)
+    # ── GBX (pence) → GBP ────────────────────────────────────────────────────
+    if src == "GBX":
+        for c in price_cols:
+            h[c] = h[c] / 100.0
+        src = "GBP"
 
-    return aligned_df
+    if src == tgt:
+        return h
+
+    # ── Fetch FX multiplier ───────────────────────────────────────────────────
+    multiplier: float | None = None
+
+    if tgt == "EUR":
+        if src == "USD":
+            # EURUSD=X = USD per 1 EUR → invert for USD→EUR
+            multiplier = 1.0 / get_eur_rate()
+        else:
+            ticker = f"{src}EUR=X"
+            try:
+                fx_df = yf.download(ticker, period="5d", auto_adjust=True, progress=False)
+                if not fx_df.empty:
+                    multiplier = float(fx_df["Close"].iloc[-1])
+            except Exception:
+                pass
+            if multiplier is None:
+                # Fallback: convert through USD
+                try:
+                    usd_ticker = f"{src}USD=X"
+                    fx_usd = yf.download(usd_ticker, period="5d", auto_adjust=True, progress=False)
+                    if not fx_usd.empty:
+                        usd_rate = float(fx_usd["Close"].iloc[-1])
+                        multiplier = usd_rate / get_eur_rate()
+                except Exception:
+                    multiplier = 1.0 / get_eur_rate()  # last-resort: treat as USD
+
+    if multiplier is None:
+        return h  # cannot determine rate; return as-is
+
+    for c in price_cols:
+        h[c] = h[c] * multiplier
+
+    return h
+
+
+def format_price(value, currency_code: str) -> str:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return "—"
+    v   = float(value)
+    sym = currency_symbol(currency_code)
+    return f"{sym}{v:,.4f}"
