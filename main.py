@@ -69,14 +69,25 @@ def main():
     print(f"Запуск сканирования {len(universe)} активов...")
     
     results = []
+    processed_count = 0
+    
     for name, symbol in universe.items():
-        print(f"Анализ: {symbol:<8}", end="\r")
+        processed_count += 1
+        print(f"[{processed_count}/{len(universe)}] Анализ: {symbol:<8}", end="\r")
+        
         try:
+            # Ограничиваем время ожидания ответа от Yahoo
             t = yf.Ticker(symbol)
             inf = t.info
+            
+            # Если info пустое (признак блокировки или таймаута)
+            if not inf or 'sector' not in inf:
+                continue
+
             h = t.history(period="5y")
             if h.empty: continue
             
+            # Математический конвейер
             h = apply_fx_conversion(h, inf.get("currency", "USD"), "EUR")
             h = indicators.add_all_indicators(h)
             curr = h.iloc[-1]
@@ -87,33 +98,49 @@ def main():
             vol = h['Close'].pct_change().std() * np.sqrt(252)
             div = inf.get('dividendYield', 0.0)
             roe = inf.get('returnOnEquity', np.nan)
+            pe = inf.get('trailingPE', np.nan)
             
             data = {
                 'Symbol': symbol, 'Name': name, 'Sector': inf.get('sector', 'Unknown'),
-                'PE': inf.get('trailingPE', np.nan), 'PEG': inf.get('pegRatio', np.nan),
+                'PE': pe, 'PEG': inf.get('pegRatio', np.nan),
                 'ROE': roe, 'Dividend_Yield': div, 'RSI': curr['RSI'],
                 'Volatility': vol, 'FinbertSignal': sent['score'],
                 'Risk_Drivers': " // ".join(sent['drivers']),
-                'Horizon': classify_horizon(div, vol, roe),
+                'Horizon': classify_horizon(div, vol, roe, pe),
                 'Close': curr['Close'], 'ATR': curr['ATR'],
                 'Price_vs_SMA50': curr['Close'] / curr['SMA50'] if curr['SMA50'] else 1.0
             }
             data.update(run_historical_backtest(h))
             results.append(data)
-        except: continue
+            
+        except Exception as e:
+            # Логируем ошибку, но идем дальше
+            continue
+
+    print("\nСканирование завершено. Формирование отчета...")
+    
+    if not results:
+        print("!!! КРИТИЧЕСКАЯ ОШИБКА: Ни один актив не был обработан. Проверьте VPN/интернет.")
+        return
 
     df = pd.DataFrame(results)
-    if df.empty: return
-
+    
+    # Расчет медиан и скоринг
     s_meds = calculate_sector_medians(df)
     for idx, row in df.iterrows():
-        res = execute_scoring_pipeline(row.to_dict(), s_meds.loc[row['Sector']] if row['Sector'] in s_meds.index else pd.Series())
-        for k, v in res.items(): df.at[idx, k] = v
+        # Передаем пустую серию, если сектор неизвестен
+        med_val = s_meds.loc[row['Sector']] if row['Sector'] in s_meds.index else pd.Series(dtype=float)
+        res = execute_scoring_pipeline(row.to_dict(), med_val)
+        for k, v in res.items(): 
+            df.at[idx, k] = v
 
     df['Reasoning'] = df.apply(generate_reasoning, axis=1)
     df = df.sort_values(['Sector', 'Total_Score'], ascending=[True, False])
     
     print_terminal_report(df)
+    
+    # Создаем папку если нет
+    os.makedirs("outputs", exist_ok=True)
     df.to_csv("outputs/market_scan.csv", index=False)
 
 if __name__ == "__main__":

@@ -1,47 +1,34 @@
 import pandas as pd
 
 def get_market_universe() -> dict:
-    """
-    Расширенная секторная матрица. 
-    Тикеры адаптированы под требования Yahoo Finance API.
-    """
     return {
-        # --- URANIUM (Уран: Энергия будущего) ---
+        # --- URANIUM (Уран) ---
         "Cameco": "CCJ",
         "NexGen Energy": "NXE",
-        "Uranium Energy Corp": "UEC",
-        "Global X Uranium ETF": "URA",
-        "Sprott Physical Uranium": "U-U.TO", # Исправлено: Канадский формат
-
-        # --- GOLD (Золото: Защитный актив) ---
+        "Uranium Energy": "UEC",
+        "Sprott Uranium": "SRUUF", # Замена на OTC-тикер (более стабильный для API)
+        
+        # --- GOLD ---
         "Barrick Gold": "GOLD",
         "Newmont": "NEM",
         "Franco-Nevada": "FNV",
-        "VanEck Gold Miners": "GDX",
 
-        # --- QUANTUM & AI (Квантовый скачок) ---
-        "IonQ": "IONQ",
-        "Rigetti Computing": "RGTI",
-        "D-Wave Quantum": "QBTS",
+        # --- TECHNOLOGY & QUANTUM ---
         "NVIDIA": "NVDA",
+        "IonQ": "IONQ",
         "Alphabet": "GOOGL",
-
-        # --- CYBERSECURITY (Защита данных) ---
         "Palo Alto": "PANW",
         "CrowdStrike": "CRWD",
-        "Fortinet": "FTNT",
-        "Zscaler": "ZS",
 
-        # --- DEFENSE (Оборонный сектор) ---
+        # --- DEFENSE ---
         "Rheinmetall": "RHM.DE",
         "Lockheed Martin": "LMT",
         "BAE Systems": "BA.L",
-        "General Dynamics": "GD",
 
-        # --- LOGISTICS & STABILITY (Инфраструктура) ---
+        # --- INDUSTRY & LOGISTICS ---
         "Maersk": "MAERSK-A.CO",
         "DHL Group": "DHL.DE",
         "Ecolab": "ECL",
-        "Heidelberg Materials": "HEI.DE",
+        "Heidelberg": "HEI.DE",
         "Equinor": "EQNR"
     }
