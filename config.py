@@ -7,12 +7,13 @@ import os
 # ─────────────────────────────────────────────────────────────────────────────
 # API / SMTP  (set in .env or export before running)
 # ─────────────────────────────────────────────────────────────────────────────
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
+#GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
 SMTP_HOST       = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT       = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER       = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD   = os.getenv("SMTP_PASSWORD", "")
 REPORT_TO       = os.getenv("REPORT_TO", "")
+SENTIMENT_MODEL = "ProsusAI/finbert"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RUNTIME SETTINGS
