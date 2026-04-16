@@ -1,12 +1,69 @@
 import pandas as pd
 import numpy as np
 
+def classify_horizon(dividend_yield: float, volatility: float, roe: float, pe: float) -> str:
+    """
+    Классификация активов по целям.
+    """
+    div = dividend_yield if dividend_yield else 0.0
+    
+    # 1. СТАБИЛЬНОСТЬ (Для пенсии/залога): Низкий риск + доход
+    if div > 0.035 and volatility < 0.22:
+        return "PENSION (Залог/Доход)"
+    
+    # 2. РОСТ (Для открытия бизнеса/капитала): Высокий КПД капитала
+    if roe > 0.18 and pe < 30:
+        return "GROWTH (Разгон капитала)"
+        
+    # 3. СПЕКУЛЯЦИЯ: Высокий риск или переоцененность
+    if pe > 40:
+        return "HIGH-VALUE (Риск переплаты)"
+        
+    return "BALANCED"
+
+def calculate_payback_penalty(pe: float, peg: float) -> float:
+    """
+    Штраф за экстремальную окупаемость.
+    Если P/E > 35 и рост не оправдывает цену (PEG > 2.0).
+    """
+    if pe > 35 and peg > 2.0:
+        return 20.0 # Тяжелый штраф
+    return 0.0
+
 def calculate_sector_medians(metrics_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Агрегирует медианные значения метрик по секторам для относительного сравнения.
-    Ожидает DataFrame с колонками: 'Sector', 'PE', 'PEG', 'ROE'.
+    Агрегирует медианные значения метрик по секторам.
+    Если выборка слишком мала (менее 3 компаний), использует глобальные исторические медианы (S&P 500 / STOXX 600) для предотвращения нулевых баллов.
     """
-    return metrics_df.groupby('Sector')[['PE', 'PEG', 'ROE']].median()
+    # 1. Сбор медиан на основе текущего сканирования
+    local_medians = metrics_df.groupby('Sector')[['PE', 'PEG', 'ROE']].median()
+    sector_counts = metrics_df['Sector'].value_counts()
+    
+    # 2. Глобальная матрица справедливых значений для подмены (Fallback)
+    global_baselines = {
+        'Technology': {'PE': 25.0, 'PEG': 1.5, 'ROE': 0.15},
+        'Basic Materials': {'PE': 15.0, 'PEG': 1.2, 'ROE': 0.12},
+        'Industrials': {'PE': 18.0, 'PEG': 1.3, 'ROE': 0.14},
+        'Energy': {'PE': 10.0, 'PEG': 1.0, 'ROE': 0.15},
+        'Healthcare': {'PE': 22.0, 'PEG': 1.6, 'ROE': 0.12},
+        'Financial Services': {'PE': 12.0, 'PEG': 1.0, 'ROE': 0.10},
+        'Consumer Defensive': {'PE': 20.0, 'PEG': 1.8, 'ROE': 0.18},
+        'Utilities': {'PE': 16.0, 'PEG': 2.0, 'ROE': 0.09},
+        'Real Estate': {'PE': 30.0, 'PEG': 2.5, 'ROE': 0.08}, # Высокий PE из-за амортизации FFO
+        'Unknown': {'PE': 18.0, 'PEG': 1.5, 'ROE': 0.12}
+    }
+    
+    # 3. Синтез данных: подмена локальных данных глобальными, если в секторе дефицит тикеров
+    for sector in local_medians.index:
+        count = sector_counts.get(sector, 0)
+        
+        # Если в секторе меньше 3 акций, статистика недостоверна. Подставляем эталон.
+        if count < 3 and sector in global_baselines:
+            local_medians.at[sector, 'PE'] = global_baselines[sector]['PE']
+            local_medians.at[sector, 'PEG'] = global_baselines[sector]['PEG']
+            local_medians.at[sector, 'ROE'] = global_baselines[sector]['ROE']
+            
+    return local_medians
 
 def score_fundamental(asset_pe: float, asset_peg: float, asset_roe: float, 
                       sector_pe: float, sector_peg: float, sector_roe: float) -> float:
@@ -49,6 +106,28 @@ def score_technical(rsi: float, price_vs_sma50: float) -> float:
         score += 15.0
         
     return score
+
+def geo_score_fallback(geo_risk: int) -> float:
+    """
+    Упрощенная оценка геополитического риска (макс. 30 баллов).
+    Используется как резервная функция (fallback) в calibrate.py, когда сентимент-анализ недоступен.
+    geo_risk: от 1 (безопасно) до 5 (опасно).
+    """
+    score = 0.0
+    
+    # Геополитический базис (макс 15)
+    if geo_risk <= 2:
+        score += 15.0
+    elif geo_risk == 3:
+        score += 7.5
+        
+    # Компенсация отсутствия FinBERT (макс 15)
+    # Предполагаем нейтральный фон (0.0), что в новой шкале FinBERT дает 7.5 баллов
+    # ((0.0 + 1.0) / 2.0) * 15.0 = 7.5
+    score += 7.5 
+    
+    return score
+
 
 def score_geosentiment(geo_risk: int, finbert_signal: float) -> float:
     """

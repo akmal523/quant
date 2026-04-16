@@ -19,6 +19,22 @@ from config import (
 )
 from utils import fv, fmt_sentiment, sentiment_color, signal_color
 
+def generate_excel(df: pd.DataFrame, filepath: str) -> None:
+    """Безопасный экспорт датафрейма в Excel."""
+    if df.empty:
+        print("Датафрейм пуст, экспорт отменен.")
+        return
+        
+    # Создание директории, если она не существует
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    
+    try:
+        # Требуется установленная библиотека openpyxl (pip install openpyxl)
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Quant_Analysis')
+    except Exception as e:
+        print(f"Системная ошибка при записи Excel: {e}")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTML EMAIL

@@ -16,27 +16,29 @@ def apply_fx_conversion(asset_df: pd.DataFrame, asset_currency: str, base_curren
 
     fx_ticker = get_fx_ticker(asset_currency, base_currency)
     
+    # Приведение индекса актива к единому абсолютному времени (отсечение часовых поясов)
+    if asset_df.index.tz is not None:
+        asset_df.index = asset_df.index.tz_localize(None)
+    
     start_date = asset_df.index.min()
     end_date = asset_df.index.max() + pd.Timedelta(days=1)
     
-    # Загрузка вектора курса валют, синхронизированного по времени с активом
     fx_data = yf.download(fx_ticker, start=start_date, end=end_date, progress=False)
     
     if fx_data.empty:
         raise ValueError(f"Отсутствуют исторические данные для кросс-курса {fx_ticker}")
 
-    # Изоляция цены закрытия кросс-курса (одномерный вектор)
+    # Приведение индекса валюты к единому абсолютному времени
+    if fx_data.index.tz is not None:
+        fx_data.index = fx_data.index.tz_localize(None)
+
     fx_close = fx_data['Close'].squeeze()
 
-    # Выравнивание индексов по датам и заполнение пустот (forward fill)
-    # Предотвращает NaN в дни несовпадения расписания торгов фондовых и валютных рынков
     aligned_df = asset_df.join(fx_close.rename('FX_Rate'), how='left')
     aligned_df['FX_Rate'] = aligned_df['FX_Rate'].ffill().bfill()
 
-    # Масштабирование британских пенсов
     multiplier = 0.01 if asset_currency == "GBp" else 1.0
 
-    # Точечное перемножение ценовых метрик на вектор исторического курса
     for col in ['Open', 'High', 'Low', 'Close']:
         if col in aligned_df.columns:
             aligned_df[col] = aligned_df[col] * aligned_df['FX_Rate'] * multiplier

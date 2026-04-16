@@ -1,63 +1,47 @@
-"""
-news.py — news headline retrieval.
-Primary source: yfinance ticker.news.
-Fallback:       Google News RSS via feedparser.
-"""
-import re
-import yfinance as yf
+import urllib.request
+import xml.etree.ElementTree as ET
+import difflib
+from datetime import datetime
 
-
-def fetch_rss_news(ticker: str, company_name: str = "",
-                   max_items: int = 10) -> list:
-    """
-    Fetch headlines from Google News RSS for *ticker*.
-    Falls back to a company-name query if the ticker search returns nothing.
-    Returns a list of dicts with keys: title, summary.
-    """
+def get_recent_headlines(symbol: str) -> list[dict]:
+    """Извлечение структуры: дата публикации и суть события."""
+    # Используем полный символ (например, HEI.DE) для точности
+    url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US"
+    
     try:
-        import feedparser
-    except ImportError:
-        print("    [RSS] feedparser not installed — run: pip install feedparser")
-        return []
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            xml_data = response.read()
+            
+        root = ET.fromstring(xml_data)
+        unique_items = []
+        seen_titles = []
+        
+        for item in root.findall('.//item'):
+            title_node = item.find('title')
+            date_node = item.find('pubDate')
+            
+            if title_node is None: continue
+            title = title_node.text
+            
+            pub_date = ""
+            if date_node is not None:
+                try:
+                    dt = datetime.strptime(date_node.text, "%a, %d %b %Y %H:%M:%S %z")
+                    pub_date = dt.strftime("%d %b")
+                except Exception:
+                    pub_date = "Дата скрыта"
 
-    def _query_feed(query: str) -> list:
-        url = (
-            f"https://news.google.com/rss/search"
-            f"?q={query}&hl=en-US&gl=US&ceid=US:en"
-        )
-        try:
-            feed    = feedparser.parse(url)
-            results = []
-            for entry in feed.entries[:max_items]:
-                title   = entry.get("title", "").strip()
-                summary = entry.get("summary", "").strip()
-                summary = re.sub(r"<[^>]+>", "", summary)[:200]
-                if title and len(title) > 5:
-                    results.append({"title": title, "summary": summary})
-            return results
-        except Exception as e:
-            print(f"    [RSS] Feed error for '{query}': {e}")
-            return []
-
-    results = _query_feed(f"{ticker}+stock+news")
-    if not results and company_name:
-        results = _query_feed(f"{company_name.replace(' ', '+')}+stock")
-    return results
-
-
-def fetch_news_for_ticker(name: str, sym: str) -> list:
-    """
-    Fetch news for a single ticker.
-    Tries yfinance first; falls back to Google News RSS.
-    Returns a list of dicts with keys: title, summary.
-    """
-    news: list = []
-    try:
-        tk      = yf.Ticker(sym)
-        yf_news = tk.news or []
-        news    = [n for n in yf_news if n.get("title")]
+            is_duplicate = False
+            for u in seen_titles:
+                if difflib.SequenceMatcher(None, title.lower(), u.lower()).ratio() > 0.8:
+                    is_duplicate = True
+                    break
+                    
+            if not is_duplicate:
+                seen_titles.append(title)
+                unique_items.append({'date': pub_date, 'title': title})
+                
+        return unique_items
     except Exception:
-        pass
-    if not news:
-        news = fetch_rss_news(sym, company_name=name)
-    return news
+        return []

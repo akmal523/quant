@@ -13,6 +13,46 @@ import numpy as np
 import pandas as pd
 
 
+def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Математическое преобразование ценовых рядов.
+    Вычисляет и интегрирует SMA50, RSI(14) и ATR(14).
+    """
+    if df.empty or len(df) < 50:
+        return df
+
+    df = df.copy()
+
+    # Простая скользящая средняя (определение среднесрочного тренда)
+    df['SMA50'] = df['Close'].rolling(window=50).mean()
+
+    # Индекс относительной силы (RSI) сглаженный по методу Уайлдера
+    delta = df['Close'].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    
+    rs = avg_gain / avg_loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    # Средний истинный диапазон (ATR) для расчета динамического стоп-лосса
+    tr1 = df['High'] - df['Low']
+    tr2 = (df['High'] - df['Close'].shift()).abs()
+    tr3 = (df['Low'] - df['Close'].shift()).abs()
+    
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    df['ATR'] = true_range.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+
+    # Заполнение неизбежных пустот первых N периодов для сохранения размерности матриц
+    df['SMA50'] = df['SMA50'].bfill()
+    df['RSI'] = df['RSI'].bfill()
+    df['ATR'] = df['ATR'].bfill()
+
+    return df
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MOVING AVERAGES
 # ─────────────────────────────────────────────────────────────────────────────

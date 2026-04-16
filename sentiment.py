@@ -1,32 +1,34 @@
+import os
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 import torch
-from transformers import pipeline
+from transformers import pipeline, logging
 import config
 
-# Локализация вычислений: 0 для дискретного GPU, -1 для центрального процессора
+logging.set_verbosity_error()
 hardware_device = 0 if torch.cuda.is_available() else -1
 
-# Статичная загрузка весов в память
 analyzer = pipeline(
     "sentiment-analysis", 
     model=config.SENTIMENT_MODEL, 
     device=hardware_device
 )
 
-def get_aggregated_sentiment(headlines: list[str]) -> float:
-    if not headlines:
-        return 0.0
+def analyze_news_context(news_items: list[dict]) -> dict:
+    """Возвращает математический балл и конкретные триггеры падения."""
+    if not news_items:
+        return {'score': 0.0, 'drivers': []}
 
-    # Пакетный прямой проход (forward pass)
-    predictions = analyzer(headlines)
+    titles = [item['title'] for item in news_items]
+    predictions = analyzer(titles)
     
     cumulative_signal = 0.0
     signal_count = 0
+    destructive_drivers = []
 
-    for item in predictions:
-        label = item['label']
-        probability = item['score']
+    for item, pred in zip(news_items, predictions):
+        label = pred['label']
+        probability = pred['score']
 
-        # Игнорирование неопределенности и отсутствия сущностного вектора
         if probability < 0.75 or label == 'neutral':
             continue
 
@@ -36,9 +38,12 @@ def get_aggregated_sentiment(headlines: list[str]) -> float:
         elif label == 'negative':
             cumulative_signal -= probability
             signal_count += 1
+            # Фиксация источника угрозы
+            destructive_drivers.append(f"[{item['date']}] {item['title']}")
 
-    if signal_count == 0:
-        return 0.0
-
-    # Возврат нормализованного значения
-    return cumulative_signal / signal_count
+    final_score = cumulative_signal / signal_count if signal_count > 0 else 0.0
+    
+    return {
+        'score': final_score,
+        'drivers': destructive_drivers[:2] # Ограничение: 2 главных фактора
+    }
