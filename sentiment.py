@@ -28,6 +28,14 @@ def _get_pipeline():
         return _pipeline
     _load_attempted = True
     try:
+        import transformers
+        import transformers.utils.logging as hf_logging
+        # Suppress the harmless "bert.embeddings.position_ids UNEXPECTED" load
+        # report that appears on newer transformers versions when loading FinBERT
+        # via the pipeline API (key is present in checkpoint but absent in current
+        # BertForSequenceClassification config — safe to ignore).
+        hf_logging.set_verbosity_error()
+
         from transformers import pipeline as hf_pipeline
         from config import FINBERT_MODEL, FINBERT_DEVICE
         _pipeline = hf_pipeline(
@@ -37,6 +45,8 @@ def _get_pipeline():
             top_k=None,              # return probabilities for all three classes
             device=FINBERT_DEVICE,   # -1 = CPU
         )
+        # Restore normal verbosity after load so other HF warnings still surface
+        hf_logging.set_verbosity_warning()
         logger.info("[FinBERT] Model loaded: %s", FINBERT_MODEL)
     except Exception as exc:
         logger.warning("[FinBERT] Could not load model (%s). Sentiment scores will be 0.", exc)
