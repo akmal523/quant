@@ -59,7 +59,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     },
     "Materials / Mining": {
         "Albemarle":              "ALB",
-        "Heidelberg Materials":   "HEI.DE",
+        "Heidelberg Materials":   "HEIG.DE",
         "Neo Performance":        "NEO.TO",
         "Zinnwald Lithium":       "ZNWD.L",
     },
