@@ -104,7 +104,7 @@ def audit(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.DataFrame:
             if risk_drivers:
                 reasoning += f" | {risk_drivers[:80]}"
 
-        elif signal == "BUY" and pnl_pct < 20.0:
+        elif signal == "BUY" and pnl_pct <= 20.0:
             decision  = "BUY MORE (DCA OK)"
             reasoning = f"Score={total_score} | PnL={pnl_pct:+.1f}% | {horizon}"
 

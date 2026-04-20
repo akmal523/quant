@@ -92,6 +92,7 @@ def scan_universe() -> list[dict]:
     universe  = get_market_universe()
     total     = len(universe)
     results: list[dict] = []
+    skipped:  list[str] = []
 
     print(f"\n  Scanning {total} assets...\n")
 
@@ -99,54 +100,69 @@ def scan_universe() -> list[dict]:
         print(f"  [{i:>3}/{total}]  {symbol:<14}  {name[:38]}", end="\r")
 
         try:
-            t   = yf.Ticker(symbol)
-            inf = t.info or {}
+            t = yf.Ticker(symbol)
 
-            # Skip if yfinance returned no meaningful price data
-            if not (inf.get("regularMarketPrice") or inf.get("currentPrice")):
+            # ── 1. fast_info: lightweight price / currency check ─────────────
+            # fast_info uses a different Yahoo endpoint (more reliable than
+            # t.info in yfinance 1.x).  It does NOT require a valid crumb.
+            try:
+                fi        = t.fast_info
+                last_px   = fi.last_price
+                src_ccy   = (fi.currency or "USD").upper().strip()
+            except Exception:
+                skipped.append(symbol)
                 continue
 
+            if not last_px or last_px <= 0:
+                skipped.append(symbol)
+                continue
+
+            # ── 2. Historical OHLCV ──────────────────────────────────────────
             hist = t.history(period=config.HIST_PERIOD, auto_adjust=True)
             hist = _flatten_hist(hist)
             if hist.empty or len(hist) < 60:
+                skipped.append(symbol)
                 continue
 
-            # ── Currency normalisation → EUR ─────────────────────────────────
-            src_ccy = inf.get("currency", "USD")
-            hist    = apply_fx_conversion(hist, src_ccy, "EUR")
-            hist    = add_all_indicators(hist)
-            curr    = hist.iloc[-1]
+            # ── 3. Fundamentals from t.info (best-effort; empty = OK) ────────
+            # t.info in yfinance 1.x requires a crumb fetch — it may return {}
+            # on rate-limit or network hiccups.  We degrade gracefully: the
+            # pipeline proceeds with technical data only; fundamental score = 0.
+            try:
+                inf = t.info or {}
+            except Exception:
+                inf = {}
 
-            # ── News + FinBERT ────────────────────────────────────────────────
+            # ── 4. EUR normalisation + indicators ────────────────────────────
+            hist = apply_fx_conversion(hist, src_ccy, "EUR")
+            hist = add_all_indicators(hist)
+            curr = hist.iloc[-1]
+
+            # ── 5. News + FinBERT ────────────────────────────────────────────
             headlines = news_module.get_recent_headlines(symbol, name)
             sent      = sentiment_module.analyze_news_context(headlines)
 
-            # ── Derived metrics ───────────────────────────────────────────────
-            vol        = float(hist["Close"].pct_change().dropna().std() * np.sqrt(252))
-            div        = float(inf.get("dividendYield") or 0.0)
-            roe        = _safe_ratio(inf.get("returnOnEquity"))
-            pe         = _safe_ratio(inf.get("trailingPE"))
-            peg        = _safe_ratio(inf.get("pegRatio"))
-            country    = inf.get("country", "Unknown")
-            sector     = symbol_to_sector(symbol) or inf.get("sector", "Unknown")
+            # ── 6. Derived metrics ───────────────────────────────────────────
+            vol     = float(hist["Close"].pct_change().dropna().std() * np.sqrt(252))
+            div     = _safe_ratio(inf.get("dividendYield"))   or 0.0
+            roe     = _safe_ratio(inf.get("returnOnEquity"))
+            pe      = _safe_ratio(inf.get("trailingPE"))
+            peg     = _safe_ratio(inf.get("pegRatio"))
+            country = inf.get("country", "Unknown")
+            sector  = symbol_to_sector(symbol) or inf.get("sector", "Unknown")
 
-            close_eur  = float(curr["Close"])
-            sma50      = float(curr["SMA50"]) if pd.notna(curr.get("SMA50")) else None
-            rsi_val    = float(curr["RSI"])   if pd.notna(curr.get("RSI"))   else None
-            atr_val    = float(curr["ATR"])   if pd.notna(curr.get("ATR"))   else None
+            close_eur = float(curr["Close"])
+            sma50     = float(curr["SMA50"]) if pd.notna(curr.get("SMA50")) else None
+            rsi_val   = float(curr["RSI"])   if pd.notna(curr.get("RSI"))   else None
+            atr_val   = float(curr["ATR"])   if pd.notna(curr.get("ATR"))   else None
 
-            # Analyst consensus upside — target is in native ticker currency;
-            # convert to EUR before comparing against the EUR-normalised close.
-            target    = inf.get("targetMeanPrice")
+            # Analyst target: native currency → EUR before computing upside
             upside: float | None = None
+            target = _safe_ratio(inf.get("targetMeanPrice"))
             if target and close_eur > 0:
-                from currency import apply_fx_conversion
-                target_native = float(target)
-                # Build a tiny 1-row frame just to reuse the FX logic
-                _t = pd.DataFrame({"Open": [target_native], "High": [target_native],
-                                   "Low": [target_native], "Close": [target_native]})
-                _t_eur = apply_fx_conversion(_t, src_ccy, "EUR")
-                target_eur = float(_t_eur["Close"].iloc[-1])
+                _tf = pd.DataFrame({"Open": [target], "High": [target],
+                                    "Low":  [target], "Close": [target]})
+                target_eur = float(apply_fx_conversion(_tf, src_ccy, "EUR")["Close"].iloc[-1])
                 upside = (target_eur - close_eur) / close_eur * 100
 
             geo = geo_score(country, sector, symbol, headlines)
@@ -178,10 +194,15 @@ def scan_universe() -> list[dict]:
 
         except Exception as exc:
             logging.debug("[%s] Skipped: %s", symbol, exc)
+            skipped.append(symbol)
             continue
 
-    print(f"\n\n  Scan complete: {len(results)}/{total} assets processed.\n")
+    print(f"\n\n  Scan complete: {len(results)}/{total} processed  "
+          f"({len(skipped)} skipped).\n")
+    if skipped:
+        logging.debug("Skipped symbols: %s", skipped)
     return results
+
 
 
 # ─── Phase 2: Score ───────────────────────────────────────────────────────────
