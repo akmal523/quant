@@ -8,6 +8,7 @@ Score architecture (0–100):
   Volatility penalty    — up to −3 pts for annualised vol > 60%
 """
 from __future__ import annotations
+import numpy as np
 import pandas as pd
 from universe import GEO_BASE, GEO_KEYWORDS
 
@@ -70,14 +71,25 @@ def geo_score(country: str, sector: str, symbol: str, headlines: list[dict]) -> 
 def calculate_sector_medians(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute per-sector medians for PE, PEG, ROE.
-    Used by composite_score() for relative valuation bonus.
-    Returns a DataFrame indexed by Sector.
+
+    yfinance occasionally returns the *string* "Infinity" for PE (e.g. when
+    earnings are zero/negative and the ratio overflows).  pandas cannot compute
+    median on a mixed object/numeric column, so we:
+      1. coerce every value to float64  (strings → NaN via errors='coerce')
+      2. replace ±inf with NaN
+    before grouping — so the median is always computed on clean float data.
     """
     cols      = ["PE", "PEG", "ROE"]
     available = [c for c in cols if c in df.columns]
     if not available:
         return pd.DataFrame()
-    return df.groupby("Sector")[available].median()
+
+    work = df[["Sector"] + available].copy()
+    for c in available:
+        work[c] = pd.to_numeric(work[c], errors="coerce")    # "Infinity" → NaN
+        work[c] = work[c].where(np.isfinite(work[c].fillna(0)), other=np.nan)
+
+    return work.groupby("Sector")[available].median()
 
 
 # ─── Composite Score (0–100) ──────────────────────────────────────────────────

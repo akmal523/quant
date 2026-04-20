@@ -87,7 +87,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Leidos":                "LDOS",
         "HEICO":                 "HEI",
         "ITA Defense ETF":       "ITA",
-        "EUAD EU Defense ETF":   "EUAD.L",
+        "MSCI Defense ETF":      "DFEN",
     },
 
     # ── Cybersecurity ─────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Pan American Silver":   "PAAS",
         "First Majestic Silver": "AG",
         "Silvercorp Metals":     "SVM",
-        "MAG Silver":            "MAG.TO",
+        "MAG Silver":            "MAG",
         "iShares Silver (SLV)":  "SLV",
     },
 
@@ -357,9 +357,9 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Treasury Bonds 20yr (TLT)": "TLT",
         "EUR Govt Bonds (IEGA)":     "IEGA.L",
         "TIPS Inflation (ITPS)":     "ITPS.L",
-        "MSCI Momentum (IWMO)":      "IWMO.AS",
-        "MSCI Min Vol (IWVL)":       "IWVL.AS",
-        "MSCI Quality (IWQU)":       "IWQU.AS",
+        "MSCI Momentum (IMOM)":      "IMOM.L",
+        "MSCI Min Vol (UIMV)":       "UIMV.L",
+        "MSCI Quality (IQLT)":       "IQLT.L",
         "Samsung":                   "005930.KS",
     },
 }

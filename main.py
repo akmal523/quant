@@ -59,6 +59,33 @@ def _reasoning(row: pd.Series) -> str:
     return " | ".join(parts) if parts else "Neutral backdrop"
 
 
+def _safe_ratio(v) -> float | None:
+    """
+    Convert a yfinance fundamental value to a clean float or None.
+    Handles the string "Infinity" that yfinance returns when earnings are
+    zero/negative and the ratio overflows, as well as actual float inf/nan.
+    """
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if (np.isnan(f) or np.isinf(f)) else f
+    except (ValueError, TypeError):
+        return None
+
+
+def _flatten_hist(hist: pd.DataFrame) -> pd.DataFrame:
+    """
+    yfinance ≥ 0.2.38 / 1.x may return a MultiIndex column frame
+    (e.g. ("Close","CCJ"), ("Open","CCJ")) when called on a single Ticker.
+    Flatten to a simple Index so downstream code can use hist["Close"] safely.
+    """
+    if isinstance(hist.columns, pd.MultiIndex):
+        hist = hist.copy()
+        hist.columns = hist.columns.get_level_values(0)
+    return hist
+
+
 # ─── Phase 1: Scan ────────────────────────────────────────────────────────────
 
 def scan_universe() -> list[dict]:
@@ -80,6 +107,7 @@ def scan_universe() -> list[dict]:
                 continue
 
             hist = t.history(period=config.HIST_PERIOD, auto_adjust=True)
+            hist = _flatten_hist(hist)
             if hist.empty or len(hist) < 60:
                 continue
 
@@ -96,9 +124,9 @@ def scan_universe() -> list[dict]:
             # ── Derived metrics ───────────────────────────────────────────────
             vol        = float(hist["Close"].pct_change().dropna().std() * np.sqrt(252))
             div        = float(inf.get("dividendYield") or 0.0)
-            roe        = inf.get("returnOnEquity")
-            pe         = inf.get("trailingPE")
-            peg        = inf.get("pegRatio")
+            roe        = _safe_ratio(inf.get("returnOnEquity"))
+            pe         = _safe_ratio(inf.get("trailingPE"))
+            peg        = _safe_ratio(inf.get("pegRatio"))
             country    = inf.get("country", "Unknown")
             sector     = symbol_to_sector(symbol) or inf.get("sector", "Unknown")
 
@@ -107,11 +135,19 @@ def scan_universe() -> list[dict]:
             rsi_val    = float(curr["RSI"])   if pd.notna(curr.get("RSI"))   else None
             atr_val    = float(curr["ATR"])   if pd.notna(curr.get("ATR"))   else None
 
-            # Analyst consensus upside
-            target = inf.get("targetMeanPrice")
+            # Analyst consensus upside — target is in native ticker currency;
+            # convert to EUR before comparing against the EUR-normalised close.
+            target    = inf.get("targetMeanPrice")
             upside: float | None = None
             if target and close_eur > 0:
-                upside = (float(target) - close_eur) / close_eur * 100
+                from currency import apply_fx_conversion
+                target_native = float(target)
+                # Build a tiny 1-row frame just to reuse the FX logic
+                _t = pd.DataFrame({"Open": [target_native], "High": [target_native],
+                                   "Low": [target_native], "Close": [target_native]})
+                _t_eur = apply_fx_conversion(_t, src_ccy, "EUR")
+                target_eur = float(_t_eur["Close"].iloc[-1])
+                upside = (target_eur - close_eur) / close_eur * 100
 
             geo = geo_score(country, sector, symbol, headlines)
 
