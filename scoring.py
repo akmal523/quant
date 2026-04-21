@@ -123,3 +123,19 @@ def stewardship_trade_signal(adj_score, stewardship_val, upside):
     if adj_score >= 50:
         return "HOLD"
     return "SELL"
+
+
+def classify_horizon(div_yield, vol, roe, pe) -> str:
+    """
+    Classifies asset into investment horizon buckets based on structural stability.
+    """
+    div = float(div_yield) if div_yield else 0.0
+    v   = float(vol)       if vol       else 1.0
+    r   = float(roe)       if roe       else 0.0
+    p   = float(pe)        if pe        else 999.0
+
+    if div >= 0.02 and v < 0.25 and r > 0.10 and 0 < p < 30:
+        return "RETIREMENT (20yr+)"
+    if v < 0.35 and r > 0.05 and 0 < p < 40:
+        return "BUSINESS COLLATERAL (10yr)"
+    return "SPECULATIVE (short-term)"
