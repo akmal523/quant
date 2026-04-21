@@ -205,9 +205,9 @@ Output is written to `outputs/market_scan.csv` and `outputs/market_scan.xlsx`. I
 
 | File | Description |
 |---|---|
-| `outputs/market_scan.csv` | Full results — all metrics, scores, signals, horizons |
-| `outputs/market_scan.xlsx` | Conditional-colour workbook — green/amber/red by signal and horizon |
-| `outputs/portfolio_audit.csv` | Per-holding audit decisions with reasoning strings |
+| `outputs/market_scan.csv` | Master report with conditional formatting (Green/Amber/Red) for Signals and Horizons. |
+| `outputs/market_scan.xlsx` | Raw data for all ~300 instruments including Z-scores and FinBERT weights. |
+| `outputs/portfolio_audit.csv` | Specific decisions for your holdings based on the v6 Stewardship model. |
 
 ---
 
