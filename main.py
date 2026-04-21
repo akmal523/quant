@@ -1,252 +1,155 @@
 """
-main.py — Three-phase pipeline:
-  1. SCAN    — yfinance data, EUR-normalised, all indicators
-  2. SCORE   — FinBERT sentiment + composite scoring + horizon classification
-  3. REPORT  — terminal table, Excel, CSV, portfolio audit
+main.py — Orchestration engine for Quant-AI v6.
+Implements hierarchical data fetching, stewardship-centric scoring, 
+and window-based backtesting.
 """
-from __future__ import annotations
-import logging
-import os
 
-import numpy as np
 import pandas as pd
-import yfinance as yf
-
-import config
-from universe   import get_market_universe, symbol_to_sector
-from currency   import apply_fx_conversion
-from indicators import add_all_indicators
-import news        as news_module
-import sentiment   as sentiment_module
-from scoring    import (
-    calculate_sector_medians,
-    execute_scoring_pipeline,
-    classify_horizon,
-    geo_score,
+import logging
+from universe import SECTOR_UNIVERSE
+from config import TOP_GLOBAL, TOP_PER_SECTOR
+from fundamentals import get_fundamentals
+from currency import apply_fx_conversion
+from indicators import add_all_indicators, rsi as calc_rsi
+from news import get_recent_headlines
+from sentiment import analyze_news_context_v2
+from scoring import (
+    stewardship_score, 
+    technical_score_v2, 
+    composite_score_v3, 
+    stewardship_trade_signal,
+    classify_horizon
 )
-from backtest   import run_historical_backtest
-import portfolio as portfolio_module
-import reporting
+from backtest import run_historical_backtest
+from portfolio import load_portfolio, audit_portfolio
+from reporting import print_terminal_report, export_excel, export_csv
 
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s  %(message)s")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-
-# ─── Reasoning String ─────────────────────────────────────────────────────────
-
-def _reasoning(row: pd.Series) -> str:
-    parts: list[str] = []
-    signal  = row.get("Signal", "")
-    rsi     = row.get("RSI")
-    fb      = row.get("FinBERT_Score", 0.0) or 0.0
-    score   = row.get("Total_Score", 0)
-    drivers = str(row.get("Risk_Drivers", "") or "")
-
-    if signal == "SELL":
-        if score < 40: parts.append("Weak structure")
-        if rsi and float(rsi) > 70:
-            parts.append(f"Overbought RSI={float(rsi):.0f}")
-    if float(fb) < -30:
-        parts.append(f"Bearish news ({float(fb):+.0f})")
-    elif float(fb) > 30:
-        parts.append(f"Bullish news ({float(fb):+.0f})")
-    if row.get("Volatility_Penalty", 0):
-        parts.append("High-vol penalty")
-    if row.get("Fundamental_Score", 0) >= 30:
-        parts.append("Strong fundamentals")
-    if drivers:
-        parts.append(drivers[:60])
-
-    return " | ".join(parts) if parts else "Neutral backdrop"
-
-
-def _safe_ratio(v) -> float | None:
-    """
-    Convert a yfinance fundamental value to a clean float or None.
-    Handles the string "Infinity" that yfinance returns when earnings are
-    zero/negative and the ratio overflows, as well as actual float inf/nan.
-    """
-    if v is None:
-        return None
-    try:
-        f = float(v)
-        return None if (np.isnan(f) or np.isinf(f)) else f
-    except (ValueError, TypeError):
-        return None
-
-
-def _flatten_hist(hist: pd.DataFrame) -> pd.DataFrame:
-    """
-    yfinance ≥ 0.2.38 / 1.x may return a MultiIndex column frame
-    (e.g. ("Close","CCJ"), ("Open","CCJ")) when called on a single Ticker.
-    Flatten to a simple Index so downstream code can use hist["Close"] safely.
-    """
-    if isinstance(hist.columns, pd.MultiIndex):
-        hist = hist.copy()
-        hist.columns = hist.columns.get_level_values(0)
-    return hist
-
-
-# ─── Phase 1: Scan ────────────────────────────────────────────────────────────
-
-def scan_universe() -> list[dict]:
-    universe  = get_market_universe()
-    total     = len(universe)
-    results: list[dict] = []
-    skipped:  list[str] = []
-
-    print(f"\n  Scanning {total} assets...\n")
-
-    for i, (name, symbol) in enumerate(universe.items(), 1):
-        print(f"  [{i:>3}/{total}]  {symbol:<14}  {name[:38]}", end="\r")
-
-        try:
-            t = yf.Ticker(symbol)
-
-            # ── 1. fast_info: lightweight price / currency check ─────────────
-            # fast_info uses a different Yahoo endpoint (more reliable than
-            # t.info in yfinance 1.x).  It does NOT require a valid crumb.
+def run_pipeline():
+    results = []
+    
+    # Phase 1: Data Acquisition & Pre-processing
+    # Collect raw metrics for sector median calculations
+    raw_data_map = {}
+    
+    for sector_name, instruments in SECTOR_UNIVERSE.items():
+        logger.info(f"Scanning Sector: {sector_name}")
+        for display_name, symbol in instruments.items():
             try:
-                fi        = t.fast_info
-                last_px   = fi.last_price
-                src_ccy   = (fi.currency or "USD").upper().strip()
-            except Exception:
-                skipped.append(symbol)
-                continue
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="2y") # 2y for Z-score and backtest window
+                
+                if hist.empty: continue
+                
+                # Standardize to EUR
+                hist = apply_fx_conversion(hist, from_currency=ticker.info.get("currency", "USD"))
+                hist_with_ind = add_all_indicators(hist)
+                
+                # Fetch Fundamentals (Resilient Service)
+                f_data = get_fundamentals(symbol)
+                
+                # Store for main processing
+                raw_data_map[symbol] = {
+                    "sector": sector_name,
+                    "display_name": display_name,
+                    "hist": hist_with_ind,
+                    "f_data": f_data,
+                    "info": ticker.info
+                }
+            except Exception as e:
+                logger.error(f"Failed {symbol}: {e}")
 
-            if not last_px or last_px <= 0:
-                skipped.append(symbol)
-                continue
+    # Phase 2: Sector Median Calculation
+    # Required for relative-value technical scoring
+    sector_metrics = []
+    for sym, d in raw_data_map.items():
+        current_rsi = calc_rsi(d["hist"]["Close"], 14)
+        sector_metrics.append({
+            "Symbol": sym,
+            "Sector": d["sector"],
+            "RSI": current_rsi,
+            "PE": d["f_data"].get("PE")
+        })
+    
+    metrics_df = pd.DataFrame(sector_metrics)
+    sector_medians = metrics_df.groupby("Sector").median(numeric_only=True)
 
-            # ── 2. Historical OHLCV ──────────────────────────────────────────
-            hist = t.history(period=config.HIST_PERIOD, auto_adjust=True)
-            hist = _flatten_hist(hist)
-            if hist.empty or len(hist) < 60:
-                skipped.append(symbol)
-                continue
+    # Phase 3: Analysis & Scoring
+    for symbol, d in raw_data_map.items():
+        hist = d["hist"]
+        f_data = d["f_data"]
+        info = d["info"]
+        sector = d["sector"]
+        
+        # 1. Technicals (Z-Score & Relative RSI)
+        curr_price = float(hist["Close"].iloc[-1])
+        curr_sma50 = float(hist["SMA50"].iloc[-1])
+        curr_rsi = calc_rsi(hist["Close"], 14)
+        
+        sec_rsi_med = sector_medians.loc[sector]["RSI"] if sector in sector_medians.index else 50
+        t_val = technical_score_v2(curr_rsi, curr_price, curr_sma50, hist["Close"], sec_rsi_med)
+        
+        # 2. Stewardship & Intrinsic Quality
+        s_val = stewardship_score(
+            debt_to_equity = info.get("debtToEquity"),
+            payout_ratio   = info.get("payoutRatio"),
+            dividend_yield = info.get("dividendYield")
+        )
+        
+        # 3. GeoSentiment (Weighted & Batched)
+        headlines = get_recent_headlines(symbol, d["display_name"], max_items=32)
+        sent_data = analyze_news_context_v2(headlines)
+        
+        # 4. Final Composite
+        total_score = composite_score_v3(
+            pe              = f_data.get("PE"),
+            peg             = f_data.get("PEG"),
+            roe             = f_data.get("ROE"),
+            stewardship_val = s_val,
+            tech_val        = t_val,
+            geo_sent_val    = (sent_data["score"] / 4), # Normalized to 25
+            vol             = info.get("beta") # Beta as volatility proxy
+        )
+        
+        # 5. Signal & Horizon
+        upside = ((info.get("targetMeanPrice", curr_price) - curr_price) / curr_price) * 100
+        signal = stewardship_trade_signal(total_score, s_val, upside)
+        horizon = classify_horizon(info.get("dividendYield"), info.get("beta"), f_data.get("ROE"), f_data.get("PE"))
+        
+        # 6. Backtest (Window-based)
+        bt_res = run_historical_backtest(hist)
+        
+        results.append({
+            "Symbol": symbol,
+            "Name": d["display_name"],
+            "Sector": sector,
+            "Price_EUR": round(curr_price, 2),
+            "Total_Score": total_score,
+            "Stewardship": s_val,
+            "Technical": t_val,
+            "Sentiment": round(sent_data["score"], 1),
+            "Signal": signal,
+            "Horizon": horizon,
+            "Backtest_PnL": bt_res["Backtest_PnL_pct"],
+            "Backtest_Status": bt_res["Backtest_Signal"],
+            "PE": f_data.get("PE"),
+            "RSI": curr_rsi,
+            "Upside_pct": round(upside, 1)
+        })
 
-            # ── 3. Fundamentals from t.info (best-effort; empty = OK) ────────
-            # t.info in yfinance 1.x requires a crumb fetch — it may return {}
-            # on rate-limit or network hiccups.  We degrade gracefully: the
-            # pipeline proceeds with technical data only; fundamental score = 0.
-            try:
-                inf = t.info or {}
-            except Exception:
-                inf = {}
+    scan_df = pd.DataFrame(results)
 
-            # ── 4. EUR normalisation + indicators ────────────────────────────
-            hist = apply_fx_conversion(hist, src_ccy, "EUR")
-            hist = add_all_indicators(hist)
-            curr = hist.iloc[-1]
+    # Phase 4: Portfolio Audit
+    portfolio_df = load_portfolio()
+    audit_df = audit_portfolio(portfolio_df, scan_df) if not portfolio_df.empty else None
 
-            # ── 5. News + FinBERT ────────────────────────────────────────────
-            headlines = news_module.get_recent_headlines(symbol, name)
-            sent      = sentiment_module.analyze_news_context(headlines)
-
-            # ── 6. Derived metrics ───────────────────────────────────────────
-            vol     = float(hist["Close"].pct_change().dropna().std() * np.sqrt(252))
-            div     = _safe_ratio(inf.get("dividendYield"))   or 0.0
-            roe     = _safe_ratio(inf.get("returnOnEquity"))
-            pe      = _safe_ratio(inf.get("trailingPE"))
-            peg     = _safe_ratio(inf.get("pegRatio"))
-            country = inf.get("country", "Unknown")
-            sector  = symbol_to_sector(symbol) or inf.get("sector", "Unknown")
-
-            close_eur = float(curr["Close"])
-            sma50     = float(curr["SMA50"]) if pd.notna(curr.get("SMA50")) else None
-            rsi_val   = float(curr["RSI"])   if pd.notna(curr.get("RSI"))   else None
-            atr_val   = float(curr["ATR"])   if pd.notna(curr.get("ATR"))   else None
-
-            # Analyst target: native currency → EUR before computing upside
-            upside: float | None = None
-            target = _safe_ratio(inf.get("targetMeanPrice"))
-            if target and close_eur > 0:
-                _tf = pd.DataFrame({"Open": [target], "High": [target],
-                                    "Low":  [target], "Close": [target]})
-                target_eur = float(apply_fx_conversion(_tf, src_ccy, "EUR")["Close"].iloc[-1])
-                upside = (target_eur - close_eur) / close_eur * 100
-
-            geo = geo_score(country, sector, symbol, headlines)
-
-            row: dict = {
-                "Symbol":          symbol,
-                "Name":            name,
-                "Sector":          sector,
-                "Country":         country,
-                "Close_EUR":       round(close_eur, 4),
-                "PE":              pe,
-                "PEG":             peg,
-                "ROE":             roe,
-                "Dividend_Yield":  round(div, 4),
-                "RSI":             rsi_val,
-                "ATR":             atr_val,
-                "SMA50_EUR":       sma50,
-                "Price_vs_SMA50":  (close_eur / sma50) if sma50 else None,
-                "Volatility":      round(vol, 4),
-                "Geo_Risk":        geo,
-                "FinBERT_Score":   sent["score"],
-                "Risk_Drivers":    " // ".join(sent["drivers"]),
-                "Headline_Count":  sent["headline_count"],
-                "Upside_pct":      round(upside, 2) if upside is not None else None,
-                "Horizon":         classify_horizon(div, vol, roe, pe),
-            }
-            row.update(run_historical_backtest(hist))
-            results.append(row)
-
-        except Exception as exc:
-            logging.debug("[%s] Skipped: %s", symbol, exc)
-            skipped.append(symbol)
-            continue
-
-    print(f"\n\n  Scan complete: {len(results)}/{total} processed  "
-          f"({len(skipped)} skipped).\n")
-    if skipped:
-        logging.debug("Skipped symbols: %s", skipped)
-    return results
-
-
-
-# ─── Phase 2: Score ───────────────────────────────────────────────────────────
-
-def score_results(results: list[dict]) -> pd.DataFrame:
-    df      = pd.DataFrame(results)
-    s_meds  = calculate_sector_medians(df)
-
-    for idx, row in df.iterrows():
-        sector  = row["Sector"]
-        med     = s_meds.loc[sector] if sector in s_meds.index else None
-        scored  = execute_scoring_pipeline(row.to_dict(), med)
-        for k, v in scored.items():
-            df.at[idx, k] = v
-
-    df["Reasoning"] = df.apply(_reasoning, axis=1)
-    return df.sort_values(["Sector", "Total_Score"], ascending=[True, False])
-
-
-# ─── Phase 3: Report ──────────────────────────────────────────────────────────
-
-def report(df: pd.DataFrame) -> None:
-    portfolio_df = portfolio_module.load_portfolio("portfolio.csv")
-    audit_df     = portfolio_module.audit(portfolio_df, df)
-
-    reporting.print_terminal_report(df, audit_df if not audit_df.empty else None)
-
-    os.makedirs("outputs", exist_ok=True)
-    reporting.export_csv(df, audit_df if not audit_df.empty else None)
-    reporting.export_excel(df, audit_df if not audit_df.empty else None)
-
-
-# ─── Entry Point ─────────────────────────────────────────────────────────────
-
-def main() -> None:
-    results = scan_universe()
-
-    if not results:
-        print("CRITICAL: No assets processed. Check network / VPN.")
-        return
-
-    df = score_results(results)
-    report(df)
-
+    # Phase 5: Reporting
+    print_terminal_report(scan_df, audit_df)
+    export_excel(scan_df, audit_df)
+    export_csv(scan_df, audit_df)
 
 if __name__ == "__main__":
-    main()
+    run_pipeline()

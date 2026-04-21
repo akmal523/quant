@@ -12,7 +12,7 @@ CONVERT_TO_EUR = True
 
 # ── FinBERT ───────────────────────────────────────────────────────────────────
 FINBERT_MODEL         = "ProsusAI/finbert"
-FINBERT_MAX_HEADLINES = 8     # headlines per asset sent to model
+FINBERT_MAX_HEADLINES = 32  # Increased from 8
 FINBERT_DEVICE        = -1    # -1 = CPU; 0 = first CUDA GPU
 
 # ── Scanning ──────────────────────────────────────────────────────────────────

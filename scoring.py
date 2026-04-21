@@ -1,232 +1,125 @@
-"""
-scoring.py — Composite scoring, horizon classification, sector medians, trade signal.
-
-Score architecture (0–100):
-  Fundamental   max 40  — PE, PEG, ROE; sector-relative PE bonus
-  Technical     max 30  — RSI(14), Price vs SMA50
-  GeoSentiment  max 30  — geo-risk heuristic + FinBERT score [-100,+100]
-  Volatility penalty    — up to −3 pts for annualised vol > 60%
-"""
-from __future__ import annotations
 import numpy as np
 import pandas as pd
-from universe import GEO_BASE, GEO_KEYWORDS
 
+def calculate_z_score(current_val, historical_series):
+    """Measures how many standard deviations the current value is from the mean."""
+    if historical_series is None or historical_series.empty:
+        return 0
+    mean = historical_series.mean()
+    std = historical_series.std()
+    return (current_val - mean) / std if std > 0 else 0
 
-# ─── Investment Horizon Classification ───────────────────────────────────────
-
-def classify_horizon(div_yield, vol, roe, pe) -> str:
+def technical_score_v2(rsi_val, price, sma50, hist_close, sector_rsi_median) -> float:
     """
-    Classify asset into one of three investment horizon buckets.
-
-    RETIREMENT (20yr+)        — low vol, dividend payer, sound fundamentals
-    BUSINESS COLLATERAL (10yr) — stable growth, low beta proxy, suitable as
-                                 collateral for Lombard / corporate loans
-    SPECULATIVE (short-term)  — high momentum / volatility, news-driven
+    Precision Technical Scoring:
+    - Distance from SMA50: Measured in Z-scores (Target: -1 to +1 Std Dev).
+    - RSI Context: Measured relative to Sector Median.
     """
-    div = float(div_yield) if div_yield else 0.0
-    v   = float(vol)       if vol       else 1.0
-    r   = float(roe)       if roe       else 0.0
-    p   = float(pe)        if pe        else 999.0
+    t_score = 0.0
+    
+    # 1. Distance from Mean (Z-Score) - Max 15 pts
+    # We want price to be 'reasonably' near the trend, not overextended.
+    if price and sma50:
+        z = calculate_z_score(price, hist_close.tail(50))
+        # Reward prices between -0.5 and +1.5 standard deviations from SMA50
+        if -0.5 <= z <= 1.5:
+            t_score += 15
+        elif -1.0 <= z <= 2.0:
+            t_score += 7
+            
+    # 2. Sector-Relative RSI - Max 15 pts
+    # If Sector Median RSI is 60 (bull move), an RSI of 50 is 'relatively' cheap.
+    if rsi_val and sector_rsi_median:
+        relative_rsi = rsi_val - sector_rsi_median
+        # Reward assets that are 5-15 points 'cooler' than their peers
+        if -15 <= relative_rsi <= -5:
+            t_score += 15
+        elif -20 <= relative_rsi <= 5:
+            t_score += 8
+    elif rsi_val:
+        # Fallback to static if sector data is missing
+        if 30 <= rsi_val <= 60:
+            t_score += 15
+            
+    return t_score
 
-    if div >= 0.02 and v < 0.25 and r > 0.10 and 0 < p < 30:
-        return "RETIREMENT (20yr+)"
-    if v < 0.35 and r > 0.05 and 0 < p < 40:
-        return "BUSINESS COLLATERAL (10yr)"
-    return "SPECULATIVE (short-term)"
-
-
-# ─── Geo Risk ─────────────────────────────────────────────────────────────────
-
-def geo_score(country: str, sector: str, symbol: str, headlines: list[dict]) -> int:
+def trade_signal_v2(adj_score, rsi_val, sector_rsi_median, upside):
     """
-    Heuristic geo-risk score in [1, 10]. Higher = riskier.
-    Components:
-      • Country base score (GEO_BASE table)
-      • News keyword bump (max +3)
-      • Sector override (+1 for Energy / Industrials)
-      • Symbol-level overrides (Samsung, Raiffeisen)
+    Adaptive Trade Signals.
     """
-    base = GEO_BASE.get(country, 4)
-
-    text = " ".join(
-        (h.get("title", "") + " " + h.get("summary", "")).lower()
-        for h in (headlines or [])
-    )
-    hits = sum(1 for kw in GEO_KEYWORDS if kw in text)
-    bump = min(hits * 0.5, 3.0)
-
-    if symbol in ("005930.KS",):           # Samsung — Korean peninsula risk
-        base = max(base, 7)
-    if symbol in ("RBI.VI",):              # Raiffeisen — Russia/Ukraine exposure
-        base = max(base, 8)
-    if sector in ("Energy", "Industrials"):
-        base = min(base + 1, 10)
-
-    return min(int(round(base + bump)), 10)
-
-
-# ─── Sector Medians ───────────────────────────────────────────────────────────
-
-def calculate_sector_medians(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute per-sector medians for PE, PEG, ROE.
-
-    yfinance occasionally returns the *string* "Infinity" for PE (e.g. when
-    earnings are zero/negative and the ratio overflows).  pandas cannot compute
-    median on a mixed object/numeric column, so we:
-      1. coerce every value to float64  (strings → NaN via errors='coerce')
-      2. replace ±inf with NaN
-    before grouping — so the median is always computed on clean float data.
-    """
-    cols      = ["PE", "PEG", "ROE"]
-    available = [c for c in cols if c in df.columns]
-    if not available:
-        return pd.DataFrame()
-
-    work = df[["Sector"] + available].copy()
-    for c in available:
-        work[c] = pd.to_numeric(work[c], errors="coerce")    # "Infinity" → NaN
-        work[c] = work[c].where(np.isfinite(work[c].fillna(0)), other=np.nan)
-
-    return work.groupby("Sector")[available].median()
-
-
-# ─── Composite Score (0–100) ──────────────────────────────────────────────────
-
-def composite_score(
-    pe,
-    peg,
-    roe,
-    rsi_val,
-    price_vs_sma50,
-    geo_val,
-    vol,
-    finbert_score,
-    sector_medians: pd.Series | None = None,
-) -> tuple[int, dict]:
-    """
-    Three-bucket composite score.
-    Returns (total_score: int, breakdown: dict).
-    All inputs accept None gracefully.
-    """
-    bd: dict = {}
-
-    # ── Fundamental (max 40) ─────────────────────────────────────────────────
-    f = 0
-
-    pe_f  = float(pe)  if pe  is not None else None
-    peg_f = float(peg) if peg is not None else None
-    roe_f = float(roe) if roe is not None else None
-
-    if pe_f is not None and pe_f > 0:
-        f += 15 if pe_f < 20 else (10 if pe_f < 30 else 4)
-
-    if peg_f is not None and peg_f > 0:
-        f += 15 if peg_f < 1 else (8 if peg_f < 2 else 3)
-
-    if roe_f is not None:
-        f += 10 if roe_f > 0.20 else (6 if roe_f > 0.10 else (3 if roe_f > 0 else 0))
-
-    # Sector-relative bonus: asset PE ≤ 80% of sector median → value discount
-    if sector_medians is not None and pe_f is not None and pe_f > 0:
-        med_pe = sector_medians.get("PE") if hasattr(sector_medians, "get") else None
-        if med_pe and float(med_pe) > 0 and pe_f < float(med_pe) * 0.80:
-            f = min(f + 5, 40)
-
-    bd["Fundamental_Score"] = min(f, 40)
-
-    # ── Technical (max 30) ───────────────────────────────────────────────────
-    t = 0
-
-    if rsi_val is not None:
-        rv = float(rsi_val)
-        # 30–60: accumulation zone; 60–70: extended; >70: overbought
-        t += 15 if 30 <= rv <= 60 else (8 if rv <= 70 else 2)
-
-    if price_vs_sma50 is not None:
-        pv = float(price_vs_sma50)
-        # Price in 0.97–1.15× SMA50 = healthy uptrend
-        t += 15 if 0.97 <= pv <= 1.15 else (8 if pv < 0.97 else 3)
-
-    bd["Technical_Score"] = min(t, 30)
-
-    # ── GeoSentiment (max 30) ────────────────────────────────────────────────
-    g = 0
-
-    if geo_val is not None:
-        g += 15 if int(geo_val) <= 3 else (10 if int(geo_val) <= 6 else 3)
-
-    if finbert_score is not None and isinstance(finbert_score, (int, float)):
-        # Map [-100, +100] → [0, 15]
-        sent_pts = int((float(finbert_score) + 100) / 200 * 15)
-        g += max(0, min(sent_pts, 15))
-
-    # Volatility penalty: annualised vol > 60% → −3 pts from geo-sentiment bucket
-    vol_penalty = 0
-    if vol is not None and float(vol) > 0.60:
-        vol_penalty = 3
-        g = max(0, g - vol_penalty)
-
-    bd["GeoSentiment_Score"] = min(g, 30)
-    bd["Volatility_Penalty"] = vol_penalty
-
-    total = bd["Fundamental_Score"] + bd["Technical_Score"] + bd["GeoSentiment_Score"]
-    return min(total, 100), bd
-
-
-# ─── Trade Signal ─────────────────────────────────────────────────────────────
-
-def trade_signal(score: int, rsi_val, finbert_score, upside=None) -> str:
-    """
-    Derive BUY / HOLD / SELL.
-
-    Adjusted score rule: if FinBERT score < −50 (confirmed bearish news),
-    effective score is reduced by 15 pts to prevent buying into bad news.
-    """
-    rsi = float(rsi_val)      if rsi_val      is not None          else 50.0
-    fb  = float(finbert_score) if isinstance(finbert_score, (int, float)) else 0.0
-
-    adj = max(0, score - 15) if fb < -50 else score
-
-    if adj >= 65 and (upside is None or float(upside) > 5):
+    # Dynamic RSI Overbought: Sector Median + 15 points, capped at 85
+    sell_threshold = min(85, (sector_rsi_median + 15)) if sector_rsi_median else 72
+    
+    if adj_score >= 65 and (upside is None or float(upside) > 5):
         return "BUY"
-    if adj >= 50:
+    if adj_score >= 50:
         return "HOLD"
-    if rsi > 72 or (upside is not None and float(upside) < -10):
+    if rsi_val > sell_threshold or (upside is not None and float(upside) < -10):
         return "SELL"
     return "HOLD"
 
 
-# ─── Pipeline Wrapper ─────────────────────────────────────────────────────────
+def stewardship_score(debt_to_equity, payout_ratio, dividend_yield) -> float:
+    """
+    Evaluates intrinsic financial health and management of resources.
+    Max: 20 pts.
+    """
+    s_score = 0.0
+    
+    # 1. Solvency (Avoidance of excessive leverage)
+    de = float(debt_to_equity) if debt_to_equity is not None else 2.0
+    if de < 0.5: s_score += 10    # Pristine balance sheet
+    elif de < 1.0: s_score += 5   # Manageable debt
+    
+    # 2. Dividend Stewardship (Sustainability)
+    payout = float(payout_ratio) if payout_ratio is not None else 1.0
+    div_y = float(dividend_yield) if dividend_yield else 0.0
+    
+    if div_y > 0:
+        # Reward sustainable payouts (30-70% range). 
+        # Over 90% suggests capital exhaustion; under 20% suggests lack of distribution.
+        if 0.3 <= payout <= 0.7: s_score += 10
+        elif payout < 0.9: s_score += 5
+    else:
+        # For non-dividend payers, reward high cash retention for growth (Low Payout)
+        if payout < 0.2: s_score += 5
+            
+    return s_score
 
-def execute_scoring_pipeline(row: dict, sector_medians: pd.Series | None) -> dict:
+def composite_score_v3(pe, peg, roe, stewardship_val, tech_val, geo_sent_val, vol) -> tuple[float, dict]:
     """
-    Run composite_score + trade_signal on a single asset data row.
-    Returns a dict of new columns to merge back into the main DataFrame.
+    Rebalanced Model (100 pts):
+    - Intrinsic Fundamentals (PE/PEG/ROE): 30 pts
+    - Stewardship (Solvency/Payout): 20 pts
+    - Technical Stability (Z-Score): 25 pts
+    - GeoSentiment (News/Risk): 25 pts
     """
-    total, bd = composite_score(
-        pe              = row.get("PE"),
-        peg             = row.get("PEG"),
-        roe             = row.get("ROE"),
-        rsi_val         = row.get("RSI"),
-        price_vs_sma50  = row.get("Price_vs_SMA50"),
-        geo_val         = row.get("Geo_Risk"),
-        vol             = row.get("Volatility"),
-        finbert_score   = row.get("FinBERT_Score"),
-        sector_medians  = sector_medians,
-    )
-    signal = trade_signal(
-        total,
-        row.get("RSI"),
-        row.get("FinBERT_Score"),
-        row.get("Upside_pct"),
-    )
-    return {
-        "Total_Score":        total,
-        "Fundamental_Score":  bd.get("Fundamental_Score", 0),
-        "Technical_Score":    bd.get("Technical_Score",   0),
-        "GeoSentiment_Score": bd.get("GeoSentiment_Score",0),
-        "Volatility_Penalty": bd.get("Volatility_Penalty",0),
-        "Signal":             signal,
-    }
+    # 1. Fundamental (30)
+    f_score = 0
+    if pe and float(pe) < 20: f_score += 10
+    if peg and float(peg) < 1.2: f_score += 10
+    if roe and float(roe) > 0.15: f_score += 10
+    
+    # 2. Rebalanced Total
+    total = f_score + stewardship_val + tech_val + geo_sent_val
+    
+    # 3. Volatility Penalty (Unchanged)
+    if vol and float(vol) > 0.50:
+        total -= 5
+        
+    return max(0, min(100, total))
+
+def stewardship_trade_signal(adj_score, stewardship_val, upside):
+    """
+    Strict Signal: Requires a 'Quality Floor'.
+    """
+    # Quality Floor: If stewardship/solvency score is < 5, force HOLD/SELL
+    # preventing speculation on 'junk' stocks regardless of news.
+    if stewardship_val < 5:
+        return "SELL" if adj_score < 40 else "HOLD"
+
+    if adj_score >= 70 and (upside is None or float(upside) > 5):
+        return "BUY"
+    if adj_score >= 50:
+        return "HOLD"
+    return "SELL"
