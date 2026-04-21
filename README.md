@@ -1,8 +1,18 @@
-# Quant-AI v5 — Sector Scanner & Portfolio Audit Engine
+# Quant-AI v6 — Stewardship & Resilience Engine
 
-A modular Python pipeline for systematic equity analysis. Scans a 65-asset, 14-sector universe, scores every asset on a deterministic 0–100 composite model, classifies holdings by investment horizon, and audits a live portfolio against current market state.
+A professional-grade Python pipeline for systematic equity analysis. Scans a ~300-asset, 20-sector universe using a hierarchical data architecture, scores assets based on intrinsic financial stewardship, and audits portfolios with volatility-adjusted technicals.
 
-**No cloud LLM dependencies.** Sentiment analysis runs locally via [ProsusAI/FinBERT](https://huggingface.co/ProsusAI/finbert).
+**No cloud dependencies.** Sentiment analysis runs locally via [ProsusAI/FinBERT](https://huggingface.co/ProsusAI/finbert) using batch inference and temporal decay.
+
+---
+
+## New in v6
+
+* **Hierarchical Data Resilience** — Integrated SQLite caching and multi-source fetching to eliminate `yfinance` data gaps.
+* **Stewardship-Centric Scoring** — Trade signals now require a "Quality Floor" (Debt-to-Equity and Payout sustainability).
+* **Z-Score Technicals** — Normalises price action relative to an asset's own historical volatility (Standard Deviations) rather than static percentages.
+* **Temporal Sentiment Decay** — Headlines are weighted by age (24h half-life) and model confidence, processed in high-efficiency batches.
+* **Windowed Backtesting** — Scans a 30-day historical window for the first valid entry, simulating real-world execution.
 
 ---
 
@@ -25,21 +35,17 @@ A modular Python pipeline for systematic equity analysis. Scans a 65-asset, 14-s
 
 ```
 quant/
-├── main.py          Three-phase pipeline: Scan → Score → Report
-├── config.py        Runtime settings (.env override)
-├── universe.py      Sector universe, geo-risk tables, FX symbol map
-├── indicators.py    RSI, ATR, EMA, SMA — pure functions, no side effects
-├── currency.py      FX rate fetching, OHLCV normalisation to EUR
-├── news.py          RSS fetcher with UA rotation and yfinance fallback
-├── sentiment.py     Local FinBERT engine (ProsusAI/finbert)
-├── scoring.py       Composite score, horizon classifier, trade signal
-├── backtest.py      12-month lookback backtest
-├── portfolio.py     Portfolio audit decision engine
-├── reporting.py     Terminal output, Excel workbook, CSV export
-├── portfolio.csv    Your holdings (Symbol, Buy_Price, Amount_EUR)
-├── requirements.txt
-├── .env.example
-└── outputs/         Generated reports written here
+├── main.py                # Pipeline orchestration (Scan → Score → Audit)
+├── fundamentals.py        # Hierarchical service (Cache → Primary API → Fallback)
+├── scoring.py             # Stewardship, Z-score Technicals, & Quality-floor logic
+├── sentiment.py           # Batched FinBERT engine with temporal decay
+├── backtest.py            # 30-day windowed historical simulation
+├── universe.py            # Expanded 300-asset / 20-sector definition
+├── indicators.py          # Vectorised technical primitives
+├── currency.py            # Multi-leg FX normalization (Base: EUR)
+├── portfolio.py           # Quality-aware audit decision engine
+├── fundamentals_cache.sqlite  # Auto-generated local data persistence
+└── outputs/               # Conditional-formatted reports (.xlsx, .csv)
 ```
 
 **Removed from v4.5:** `gemini_ai.py`, `tickers.py`, `analyzer.py`, `macro.py`, `utils.py`
@@ -75,74 +81,78 @@ To add or remove instruments, edit `SECTOR_UNIVERSE` in `universe.py`. The rest 
 
 ---
 
-## Scoring Model
+## Scoring Model (v6)
 
-```
-Composite Score (0–100)
-├── Fundamental     max 40   PE < 20 → 15 pts │ PEG < 1 → 15 pts │ ROE > 20% → 10 pts
-│                            + sector-relative bonus: asset PE ≤ 80% of sector median → +5
-├── Technical       max 30   RSI 30–60 → 15 pts │ Price in 0.97–1.15× SMA50 → 15 pts
-└── GeoSentiment    max 30   Geo score ≤ 3 → 15 pts │ FinBERT score mapped [−100,+100] → 0–15 pts
-                             Annualised volatility > 60% → −3 pts penalty
-```
+The composite score (0–100) prioritizes structural health and fiscal stewardship over transient momentum.
 
-**Trade signal:**
+| Category | Weight | Logic |
+| :--- | :--- | :--- |
+| **Fundamentals** | 30 pts | PE < 20 (10), PEG < 1.2 (10), ROE > 15% (10) |
+| **Stewardship** | 20 pts | Debt-to-Equity < 0.5 (10), Sustainable Payout 30-70% (10) |
+| **Technicals** | 25 pts | Price Z-Score -0.5 to +1.5 (15), Sector-Relative RSI (10) |
+| **GeoSentiment** | 25 pts | Batched FinBERT weighted by temporal decay and confidence |
+
+### Trade Signal Logic
+
+Signals are governed by a **Stewardship Floor**. If an asset fails solvency checks (Score < 5/20), "BUY" signals are suppressed to prevent speculation on fragile balance sheets.
 
 | Condition | Signal |
-|---|---|
-| Adj. score ≥ 65 AND upside > 5% | BUY |
-| Adj. score ≥ 50 | HOLD |
-| RSI > 72 OR upside < −10% | SELL |
-| Otherwise | HOLD |
-
-Adjusted score = score − 15 when FinBERT score < −50 (confirmed bearish news flow).
+| :--- | :--- |
+| **Adj. Score ≥ 70 AND Upside > 5%** | **BUY** |
+| **Adj. Score ≥ 50** | **HOLD** |
+| **Stewardship < 5 OR RSI > Sell Threshold** | **SELL** |
+| **Otherwise** | **HOLD** |
 
 ---
 
 ## Investment Horizon Classification
 
-| Horizon | Criteria |
-|---|---|
-| **RETIREMENT (20yr+)** | Dividend ≥ 2%, Volatility < 25%, ROE > 10%, 0 < PE < 30 |
-| **BUSINESS COLLATERAL (10yr)** | Volatility < 35%, ROE > 5%, 0 < PE < 40 — suitable as Lombard / corporate loan collateral |
-| **SPECULATIVE (short-term)** | Everything else — momentum-driven, news-sensitive |
+Assets are categorized into three buckets based on their structural "DNA" and suitability for long-term capital preservation.
+
+| Category | Criteria |
+| :--- | :--- |
+| **RETIREMENT (20yr+)** | Div ≥ 2%, Vol < 25%, ROE > 10%, 0 < PE < 30 |
+| **BUSINESS COLLATERAL (10yr)** | Vol < 35%, ROE > 5%, 0 < PE < 40 (Lombard-eligible) |
+| **SPECULATIVE (short-term)** | All other assets; high momentum or news-sensitive |
 
 ---
 
-## Portfolio Audit
+## Backtest Methodology (v6)
 
-Place your holdings in `portfolio.csv`:
+The simulation engine implements a **30-day Entry Window** to replicate real-world watchlist monitoring rather than naive point-in-time checks.
+
+* **Scan Window:** T-260 to T-230 trading days. Identifies the *first* valid entry.
+* **Entry Rule:** RSI(14) in [30, 65] AND Price ≥ 0.97 × EMA50.
+* **Path Validation:** Daily `Low` prices are audited against the stop-loss level throughout the holding period.
+* **Stop-Loss:** `entry_price − (ATR(14) × 2.5)`.
+* **Friction:** Applies a 0.15% round-trip commission and slippage penalty to net P&L.
+* **Exit:** Fixed at current market close or stop-loss breach.
+
+
+## Portfolio Audit Engine
+
+The audit engine cross-references your personal holdings against the live market scan to issue actionable stewardship decisions. It prioritizes capital preservation by enforcing a "Quality Floor" on existing positions.
+
+### 1. Setup Your Holdings
+Create a `portfolio.csv` in the root directory with the following structure:
 
 ```csv
 Symbol,Buy_Price,Amount_EUR
 CCJ,35.50,2500
 RHM.DE,420.00,5000
-CRWD,220.00,3000
+NVDA,115.00,3000
 ```
 
-The audit engine cross-references each position against the live scan and issues:
+2. Decision Hierarchy
+
+The engine applies a strict logical chain to determine if a position remains a "faithful" allocation of capital:
 
 | Decision | Trigger |
-|---|---|
-| **URGENT SELL** | Signal == SELL, or FinBERT score < −60, or RSI > 75 |
-| **BUY MORE (DCA OK)** | Signal == BUY and unrealised PnL < 20% |
-| **HOLD** | All other cases |
-| **NOT SCANNED** | Symbol not found in the scanned universe |
-
----
-
-## Backtest Methodology
-
-The 12-month backtest applies the entry rule on data from exactly 252 trading days ago:
-
-- **Entry rule:** RSI(14) in [30, 65] AND Close ≥ EMA50 × 0.97
-- **Entry price:** closing price at the signal date
-- **Exit price:** today's closing price
-- **Stop-loss:** `entry_price − ATR(14) × 2.5`; flagged if any daily low breached it during the holding period
-- **P&L:** `(exit − entry) / entry × 100`
-
-No transaction costs, slippage, or taxes are modelled. Results are hypothetical.
-
+| :--- | :--- |
+| **URGENT SELL** | Signal is SELL OR RSI > 80 (Exhaustion) OR Stewardship < 5 with negative PnL |
+| **BUY MORE (DCA OK)** | Signal is BUY AND Unrealised PnL < 15% (Prevents chasing peaks) |
+| **HOLD** | Score remains stable; intrinsic quality intact |
+| **NOT SCANNED** | Asset is not present in the current 300-instrument universe |
 ---
 
 ## Setup
