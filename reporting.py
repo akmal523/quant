@@ -74,7 +74,7 @@ def _row(r: pd.Series) -> None:
         f"{fb  if fb  is None else f'{fb:+.0f}':>5}  "
         f"{str(r.get('Signal','')):<6}  "
         f"{str(r.get('Horizon',''))[:28]:<28}  "
-        f"{str(r.get('Reasoning',''))[:60]}"
+        f"{str(r.get('Reasoning',''))}"
     )
 
 

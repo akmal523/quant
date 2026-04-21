@@ -25,7 +25,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Paladin Energy":        "PDN.AX",
         "Boss Energy":           "BOE.AX",
         "Yellow Cake":           "YCA.L",
-        "Kazatomprom":           "KAP.L",
+        "Kazatomprom":           "NATKY",
         "Global Atomic":         "GLO.TO",
         "URA ETF":               "URA",
         "URNM ETF":              "URNM",
@@ -102,7 +102,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Tenable":               "TENB",
         "Qualys":                "QLYS",
         "Check Point Software":  "CHKP",
-        "Darktrace":             "DARK.L",
+        "CyberArk":              "CYBR",
         "NCC Group":             "NCC.L",
         "CIBR ETF":              "CIBR",
         "BUG ETF":               "BUG",
@@ -135,7 +135,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Pan American Silver":   "PAAS",
         "First Majestic Silver": "AG",
         "Silvercorp Metals":     "SVM",
-        "MAG Silver":            "MAG",
+        "Coeur Mining":          "CDE",
         "iShares Silver (SLV)":  "SLV",
     },
 
@@ -158,7 +158,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     "Lithium": {
         "Albemarle":             "ALB",
         "SQM":                   "SQM",
-        "Livent / Arcadium":     "ALTM",
+        "Standard Lithium":      "SLI",
         "Pilbara Minerals":      "PLS.AX",
         "Liontown Resources":    "LTR.AX",
         "Core Lithium":          "CXO.AX",
@@ -194,7 +194,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Marvell Technology":    "MRVL",
         "Broadcom":              "AVGO",
         "Qualcomm":              "QCOM",
-        "STMicroelectronics":    "STM.MI",
+        "STMicroelectronics":    "STM",
         "Infineon":              "IFX.DE",
         "NXP Semiconductors":    "NXPI",
         "ON Semiconductor":      "ON",
@@ -223,7 +223,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
 
     # ── Logistics / Shipping ──────────────────────────────────────────────────
     "Logistics / Shipping": {
-        "Deutsche Post / DHL":   "DPW.DE",
+        "DHL Group":             "DHL.DE",
         "AP Moller-Maersk":      "MAERSK-A.CO",
         "Hapag-Lloyd":           "HLAG.DE",
         "FedEx":                 "FDX",
@@ -236,6 +236,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "ZIM Integrated":        "ZIM",
         "Star Bulk Carriers":    "SBLK",
         "Navios Maritime":       "NMM",
+        "Heidelberg Materials":  "HEI.DE",
     },
 
     # ── Finance & Banking ─────────────────────────────────────────────────────
@@ -317,7 +318,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Bunge Global":          "BG",
         "Deere & Company":       "DE",
         "AGCO Corporation":      "AGCO",
-        "CNH Industrial":        "CNHI.MI",
+        "CNH Industrial":        "CNHI",
         "MOO Agriculture ETF":   "MOO",
     },
 
@@ -355,11 +356,11 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "2x Short S&P (SDS)":        "SDS",
         "Commodities (PDBC)":        "PDBC",
         "Treasury Bonds 20yr (TLT)": "TLT",
-        "EUR Govt Bonds (IEGA)":     "IEGA.L",
+        "EUR Govt Bonds (IEAG)":     "IEAG.L",
         "TIPS Inflation (ITPS)":     "ITPS.L",
-        "MSCI Momentum (IMOM)":      "IMOM.L",
-        "MSCI Min Vol (UIMV)":       "UIMV.L",
-        "MSCI Quality (IQLT)":       "IQLT.L",
+        "MSCI Momentum (MTUM)":      "MTUM",
+        "MSCI Min Vol (USMV)":       "USMV",
+        "MSCI Quality (QUAL)":       "QUAL",
         "Samsung":                   "005930.KS",
     },
 }
