@@ -1,3 +1,3 @@
 Symbol,Buy_Price,Amount_EUR,Current_Price_EUR,PnL_pct,Signal,FinBERT_Score,RSI,Total_Score,Horizon,Audit_Decision,Reasoning
 ECL,235.04,185.6,255.2593,8.6,HOLD,22.7,64.0,64.0,BUSINESS COLLATERAL (10yr),HOLD,Score=64.0 | PnL=+8.6% | BUSINESS COLLATERAL (10yr)
-HEI.DE,175.79,171.13,,,N/A,0.0,,,N/A,NOT SCANNED,Symbol not in scanned universe
+HEI.DE,175.79,171.13,191.3,8.82,BUY,33.3,59.6,83.0,BUSINESS COLLATERAL (10yr),BUY MORE (DCA OK),Score=83.0 | PnL=+8.8% | BUSINESS COLLATERAL (10yr)

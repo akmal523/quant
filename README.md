@@ -8,16 +8,16 @@ A modular Python pipeline for systematic equity analysis. Scans a 65-asset, 14-s
 
 ## Features
 
-- **Dynamic sector universe** — 65 instruments across 14 strategic sectors (Uranium, Defense, Cybersecurity, Gold, Quantum Computing, Logistics, and more)
-- **Local FinBERT NLP** — deterministic sentiment scores in `[−100, +100]` mapped directly to mathematical weights; no API key, no rate limits
-- **EUR-normalised pricing** — full FX conversion chain (GBX→GBP→EUR, USD→EUR, cross-rate fallback) applied before any indicator calculation
-- **Composite score (0–100)** across three buckets: Fundamental (PE/PEG/ROE) + Technical (RSI/SMA50) + GeoSentiment (geo-risk heuristic + FinBERT)
-- **Sector-relative valuation** — sector median PE bonus for assets trading at a discount to peers
-- **Investment horizon classification** — every asset assigned to RETIREMENT (20yr+), BUSINESS COLLATERAL (10yr), or SPECULATIVE (short-term)
-- **12-month backtest** — no lookahead bias, ATR-based stop-hit detection
-- **Portfolio audit** — reads `portfolio.csv`, issues URGENT SELL / BUY MORE (DCA OK) / HOLD per holding
-- **Ranked output** — Global Top 3 + Top 3 per Sector in terminal; `.csv` and conditional-colour `.xlsx` in `/outputs`
-- **Resilient news fetching** — Google News RSS primary, 3-retry exponential backoff, 5 User-Agent rotation, yfinance fallback
+* **Dynamic sector universe** — ~300 instruments across 20 strategic sectors (Uranium, Semiconductors, AI & Cloud, Defense, Precious Metals, and more)
+* **Local FinBERT NLP** — deterministic sentiment scores in `[−100, +100]` mapped directly to mathematical weights; no API key, no rate limits
+* **EUR-normalised pricing** — full FX conversion chain (GBX→GBP→EUR, USD→EUR, cross-rate fallback) applied before any indicator calculation
+* **Composite score (0–100)** across three buckets: Fundamental (PE/PEG/ROE) + Technical (RSI/SMA50) + GeoSentiment (geo-risk heuristic + FinBERT)
+* **Sector-relative valuation** — sector median PE bonus for assets trading at a discount to peers
+* **Investment horizon classification** — every asset assigned to RETIREMENT (20yr+), BUSINESS COLLATERAL (10yr), or SPECULATIVE (short-term)
+* **12-month backtest** — no lookahead bias, ATR-based stop-hit detection
+* **Portfolio audit** — reads `portfolio.csv`, issues URGENT SELL / BUY MORE (DCA OK) / HOLD per holding
+* **Ranked output** — Global Top 3 + Top 3 per Sector in terminal; `.csv` and conditional-colour `.xlsx` in `/outputs`
+* **Resilient news fetching** — Google News RSS primary, 3-retry exponential backoff, 5 User-Agent rotation, yfinance fallback
 
 ---
 
@@ -46,24 +46,30 @@ quant/
 
 ---
 
-## Sector Universe (65 instruments)
+## Sector Universe (~300 instruments)
 
-| Sector | Instruments |
-|---|---|
-| Uranium / Nuclear | Cameco, NexGen Energy, Centrus Energy, BWX Technologies, URA ETF, URNM ETF |
-| Energy | Vistra, RWE, Siemens Energy, Constellation Energy, Equinor, Transocean, Technip Energies, Eni |
-| Defense | BAE Systems, Rheinmetall, Northrop Grumman, L3Harris, Leonardo |
-| Cybersecurity | CrowdStrike, Palo Alto Networks, SentinelOne, Fortinet |
-| Gold / Precious Metals | Newmont, Barrick Gold, Agnico Eagle, Northern Star, VanEck GDX |
-| Quantum Computing | IBM, IonQ, Rigetti Computing, D-Wave Quantum |
-| Logistics / Shipping | Deutsche Post, AP Moller-Maersk, Hapag-Lloyd, FedEx |
-| Materials / Mining | Albemarle, Heidelberg Materials, Neo Performance, Zinnwald Lithium |
-| Agriculture / Chemicals | Yara International, Bayer, Ecolab |
-| Water / Environment | Veolia, L&G Clean Water ETF |
-| Life Sciences | Sartorius Vz, Thermo Fisher |
-| Finance | Vonovia, Raiffeisen Bank |
-| Technology | Samsung |
-| Broad ETFs | MSCI World (IWDA), EM IMI (EIMI), LIT, Short S&P500 (SH), Global Clean Energy |
+| Sector | Example Instruments |
+| --- | --- |
+| **Uranium / Nuclear** | Cameco, NexGen Energy, Centrus Energy, BWX Technologies, URA ETF |
+| **Energy (Utilities/Renewables)** | Vistra, Constellation Energy, NextEra Energy |
+| **Oil & Gas** | ExxonMobil, Chevron, Shell |
+| **Defense** | BAE Systems, Rheinmetall, Northrop Grumman, L3Harris |
+| **Cybersecurity** | CrowdStrike, Palo Alto Networks, SentinelOne, Fortinet |
+| **Gold / Precious Metals** | Newmont, Barrick Gold, Agnico Eagle |
+| **Silver & Royalties** | Pan American Silver, Wheaton Precious Metals |
+| **Copper & Battery Metals** | Freeport-McMoRan, Southern Copper |
+| **Lithium** | Albemarle, SQM |
+| **Quantum Computing** | IBM, IonQ, Rigetti Computing, D-Wave |
+| **Semiconductors** | Nvidia, AMD, ASML, TSMC |
+| **AI & Cloud** | Microsoft, Alphabet, Amazon |
+| **Logistics / Shipping** | Deutsche Post, AP Moller-Maersk, Hapag-Lloyd, FedEx |
+| **Finance & Banking** | JPMorgan, Goldman Sachs, HSBC |
+| **Insurance** | Allianz, Munich Re, Axa |
+| **Healthcare / Pharma** | Eli Lilly, Novo Nordisk, Johnson & Johnson |
+| **Water & Environment** | Veolia, Xylem, L&G Clean Water ETF |
+| **Agriculture / Chemicals** | Yara International, Bayer, Ecolab |
+| **Real Estate (REIT)** | Prologis, American Tower |
+| **Broad ETFs** | MSCI World (IWDA), EM IMI (EIMI), LIT, Short S&P500 (SH) |
 
 To add or remove instruments, edit `SECTOR_UNIVERSE` in `universe.py`. The rest of the pipeline adapts automatically.
 
