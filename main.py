@@ -120,7 +120,7 @@ def run_pipeline():
         horizon = classify_horizon(info.get("dividendYield"), info.get("beta"), f_data.get("ROE"), f_data.get("PE"))
         
         # 6. Backtest (Window-based)
-        bt_res = run_historical_backtest(hist)
+        bt_res = run_macro_backtest(hist)
         
         results.append({
             "Symbol": symbol,
@@ -135,6 +135,9 @@ def run_pipeline():
             "Horizon": horizon,
             "Backtest_PnL": bt_res["Backtest_PnL_pct"],
             "Backtest_Status": bt_res["Backtest_Signal"],
+            "BT_WinRate": bt_res["BT_WinRate_pct"],
+            "BT_Avg_PnL": bt_res["BT_Avg_PnL_pct"],
+            "BT_Trades": bt_res["BT_Trades"],
             "PE": f_data.get("PE"),
             "RSI": curr_rsi,
             "Upside_pct": round(upside, 1)
