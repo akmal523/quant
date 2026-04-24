@@ -44,7 +44,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         buy_price = p_row["Buy_Price"]
         
         if symbol not in scan_map:
-            rows.append({**p_row, "Audit_Decision": "NOT SCANNED", "Reasoning": "Asset not in current universe"})
+            rows.append({**p_row, "Audit_Decision": "NOT SCANNED", "Reasoning": "Asset not in current universe", "Total_Score": 0, "Signal": "N/A"})
             continue
 
         s = scan_map[symbol]
