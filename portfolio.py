@@ -79,3 +79,25 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         })
 
     return pd.DataFrame(rows)
+
+def print_audit_report(audit_df: pd.DataFrame) -> None:
+    """Print the formatted portfolio audit to the terminal."""
+    w = 165
+    print("\n" + "=" * w)
+    print("  PORTFOLIO AUDIT REPORT")
+    print("=" * w)
+    
+    print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>10} {'Score':>8} {'Signal':<10} {'Reasoning'}")
+    print("  " + "-" * 130)
+    
+    for _, row in audit_df.iterrows():
+        pnl = row.get("PnL_pct", 0)
+        pnl_str = f"{pnl:+.1f}%" if pd.notnull(pnl) else "N/A"
+        
+        print(f"  {str(row.get('Symbol', '')):<10} "
+              f"{str(row.get('Audit_Decision', '')):<20} "
+              f"{pnl_str:>10} "
+              f"{int(row.get('Total_Score', 0)):>8} "
+              f"{str(row.get('Signal', '')):<10} "
+              f"{str(row.get('Reasoning', ''))}")
+    print("\n")
