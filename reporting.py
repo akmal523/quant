@@ -71,7 +71,7 @@ def _row(r: pd.Series) -> None:
         f"{str(r.get('Name',''))[:28]:<28}  "
         f"{int(r.get('Total_Score', 0)):>5}  "
         f"{rsi if rsi is None else f'{rsi:.0f}':>5}  "
-        f"{fb  if fb  is None else f'{fb:+.0f}':>5}  "
+        f"{'N/A' if fb is None else f'{fb:+.0f}':>5}  "
         f"{str(r.get('Signal','')):<6}  "
         f"{str(r.get('Horizon',''))[:28]:<28}  "
         f"{str(r.get('Reasoning',''))}"

@@ -102,7 +102,9 @@ def run_pipeline():
         # 3. GeoSentiment (Weighted & Batched)
         headlines = get_recent_headlines(symbol, d["display_name"], max_items=32)
         sent_data = analyze_news_context_v2(headlines)
-        
+        if not sent_data:
+            sent_data = {"score": 0, "reasoning": "No news data."}
+            
         # 4. Final Composite
         total_score = composite_score_v3(
             pe              = f_data.get("PE"),
@@ -130,7 +132,8 @@ def run_pipeline():
             "Total_Score": total_score,
             "Stewardship": s_val,
             "Technical": t_val,
-            "Sentiment": round(sent_data["score"], 1),
+            "FinBERT_Score": round(sent_data.get("score", 0), 1),
+            "Reasoning": sent_data.get("reasoning", "N/A"),
             "Signal": signal,
             "Horizon": horizon,
             "Backtest_PnL": bt_res.get("Backtest_PnL_pct", 0.0),
