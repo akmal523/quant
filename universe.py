@@ -14,6 +14,15 @@ from __future__ import annotations
 
 SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
 
+# ── Agriculture / Chemicals ───────────────────────────────────────────────
+    "Agriculture / Chemicals": {
+        "Yara International":    "YAR.OL",
+        # ... [existing items] ...
+        "CNH Industrial":        "CNH",
+        "MOO Agriculture ETF":   "MOO",
+        "Heidelberg Materials":  "HEI.DE",
+    },
+
     # ── Uranium / Nuclear ─────────────────────────────────────────────────────
     "Uranium / Nuclear": {
         "Cameco":                "CCJ",

@@ -30,7 +30,7 @@ _AUDIT_FILL = {
 def print_terminal_report(scan_df: pd.DataFrame, audit_df: pd.DataFrame | None = None) -> None:
     w = 165
     print("\n" + "=" * w)
-    print("  QUANT-AI SECTOR SCANNER  v5  —  FinBERT Edition")
+    print("  QUANT-AI SECTOR SCANNER  v6  —  FinBERT Edition")
     print("=" * w)
 
     # Global Top-3

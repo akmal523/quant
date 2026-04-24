@@ -133,7 +133,7 @@ def run_pipeline():
             "Stewardship": s_val,
             "Technical": t_val,
             "FinBERT_Score": round(sent_data.get("score", 0), 1),
-            "Reasoning": sent_data.get("reasoning", "N/A"),
+            "Reasoning": ", ".join(sent_data.get("drivers", [])) if sent_data.get("drivers") else "N/A",
             "Signal": signal,
             "Horizon": horizon,
             "Backtest_PnL": bt_res.get("Backtest_PnL_pct", 0.0),
