@@ -120,7 +120,7 @@ def run_pipeline():
         horizon = classify_horizon(info.get("dividendYield"), info.get("beta"), f_data.get("ROE"), f_data.get("PE"))
         
         # 6. Backtest (Window-based)
-        bt_res = run_macro_backtest(hist)
+        bt_res = run_historical_backtest(hist)
         
         results.append({
             "Symbol": symbol,

@@ -102,7 +102,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Tenable":               "TENB",
         "Qualys":                "QLYS",
         "Check Point Software":  "CHKP",
-        "CyberArk":              "CYBR",
+        "Rapid7":                "RPD",
         "NCC Group":             "NCC.L",
         "CIBR ETF":              "CIBR",
         "BUG ETF":               "BUG",
@@ -236,7 +236,6 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "ZIM Integrated":        "ZIM",
         "Star Bulk Carriers":    "SBLK",
         "Navios Maritime":       "NMM",
-        "Heidelberg Materials":  "HEI.DE",
     },
 
     # ── Finance & Banking ─────────────────────────────────────────────────────
@@ -318,7 +317,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Bunge Global":          "BG",
         "Deere & Company":       "DE",
         "AGCO Corporation":      "AGCO",
-        "CNH Industrial":        "CNHI",
+        "CNH Industrial":        "CNH",
         "MOO Agriculture ETF":   "MOO",
     },
 

@@ -4,6 +4,7 @@ Batched inference with temporal decay.
 """
 from __future__ import annotations
 import logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
 import time
 from typing import Optional
 import numpy as np
