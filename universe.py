@@ -318,7 +318,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "AGCO Corporation":      "AGCO",
         "CNH Industrial":        "CNH",
         "MOO Agriculture ETF":   "MOO",
-        "Heidelberg Materials".  "HEI.DE",
+        "Heidelberg Materials":  "HEI.DE",
     },
 
     # ── Real Estate (REIT) ────────────────────────────────────────────────────
