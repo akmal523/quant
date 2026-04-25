@@ -159,6 +159,7 @@ def export_csv(
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
 
+    scan_df = scan_df.sort_values(by="Total_Score", ascending=False)
     scan_path = os.path.join(out_dir, "market_scan.csv")
     scan_df.to_csv(scan_path, index=False)
     print(f"  [Report] CSV    → {scan_path}")

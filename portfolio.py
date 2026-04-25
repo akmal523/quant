@@ -67,12 +67,12 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         elif s["RSI"] > 80:
             decision = "URGENT SELL"
             reasoning = "Extreme overbought exhaustion"
-
+        
         rows.append({
             "Symbol": symbol,
             "PnL_pct": round(pnl_pct, 2),
             "Audit_Decision": decision,
-            "Reasoning": reasoning,
+            "Reasoning": f"{reasoning} | News: {s.get('Reasoning', 'N/A')}",
             "Total_Score": s["Total_Score"],
             "Stewardship": s["Stewardship"],
             "Signal": s["Signal"]
