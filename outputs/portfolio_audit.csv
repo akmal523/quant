@@ -1,3 +1,3 @@
 Symbol,PnL_pct,Audit_Decision,Reasoning,Total_Score,Stewardship,Signal
-ECL,6.16,URGENT SELL,Scoring model indicates exit,39.65036253251498,10.0,SELL
-HEI.DE,5.78,URGENT SELL,Scoring model indicates exit,30.318229645487463,5.0,SELL
+ECL,6.16,URGENT SELL,"Scoring model indicates exit | News: Ecolab Inc. (ECL): On the Cusp of Breakout Growth on CoolIT Systems Purchase - Yahoo Finance, Siemens and Ecolab Partner to Help Industry Reduce Greenhouse Gas Emissions, Improve Production - Siemens, Ecolab Unleashes Water Intelligence to Drive Growth in the AI Era - Business Wire",41.76534143089539,10.0,SELL
+HEI.DE,5.78,URGENT SELL,"Scoring model indicates exit | News: Heidelberg Materials doubles stake in Turkish cement producer, gains majority control - S&P Global, Heidelberg Materials Gains Majority Control of Akcansa in Turkey | 2026 - News and Statistics - IndexBox, Heidelberg Materials profit plunges 57% on raw material costs, steep competition - The Business Standard",30.613742023702464,5.0,SELL
