@@ -25,6 +25,9 @@ def rsi(series: pd.Series, period: int = 14) -> float | None:
     loss  = (-delta.clip(upper=0)).rolling(period).mean()
     rs    = gain / loss.replace(0, np.nan)
     rsi_s = 100 - (100 / (1 + rs))
+    rsi_s = rsi_s.dropna()
+    if rsi_s.empty:
+        return None
     v = rsi_s.iloc[-1]
     return float(v) if pd.notna(v) else None
 
