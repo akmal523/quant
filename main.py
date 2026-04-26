@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback as _traceback
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
-import traceback
 
 from universe import SECTOR_UNIVERSE
 from config import TOP_GLOBAL, TOP_PER_SECTOR, MAX_ASYNC_WORKERS
@@ -44,6 +44,29 @@ logger = logging.getLogger(__name__)
 
 
 # ── Async Data Acquisition ────────────────────────────────────────────────────
+
+
+def _prewarm_yfinance_session() -> None:
+    """
+    Fetch SPY history once, sequentially, before any parallel workers start.
+
+    yfinance stores the Yahoo Finance crumb (auth token) in a module-level
+    cache after the first successful request. Pre-warming initialises this
+    cache so all subsequent parallel workers share the same valid crumb
+    instead of each racing to acquire one and invalidating each other.
+
+    Root cause of 401 "Invalid Crumb" bursts: N threads simultaneously
+    reach the crumb-refresh code path, each fetching a new crumb and
+    writing it to the shared cache, making all other threads' crumbs stale.
+    One pre-warm request eliminates the race entirely.
+    """
+    import yfinance as _yf
+    try:
+        _yf.download("SPY", period="2d", progress=False, auto_adjust=True)
+        logger.info("[Fetch] yfinance session pre-warmed (crumb cached).")
+    except Exception as exc:
+        logger.warning("[Fetch] Pre-warm failed: %s — continuing anyway.", exc)
+
 
 def _fetch_ticker_blocking(
     symbol:       str,
@@ -98,14 +121,14 @@ def _fetch_ticker_blocking(
             err = str(exc)
             # 401 = crumb session invalidated by concurrent requests
             if "401" in err and attempt < 2:
-                wait = 2 ** attempt + random.uniform(0.5, 2.0)
+                wait = 3 ** attempt + random.uniform(1.0, 3.0)
                 logger.debug(
                     "[Fetch] 401 for %s (attempt %d). Retry in %.1fs",
                     symbol, attempt + 1, wait,
                 )
                 time.sleep(wait)
                 continue  # construct fresh Ticker() on next iteration
-            logger.error("[Fetch] Failed %s: %s\n%s", symbol, exc, traceback.format_exc().strip())
+            logger.error("[Fetch] Failed %s: %s\n%s", symbol, exc, _traceback.format_exc().strip())
             return None
 
     return None
@@ -129,7 +152,7 @@ async def _fetch_one_async(
     idx * 0.15 provides a deterministic initial stagger across workers.
     """
     async with semaphore:
-        jitter = idx * 0.15 + random.uniform(0, 0.3)
+        jitter = idx * 0.25 + random.uniform(0, 1.0)
         return await loop.run_in_executor(
             executor,
             _fetch_ticker_blocking,
@@ -146,7 +169,7 @@ async def _run_data_acquisition(sector_universe: dict) -> dict:
     MAX_ASYNC_WORKERS thread pool is sized to match (no thread starvation).
     """
     loop      = asyncio.get_event_loop()
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(4)  # reduced: 8→4 to avoid Yahoo crumb invalidation
 
     flat: list[tuple[str, str, str, int]] = []
     for sector_name, instruments in sector_universe.items():
@@ -187,8 +210,14 @@ async def _run_news_acquisition(
 async def _async_pipeline() -> None:
     results: list[dict] = []
 
+    # Suppress yfinance internal 401 error logs — we handle retries ourselves
+    import logging as _logging
+    _logging.getLogger("yfinance").setLevel(_logging.CRITICAL)
+
+
     # ── Phase 1: Parallel data acquisition ───────────────────────────────────
     total = sum(len(v) for v in SECTOR_UNIVERSE.values())
+    _prewarm_yfinance_session()
     logger.info("Phase 1: Async data acquisition (%d tickers)...", total)
     raw_data_map = await _run_data_acquisition(SECTOR_UNIVERSE)
     logger.info("Phase 1 complete: %d / %d tickers loaded.", len(raw_data_map), total)

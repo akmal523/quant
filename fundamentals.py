@@ -179,7 +179,7 @@ def _fetch_yfinance_fallback(symbol: str) -> dict | None:
     for attempt in range(3):
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info or {}   # 401 responses return None, not a dict
+            info   = ticker.info or {}   # 401 responses return None, not a dict
 
             pe  = info.get("trailingPE") or info.get("forwardPE")
             peg = info.get("pegRatio")
