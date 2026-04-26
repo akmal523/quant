@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
+import traceback
 
 from universe import SECTOR_UNIVERSE
 from config import TOP_GLOBAL, TOP_PER_SECTOR, MAX_ASYNC_WORKERS
@@ -104,7 +105,7 @@ def _fetch_ticker_blocking(
                 )
                 time.sleep(wait)
                 continue  # construct fresh Ticker() on next iteration
-            logger.error("[Fetch] Failed %s: %s", symbol, exc)
+            logger.error("[Fetch] Failed %s: %s\n%s", symbol, exc, traceback.format_exc().strip())
             return None
 
     return None
@@ -145,7 +146,7 @@ async def _run_data_acquisition(sector_universe: dict) -> dict:
     MAX_ASYNC_WORKERS thread pool is sized to match (no thread starvation).
     """
     loop      = asyncio.get_event_loop()
-    semaphore = asyncio.Semaphore(8)
+    semaphore = asyncio.Semaphore(4)
 
     flat: list[tuple[str, str, str, int]] = []
     for sector_name, instruments in sector_universe.items():
