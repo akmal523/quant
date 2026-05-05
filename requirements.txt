@@ -1,0 +1,14 @@
+# requirements.txt
+yfinance>=0.2.40
+pandas>=2.0
+numpy>=1.26
+torch>=2.2
+transformers>=4.40
+openpyxl>=3.1
+python-dotenv>=1.0
+aiohttp>=3.9
+tenacity>=8.2
+spacy>=3.7
+duckdb>=1.0.0
+antiorm>=1.2.1 
+db>=0.1.1
