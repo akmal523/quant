@@ -1,0 +1,16 @@
+# Databases & Caches
+*.duckdb
+*.duckdb.wal
+*.parquet
+__pycache__/
+.cache/
+
+# Output Reports
+outputs/
+*.csv
+!portfolio.csv
+
+# HuggingFace / ML Models (Catches that 77MB file)
+*.safetensors
+*.bin
+*.h5
