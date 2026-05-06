@@ -31,6 +31,16 @@ from fundamentals import get_fundamentals
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
+import logging
+import os
+
+# Suppress library noise
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("yfinance").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+# Set your own logger to WARNING to hide "INFO: Loading..."
+logging.basicConfig(level=logging.WARNING, format='%(message)s')
+
 
 def deduce_currency(symbol: str) -> str:
     """Detect native currency from Yahoo Finance ticker suffix."""
@@ -187,25 +197,42 @@ def main() -> None:
                 results.append(res)
 
 # --- REPORTING ---
+    # --- 1. DATA PROCESSING ---
     final_df = pd.DataFrame(results)
     final_df.to_csv("outputs/market_scan_v8.csv", index=False)
-    
-    # 1. Print Full Market Scan to Console
+
+    # --- 2. CURRENCY DISPLAY ---
+    from currency import get_eur_rate
+    print(f"\n CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
+
+    # --- 3. TOP 3 OPPORTUNITIES ---
+    print("\n" + "="*40)
+    print("TOP 3 BUY OPPORTUNITIES")
+    print("="*40)
+    # Filter for BUY signals, sort by Active_Score, and take top 3
+    top_buys = final_df[final_df['Signal'] == 'BUY'].sort_values(by='Active_Score', ascending=False).head(3)
+    if not top_buys.empty:
+        print(top_buys[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
+    else:
+        print("No high-conviction BUY signals found.")
+
+    # --- 4. FULL MARKET SCAN ---
     print("\n" + "="*100)
-    print("FULL MARKET SCAN REPORT")
+    print("FULL MARKET SCAN")
     print("="*100)
     print(final_df.to_string(index=False))
 
-    logger.info("\nExecuting Portfolio Audit...")
+    # --- 5. PORTFOLIO AUDIT ---
     if not port_df.empty:
         audit_res = audit_portfolio(port_df, final_df)
         audit_res.to_csv("outputs/portfolio_audit.csv", index=False)
         
-        # 2. Print Full Portfolio Audit to Console
         print("\n" + "="*100)
-        print(" FULL PORTFOLIO AUDIT REPORT")
+        print("FULL PORTFOLIO AUDIT")
         print("="*100)
-        print(audit_res.to_string(index=False))
+        # We only show the columns relevant for your audit
+        cols = ['Symbol', 'PnL_pct', 'Audit_Decision', 'Active_Score', 'Signal']
+        print(audit_res[cols].to_string(index=False))
         print("\n")
 
 if __name__ == "__main__":
