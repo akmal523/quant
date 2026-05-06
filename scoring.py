@@ -144,9 +144,13 @@ def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | 
     peg_v = float(peg) if is_valid(peg) else 9.0
     roe_v = float(roe) if is_valid(roe) else 0.0
 
-    if 0 < pe_v < STRUCT_MAX_PE: grade += 20
+    # Change the fixed +20 bonuses to scaled bonuses
+    if 0 < pe_v < 15.0: grade += 25  # Reward deep value more
+    elif 0 < pe_v < 25.0: grade += 15
+    
     if 0 < peg_v < STRUCT_MAX_PEG: grade += 15
-    if roe_v > STRUCT_MIN_ROE: grade += 20
+    if roe_v > 0.25: grade += 25     # Reward elite efficiency
+    elif roe_v > 0.15: grade += 15
 
     return float(min(100.0, grade))
 
