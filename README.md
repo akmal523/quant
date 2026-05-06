@@ -94,6 +94,34 @@ python3 main.py
 
 ---
 
+To make your **README.md** even more professional, we should add a dedicated section on **Asset Classification**. This helps anyone reading the code (including your future self) understand why the engine might suggest "Retirement" for one stock and "Speculative" for another, even if both have a "BUY" signal.
+
+Here is the section formatted for your Markdown file:
+
+---
+
+## Strategic Classification & Horizons
+
+| Horizon | Target Profile | Engine Requirements |
+| :--- | :--- | :--- |
+| **RETIREMENT (20yr+)** | "Set and Forget" assets. Exceptional compounders with wide moats. | **Structural Grade > 85** + **Stewardship > 20**. High ROE and minimal debt. |
+| **BUSINESS COLLATERAL (10yr)** | Stable blue-chips with lower volatility. Assets you could borrow against. | **Structural Grade 70–85**. Reliable interest coverage and price stability. |
+| **LIQUIDITY CORE (12-Mo)** | Mid-term growth or value plays optimized for capital extraction. | **High Tactical Grade** (Timing) + **Decent Structural Grade**. |
+| **SPECULATIVE (Short-Term)** | Momentum plays or turnarounds. High risk, high reward. | **Structural Grade < 50** OR fails the **Stewardship Floor** (High Debt/Low P/B). |
+
+### The "Quality Floor" Logic
+A unique feature of this engine is the **Stewardship Override**. Even if a stock has incredible price momentum (High Tactical Grade), the engine will **force-downgrade** the horizon to **SPECULATIVE** if:
+*   The **Debt-to-Equity** ratio exceeds sector-safe limits.
+*   The **Interest Coverage Ratio (ICR)** suggests the company is struggling to pay its bills.
+*   The **Price-to-Book** ratio (for Financials) indicates the market sees a "black hole" on the balance sheet.
+
+### Why "Hold" vs. "DCA OK"?
+The engine differentiates between market signals and your actual bank account:
+*   **BUY MORE (DCA OK):** The asset is high quality, and your current position is either at a loss or only slightly profitable. It's time to build the position.
+*   **HOLD:** The asset is a "BUY" in the open market, but **you are already up 15%+**. The engine prevents you from "averaging up" too aggressively, protecting your realized gains.
+
+---
+
 ## Output Signals
 
 * **BUY MORE (DCA OK)**: Asset is high quality (Active Score > 80) and currently trading at or below your entry, or within a high-conviction window.
