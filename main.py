@@ -12,6 +12,7 @@ from database import get_connection
 import duckdb
 
 # Local Module Imports
+from currency import apply_fx_conversion
 from portfolio import load_portfolio, audit_portfolio, print_audit_report
 from indicators import add_all_indicators
 from sec_edgar import fetch_latest_8k
@@ -30,12 +31,40 @@ from fundamentals import get_fundamentals
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def deduce_currency(symbol: str) -> str:
+    """Detect native currency from Yahoo Finance ticker suffix."""
+    if "." not in symbol: 
+        return "USD"  # US stocks have no suffix (e.g., ECL, HMY)
+    
+    suffix = symbol.split(".")[-1].upper()
+    eur_zones = {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}
+    
+    if suffix in eur_zones: return "EUR"
+    if suffix == "L": return "GBX"  # London trades in pence
+    if suffix == "SW": return "CHF" # Swiss Francs (Roche)
+    if suffix == "CO": return "DKK" # Danish Krone
+    if suffix == "OL": return "NOK" # Norwegian Krone
+    if suffix == "ST": return "SEK" # Swedish Krona
+    if suffix == "TO": return "CAD" # Canadian Dollar
+    if suffix == "AX": return "AUD" # Australian Dollar
+    if suffix == "KS": return "KRW" # Korean Won
+    return "USD"
+
+
 def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sector: str, precalc_nlp: dict | None) -> dict | None:
     try:
         # --- 1. Technical & Indicators ---
         price_hist = df.drop(columns=["Symbol", "Sector"], errors="ignore")
+        
+        # [NEW] Translate all foreign prices to EUR dynamically
+        native_ccy = deduce_currency(symbol)
+        price_hist = apply_fx_conversion(price_hist, from_currency=native_ccy, to_currency="EUR")
+        
         hist_ind = add_all_indicators(price_hist)
         garch_vol = hist_ind["GARCH_Vol"]
+        
+        # ... (rest of the function stays exactly the same)
         
         # --- 2. Market State (HMM) ---
         hmm_prob_bull = hmm_market_state_score(hist_ind["Close"], garch_vol) / 15.0
@@ -163,7 +192,7 @@ def main() -> None:
     
     # 1. Print Full Market Scan to Console
     print("\n" + "="*100)
-    print(" 📊 FULL MARKET SCAN REPORT")
+    print("FULL MARKET SCAN REPORT")
     print("="*100)
     print(final_df.to_string(index=False))
 
