@@ -1,10 +1,13 @@
 """
-currency.py — FX helpers: rate fetching, OHLCV normalisation to EUR.
+currency.py — FX helpers: dynamic rate fetching, OHLCV normalisation to EUR.
+No hardcoded fallbacks.
 """
 from __future__ import annotations
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import urllib.request
+import json
 
 from config   import CONVERT_TO_EUR
 from universe import CURRENCY_SYMBOLS
@@ -12,27 +15,38 @@ from universe import CURRENCY_SYMBOLS
 # Module-level EUR/USD rate cache (fetched once per process).
 _eur_rate_cache: float | None = None
 
-
 def get_eur_rate() -> float:
     """
-    Fetch live EUR/USD rate. Cached for lifetime of the process.
-    Falls back to 1.08 on failure.
+    Fetch live EUR/USD rate dynamically. Cached for lifetime of the process.
+    Tries Yahoo Finance first, then falls back to a public European API.
     """
     global _eur_rate_cache
     if _eur_rate_cache is not None:
         return _eur_rate_cache
+    
+    # Method 1: Yahoo Finance (Using Ticker, which is more stable than download)
     try:
-        df = yf.download("EURUSD=X", period="5d", auto_adjust=True, progress=False)
-        if not df.empty:
+        tkr = yf.Ticker("EURUSD=X")
+        df = tkr.history(period="5d")
+        if not df.empty and "Close" in df.columns:
             rate = float(df["Close"].iloc[-1])
-            _eur_rate_cache = rate
-            print(f"  [FX] EUR/USD = {rate:.4f}")
-            return rate
+            if 0.8 < rate < 1.5: # Sanity check
+                _eur_rate_cache = rate
+                print(f"  [FX] Live Rate (Yahoo) EUR/USD = {rate:.4f}")
+                return rate
     except Exception:
         pass
-    _eur_rate_cache = 1.08
-    print(f"  [FX] EUR/USD fallback = {_eur_rate_cache}")
-    return _eur_rate_cache
+
+    # Method 2: Frankfurter API (Free, open-source ECB European exchange rates)
+    try:
+        req = urllib.request.urlopen("https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=5)
+        data = json.loads(req.read())
+        rate = float(data["rates"]["USD"])
+        _eur_rate_cache = rate
+        print(f"  [FX] Live Rate (ECB API) EUR/USD = {rate:.4f}")
+        return rate
+    except Exception as e:
+        raise RuntimeError(f"CRITICAL: Could not fetch real EUR/USD exchange rate from any source. Halting to prevent bad math. Error: {e}")
 
 
 def currency_symbol(code: str) -> str:
@@ -46,13 +60,6 @@ def apply_fx_conversion(
 ) -> pd.DataFrame:
     """
     Normalise OHLCV Close/High/Low/Open columns to target currency.
-
-    Conversion chain:
-      GBX → GBP  (divide by 100, pence normalisation)
-      USD → EUR  (via EURUSD=X rate — 1/rate)
-      GBP → EUR  (via GBPEUR=X direct rate)
-      other → EUR  (via <CCY>EUR=X, fallback to USD intermediary)
-      EUR → EUR  (pass-through)
     """
     src = (from_currency or "").upper().strip()
     tgt = (to_currency  or "EUR").upper().strip()
@@ -79,16 +86,18 @@ def apply_fx_conversion(
         else:
             ticker = f"{src}EUR=X"
             try:
-                fx_df = yf.download(ticker, period="5d", auto_adjust=True, progress=False)
+                # Upgraded to use Ticker for stability
+                fx_df = yf.Ticker(ticker).history(period="5d")
                 if not fx_df.empty:
                     multiplier = float(fx_df["Close"].iloc[-1])
             except Exception:
                 pass
+            
             if multiplier is None:
-                # Fallback: convert through USD
+                # Fallback: convert through USD dynamically
                 try:
                     usd_ticker = f"{src}USD=X"
-                    fx_usd = yf.download(usd_ticker, period="5d", auto_adjust=True, progress=False)
+                    fx_usd = yf.Ticker(usd_ticker).history(period="5d")
                     if not fx_usd.empty:
                         usd_rate = float(fx_usd["Close"].iloc[-1])
                         multiplier = usd_rate / get_eur_rate()
