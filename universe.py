@@ -13,7 +13,7 @@ Sectors:
 from __future__ import annotations
 
 CORE_INDEX: dict[str, str] = {
-    "MSCI World": "URTH" 
+    "MSCI World": "IWDA.AS" 
 }
 
 SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
