@@ -133,7 +133,16 @@ def stewardship_score(
 # ── Bifurcated Vectors ────────────────────────────────────────────────────────
 
 def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | None, stewardship_val: float) -> float:
-    grade = stewardship_val * 1.5
+    # --- [NEW] ETF BYPASS LOGIC ---
+    # ETFs don't have Debt or P/B, so their stewardship defaults to 0.0 or 18.0
+    # If PE and ROE are both missing, we assume it is a broad ETF
+    if pe is None and roe is None:
+        return 85.0
+
+    # --- NORMAL STOCK LOGIC ---
+    grade = stewardship_val * 1.5 
+    
+    # ... (rest of the function stays exactly the same)
     
     # Use .get() or check for math.isnan
     import math

@@ -12,6 +12,10 @@ Sectors:
 """
 from __future__ import annotations
 
+CORE_INDEX: dict[str, str] = {
+    "MSCI World": "URTH" 
+}
+
 SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     # ── Uranium / Nuclear ─────────────────────────────────────────────────────
     "Uranium / Nuclear": {
@@ -343,6 +347,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
 
     # ── Broad / Macro ETFs ────────────────────────────────────────────────────
     "Broad ETFs": {
+        "MSCI World":                "URTH",
         "MSCI World (IWDA)":         "IWDA.AS",
         "MSCI World (SWRD)":         "SWRD.L",
         "MSCI EM IMI (EIMI)":        "EIMI.L",
@@ -393,6 +398,28 @@ def symbol_to_sector(symbol: str) -> str:
 def get_sector_symbols(sector: str) -> dict[str, str]:
     """Return {name: symbol} for a single named sector."""
     return SECTOR_UNIVERSE.get(sector, {})
+
+
+def is_etf(symbol: str) -> bool:
+    """Returns True if the symbol is identified as an ETF or Index."""
+    # 1. If it is in the "Broad ETFs" sector, it's definitely an ETF
+    if symbol_to_sector(symbol) == "Broad ETFs":
+        return True
+        
+    # 2. Check the display name for obvious fund keywords
+    flat_universe = get_market_universe()
+    name = next((n for n, s in flat_universe.items() if s == symbol), "").lower()
+    
+    etf_keywords = ["etf", "ishares", "vaneck", "spdr", "select", "trust", "fund"]
+    if any(kw in name for kw in etf_keywords):
+        return True
+        
+    # 3. Hardcoded fallbacks for sneakily named ETFs
+    known_etfs = {"ICLN", "GLD", "SLV", "COPX", "GDX", "GDXJ", "SH", "SDS"}
+    if symbol in known_etfs:
+        return True
+        
+    return False
 
 
 def universe_stats() -> None:
