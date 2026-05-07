@@ -78,11 +78,17 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
         var_penalty = calculate_risk_penalty(returns)
         
         # --- 4. Stewardship & Fundamentals ---
-        s_val = stewardship_score_v2(f_data, sector)
-        struct_grade = evaluate_structural_grade(
-            pe=f_data.get("PE"), peg=f_data.get("PEG"), 
-            roe=f_data.get("ROE"), stewardship_val=s_val
-        )
+        if is_etf(symbol):
+            # [ETF BYPASS] Hardcode a perfect stewardship so it doesn't get downgraded to SPECULATIVE
+            s_val = 18.0 
+            struct_grade = 85.0
+        else:
+            # [NORMAL STOCK]
+            s_val = stewardship_score_v2(f_data, sector)
+            struct_grade = evaluate_structural_grade(
+                pe=f_data.get("PE"), peg=f_data.get("PEG"), 
+                roe=f_data.get("ROE"), stewardship_val=s_val
+            )
 
         # --- 5. Sentiment Logic (Bypassing DB in workers) ---
         if precalc_nlp:
@@ -91,16 +97,21 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
         else:
             text_to_analyze = raw_8k
             text_source = "SEC 8-K"
+            
             if not text_to_analyze:
                 from news import fetch_news_headlines
+                # Use the strict symbol to prevent URL crashes. 
+                # ETFs with no news will safely fall back to the 50.0 neutral score.
                 text_to_analyze = fetch_news_headlines(symbol)
                 text_source = "News RSS"
 
             if text_to_analyze:
                 nlp_data = score_corporate_document(text_to_analyze)
             else:
-                nlp_data = {"score": 0.0, "reasoning": "No data found.", "doc_hash": None}
-        
+                # If still nothing, give it a neutral 50 score so it doesn't penalize the ETF
+                neutral_score = 50.0 if is_etf(symbol) else 0.0
+                nlp_data = {"score": neutral_score, "reasoning": "No data found.", "doc_hash": None}        
+
         # --- 6. Tactical Grade & Allocation ---
         tact_grade = evaluate_tactical_grade(
             hmm_prob_bull=hmm_prob_bull, 
