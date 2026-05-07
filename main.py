@@ -8,11 +8,11 @@ import multiprocessing
 import numpy as np
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from database import get_connection
 import duckdb
 
 # Local Module Imports
-from currency import apply_fx_conversion
+from database import get_connection
+from currency import apply_fx_conversion, get_eur_rate
 from portfolio import load_portfolio, audit_portfolio, print_audit_report
 from indicators import add_all_indicators
 from sec_edgar import fetch_latest_8k
@@ -27,19 +27,15 @@ from scoring import (
     apply_fast_filter
 )
 from fundamentals import get_fundamentals
-
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
-
-import logging
-import os
+from universe import CORE_INDEX  
+from universe import is_etf
 
 # Suppress library noise
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("yfinance").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-# Set your own logger to WARNING to hide "INFO: Loading..."
 logging.basicConfig(level=logging.WARNING, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
 def deduce_currency(symbol: str) -> str:
@@ -74,8 +70,6 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
         hist_ind = add_all_indicators(price_hist)
         garch_vol = hist_ind["GARCH_Vol"]
         
-        # ... (rest of the function stays exactly the same)
-        
         # --- 2. Market State (HMM) ---
         hmm_prob_bull = hmm_market_state_score(hist_ind["Close"], garch_vol) / 15.0
         
@@ -89,8 +83,8 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
             pe=f_data.get("PE"), peg=f_data.get("PEG"), 
             roe=f_data.get("ROE"), stewardship_val=s_val
         )
-        
-        # --- 6. Sentiment Logic (Bypassing DB in workers) ---
+
+        # --- 5. Sentiment Logic (Bypassing DB in workers) ---
         if precalc_nlp:
             nlp_data = precalc_nlp
             text_source = "DuckDB Cache"
@@ -107,7 +101,7 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
             else:
                 nlp_data = {"score": 0.0, "reasoning": "No data found.", "doc_hash": None}
         
-        # --- 7. Tactical Grade & Allocation ---
+        # --- 6. Tactical Grade & Allocation ---
         tact_grade = evaluate_tactical_grade(
             hmm_prob_bull=hmm_prob_bull, 
             finbert_score=nlp_data.get("score", 0.0), 
@@ -133,8 +127,9 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, raw_8k: str, sect
         print(f"\n[FATAL WORKER CRASH] {symbol}: {str(e)}") # Forces output to your terminal
         return None
 
+
 def main() -> None:
-    logger.info("Loading localized database...")
+    logger.warning("Loading localized database...")
     conn = get_connection()
     
     try:
@@ -146,13 +141,19 @@ def main() -> None:
     grouped_data = {symbol: df for symbol, df in market_data.groupby("Symbol")}
     port_df = load_portfolio("portfolio.csv")
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
-    logger.info(f"Loaded Portfolio: {list(portfolio_symbols)}")
+    logger.warning(f"Loaded Portfolio: {list(portfolio_symbols)}")
+    
     # --- 1. Filtering ---
     survivors = {}
     survivor_funds = {}
     for i, (sym, df) in enumerate(grouped_data.items()):
         f_data = get_fundamentals(sym)
-        if sym in portfolio_symbols or apply_fast_filter(f_data):
+        
+        # Automatically let Portfolio items AND any ETF survive
+        is_portfolio = sym in portfolio_symbols
+        is_asset_etf = is_etf(sym)
+        
+        if is_portfolio or is_asset_etf or apply_fast_filter(f_data):
             survivors[sym] = df
             survivor_funds[sym] = f_data
     
@@ -196,13 +197,16 @@ def main() -> None:
                     conn.execute("INSERT OR REPLACE INTO nlp_scores (doc_hash, score) VALUES (?, ?)", [doc_hash, nlp_score])
                 results.append(res)
 
-# --- REPORTING ---
+    # --- REPORTING ---
+    if not results:
+        print("No assets passed the filters or completed scoring.")
+        return
+
     # --- 1. DATA PROCESSING ---
     final_df = pd.DataFrame(results)
     final_df.to_csv("outputs/market_scan_v8.csv", index=False)
 
     # --- 2. CURRENCY DISPLAY ---
-    from currency import get_eur_rate
     print(f"\n CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
 
     # --- 3. TOP 3 OPPORTUNITIES ---
@@ -230,7 +234,7 @@ def main() -> None:
         print("\n" + "="*100)
         print("FULL PORTFOLIO AUDIT")
         print("="*100)
-        # We only show the columns relevant for your audit
+        # Show columns relevant for audit
         cols = ['Symbol', 'PnL_pct', 'Audit_Decision', 'Active_Score', 'Signal']
         print(audit_res[cols].to_string(index=False))
         print("\n")

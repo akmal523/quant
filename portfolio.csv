@@ -1,5 +1,6 @@
 Symbol,Buy_Price,Amount_EUR
-ECL,232.31,226.56
-HEI.DE,175.85,167.05
-HMY,13.77,49.26
-ROG.SW,356.40,50.22
+URTH,121.19,76.16			#Core MSCI World USD
+HEI.DE,181.24,251.54			#Heidelberg Materials
+LMT,443.61,73.93			#Lockheed Martin
+HMY,13.77,57.41				#Harmony Gold Mining
+ROG.SW,356.40,50.59			#Roche

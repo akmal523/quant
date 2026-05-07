@@ -34,7 +34,9 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
-
+def evaluate_index_grade(hmm_prob):
+    # For a Core ETF, the grade is purely based on the HMM regime
+    return hmm_prob * 100
 
 def _get_from_cache(symbol: str) -> dict | None:
     conn = get_connection()
