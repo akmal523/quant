@@ -129,4 +129,3 @@ The engine differentiates between market signals and your actual bank account:
 ## Disclaimer
 
 All output is for informational purposes. Probabilistic models and NLP sentiment analysis involve inherent risk. **Past performance does not guarantee future results.**
-```
