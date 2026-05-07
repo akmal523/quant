@@ -4,13 +4,24 @@
 *.parquet
 __pycache__/
 .cache/
+.pytest_cache/
 
 # Output Reports
 outputs/
 *.csv
 !portfolio.csv
 
-# HuggingFace / ML Models (Catches that 77MB file)
+# Downloaded Data & Logs
+sec_filings/
+*.log
+
+# HuggingFace / ML Models
 *.safetensors
 *.bin
 *.h5
+
+# Virtual Environments
+myenv/
+venv/
+.env/
+env/
