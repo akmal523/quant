@@ -25,6 +25,9 @@ def main() -> None:
             df = ticker.history(period="5y", auto_adjust=True)
             
             if not df.empty:
+                latest_dt = df.index[-1].strftime('%Y-%m-%d')
+                latest_px = df['Close'].iloc[-1]
+                print(f" [OK] {sym}: Latest Date in Data: {latest_dt} | Price: {latest_px:.2f}")
                 df['Symbol'] = sym
                 df['Sector'] = sector
                 

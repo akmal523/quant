@@ -144,6 +144,19 @@ def main() -> None:
     conn = get_connection()
     
     try:
+    # ADD "ORDER BY Date" to the query
+        market_data = conn.execute("SELECT * FROM market_history ORDER BY Date ASC").df()
+    except Exception:
+        logger.error("market_history missing. Run data_updater.py.")
+        return
+
+# Ensure the Date column is actual datetime objects for reliable sorting
+    market_data['Date'] = pd.to_datetime(market_data['Date'])
+    market_data = market_data.sort_values(['Symbol', 'Date'])
+
+    grouped_data = {symbol: df for symbol, df in market_data.groupby("Symbol")}
+
+    try:
         market_data = conn.execute("SELECT * FROM market_history").df()
     except Exception:
         logger.error("market_history missing. Run data_updater.py.")
