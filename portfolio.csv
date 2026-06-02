@@ -1,6 +1,8 @@
 Symbol,Buy_Price,Amount_EUR
-IWDA.AS,121.19,75.93			#Core MSCI World USD
-HEI.DE,181.24,244.14			#Heidelberg Materials
-LMT,443.62,72.80			#Lockheed Martin
-HMY,13.77,54.44				#Harmony Gold Mining
-ROG.SW,356.40,49.47			#Roche
+XEON.DE,148.95,451.45		#Euro Overnight Rate Swap Euro (Acc) [TR: XEON] 50% allocation
+IQQQ.DE,63.69,127.47		#Global Water USD (Dist) [TR: IQQQ]
+EUNL.DE,121.19,78.67		#Core MSCI World USD (Acc) [TR: EUNL]
+LMT,443.62,75.18			#Lockheed Martin [TR: LOM]
+HMY,13.77,55.93				#Harmony Gold Mining (ADR) [TR: HAM]
+RHO.DE,356.40,49.92			#Roche [TR: RHO]
+SXRV.DE,0.0,0.0				#Nasdaq 100 USD (Acc) [TR: SXRV] — planned Jun 2 buy €50

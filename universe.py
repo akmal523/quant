@@ -277,7 +277,8 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     # ── Healthcare / Pharma ───────────────────────────────────────────────────
     "Healthcare / Pharma": {
         "Novo Nordisk":          "NOVO-B.CO",
-        "Roche":                 "ROG.SW",
+        "Roche Xetra":           "RHO.DE",
+        "Roche (Swiss)":         "ROG.SW",  # legacy — may be delisted
         "Novartis":              "NOVN.SW",
         "AstraZeneca":           "AZN.L",
         "Sanofi":                "SAN.PA",
@@ -303,6 +304,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Ecolab":                "ECL",
         "L&G Clean Water ETF":   "GLUG.L",
         "Invesco Water ETF":     "PHO",
+        "Global Water UCITS ETF (Dist)": "IQQQ.DE",
     },
 
     # ── Agriculture / Chemicals ───────────────────────────────────────────────
@@ -349,6 +351,7 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     "Broad ETFs": {
         "MSCI World":                "URTH",
         "MSCI World (IWDA)":         "IWDA.AS",
+        "MSCI World Xetra (EUNL)":   "EUNL.DE",
         "MSCI World (SWRD)":         "SWRD.L",
         "MSCI EM IMI (EIMI)":        "EIMI.L",
         "S&P 500 (CSPX)":            "CSPX.L",
@@ -366,6 +369,8 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "MSCI Min Vol (USMV)":       "USMV",
         "MSCI Quality (QUAL)":       "QUAL",
         "Samsung":                   "005930.KS",
+        "Euro Cash (XEON)":          "XEON.DE",
+        "Nasdaq 100 UCITS (SXRV)":   "SXRV.DE",
     },
 }
 

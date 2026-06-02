@@ -13,7 +13,7 @@ import duckdb
 # Local Module Imports
 from database import get_connection
 from currency import apply_fx_conversion, get_eur_rate
-from portfolio import load_portfolio, audit_portfolio, print_audit_report
+from portfolio import load_portfolio, audit_portfolio, print_audit_report, account_effectiveness, print_effectiveness_report
 from indicators import add_all_indicators
 from sec_edgar import fetch_latest_8k
 from sentiment import init_worker, score_corporate_document
@@ -262,6 +262,10 @@ def main() -> None:
         cols = ['Symbol', 'PnL_pct', 'Audit_Decision', 'Active_Score', 'Signal']
         print(audit_res[cols].to_string(index=False))
         print("\n")
+    
+        # --- 6. ACCOUNT EFFECTIVENESS ---
+        eff = account_effectiveness(audit_res, port_df)
+        print_effectiveness_report(eff)
 
 if __name__ == "__main__":
     main()
