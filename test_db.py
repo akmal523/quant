@@ -1,7 +1,7 @@
 # test_db.py
 import os
 import duckdb
-from db import init_db, get_connection
+from database import init_db, get_connection
 
 def test_db_init():
     # Setup

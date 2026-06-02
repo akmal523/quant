@@ -1,6 +1,7 @@
 """
-indicators.py — Stochastic volatility modeling.
-Replaces deterministic linear oscillators with GARCH(1,1) conditional variance.
+indicators.py — Stochastic volatility modeling + classic technical indicators.
+Replaces deterministic linear oscillators with GARCH(1,1) conditional variance,
+with EWMA fallback for short histories. Provides RSI and ATR for backtesting.
 """
 from __future__ import annotations
 
@@ -9,63 +10,101 @@ import pandas as pd
 from arch import arch_model
 import warnings
 
-# Подавление предупреждений оптимизатора для чистоты логов
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+
 def calculate_log_returns(close_prices: pd.Series) -> pd.Series:
-    """Вычисление логарифмических доходностей для приведения ряда к стационарности."""
+    """Compute log returns for stationarity. Scaled x100 for GARCH optimizer stability."""
     log_returns = np.log(close_prices / close_prices.shift(1)).dropna()
-    return log_returns * 100  # Масштабирование для стабильности оптимизатора GARCH
+    return log_returns * 100
+
 
 def garch_volatility(close_prices: pd.Series, horizon: int = 1) -> pd.Series | None:
     """
-    Расчет условной волатильности через модель GARCH(1,1).
-    Возвращает Series прогнозируемой волатильности (annualized).
+    GARCH(1,1) conditional volatility (annualized).
+    Auto-scales returns to unit variance before fitting to suppress DataScaleWarning
+    for low-price assets (e.g., ETFs priced < 1 EUR).
+    Returns None if data < 252 obs or model fails to converge.
     """
-    if len(close_prices) < 252:  # Минимальный квант данных (1 торговый год) для сходимости модели
+    if len(close_prices) < 252:
         return None
 
     returns = calculate_log_returns(close_prices)
-    
+
     if returns.empty or returns.std() == 0:
         return None
 
     try:
-        # Спецификация модели: нулевое среднее, распределение Стьюдента для учета "толстых хвостов"
-        am = arch_model(returns, vol='Garch', p=1, q=1, mean='Zero', dist='t')
-        
-        # Оптимизация параметров (disp='off' отключает вывод логов итераций)
+        # Auto-scale weak returns to unit variance for GARCH numerical stability
+        std_est = returns.std()
+        if std_est < 1.0:
+            scale = max(std_est, 1e-8)
+            returns_scaled = returns / scale
+        else:
+            scale = 1.0
+            returns_scaled = returns
+
+        am = arch_model(returns_scaled, vol='Garch', p=1, q=1, mean='Zero', dist='t', rescale=True)
         res = am.fit(update_freq=0, disp='off')
-        
-        # Извлечение условной волатильности и аннуализация (sqrt(252))
-        conditional_volatility = res.conditional_volatility
+        conditional_volatility = res.conditional_volatility * scale
         annualized_vol = conditional_volatility * np.sqrt(252) / 100
-        
-        # Выравнивание индексов с исходным ценовым рядом
         vol_series = pd.Series(index=close_prices.index, dtype=float)
         vol_series.update(annualized_vol)
-        
         return vol_series.bfill()
-
     except Exception:
-        # Fallback на историческую дисперсию при сбое сходимости оптимизатора
-        fallback_vol = returns.rolling(window=20).std() * np.sqrt(252) / 100
-        vol_series = pd.Series(index=close_prices.index, dtype=float)
-        vol_series.update(fallback_vol)
-        return vol_series.bfill()
+        return None
+
+
+def ewma_volatility(close_prices: pd.Series, span: int = 20) -> pd.Series:
+    """
+    Exponentially weighted moving average volatility (annualized).
+    Used as fallback when GARCH cannot converge or data is too short.
+    """
+    returns = np.log(close_prices / close_prices.shift(1)).dropna()
+    ewma_std = returns.ewm(span=span).std()
+    annualized = ewma_std * np.sqrt(252)
+    vol_series = pd.Series(index=close_prices.index, dtype=float)
+    vol_series.update(annualized)
+    return vol_series.bfill().fillna(0.0)
+
+
+def rsi(close: pd.Series, period: int = 14) -> float | None:
+    """Relative Strength Index. Returns None if insufficient data."""
+    if len(close) < period + 1:
+        return None
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(span=period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(span=period, adjust=False).mean()
+    rs = gain / loss.replace(0, float('nan'))
+    return float(100.0 - (100.0 / (1.0 + rs.iloc[-1]))) if not np.isnan(rs.iloc[-1]) else None
+
+
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float | None:
+    """Average True Range. Returns None if insufficient data."""
+    if len(close) < period + 1:
+        return None
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return float(tr.ewm(span=period, adjust=False).mean().iloc[-1])
+
 
 def add_all_indicators(h: pd.DataFrame) -> pd.DataFrame:
     """
-    Интеграция стохастических метрик в базовый DataFrame.
+    Integrate stochastic + classic volatility metrics into DataFrame.
+    GARCH(1,1) is primary; falls back to EWMA for short histories or non-convergence.
     """
     h = h.copy()
-    
+
     garch_vol = garch_volatility(h["Close"])
-    
     if garch_vol is not None:
         h["GARCH_Vol"] = garch_vol
     else:
-        h["GARCH_Vol"] = np.nan
+        # EWMA fallback for short histories or failed GARCH convergence
+        h["GARCH_Vol"] = ewma_volatility(h["Close"])
 
     return h

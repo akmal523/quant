@@ -1,8 +1,9 @@
 Symbol,Buy_Price,Amount_EUR
-XEON.DE,148.95,451.45		#Euro Overnight Rate Swap Euro (Acc) [TR: XEON] 50% allocation
-IQQQ.DE,63.69,127.47		#Global Water USD (Dist) [TR: IQQQ]
-EUNL.DE,121.19,78.67		#Core MSCI World USD (Acc) [TR: EUNL]
-LMT,443.62,75.18			#Lockheed Martin [TR: LOM]
-HMY,13.77,55.93				#Harmony Gold Mining (ADR) [TR: HAM]
-RHO.DE,356.40,49.92			#Roche [TR: RHO]
-SXRV.DE,0.0,0.0				#Nasdaq 100 USD (Acc) [TR: SXRV] — planned Jun 2 buy €50
+XEON.DE,148.98,501.45			#Euro Overnight Rate Swap Euro (Acc) [TR: XEON] 50% allocation
+IQQQ.DE,63.69,128.72			#Global Water USD (Dist) [TR: IQQQ]
+EUNL.DE,121.19,78.69			#Core MSCI World USD (Acc) [TR: EUNL]
+LMT,443.62,74.61			#Lockheed Martin [TR: LOM]
+HMY,13.77,56.30				#Harmony Gold Mining (ADR) [TR: HAM]
+RHO.DE,356.40,48.26			#Roche [TR: RHO]
+SXRV.DE,1508.40,50.05			#Nasdaq 100 USD (Acc) [TR: SXRV]
+HEI.DE,186.30,3.70			#Heidelberg Materials

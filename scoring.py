@@ -164,12 +164,13 @@ def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | 
     return float(min(100.0, grade))
 
 def evaluate_tactical_grade(
-    hmm_prob_bull: float,
-    finbert_score: float,
-    var_penalty:   float,
+    hmm_prob_bull: float,   # Expected range [0, 1] (normalised by caller)
+    finbert_score: float,   # Raw FinBERT output [-100, +100]
+    var_penalty:   float,   # Penalty range [0, 25]
 ) -> float:
-    grade = hmm_prob_bull * 60.0
-    normalized_sentiment = (finbert_score + 100) / 5.0
+    """Tactical grade: weights HMM regime (60%), sentiment (25%), risk penalty (-15%)."""
+    grade = hmm_prob_bull * 60.0  # HMM contributes up to 60pts
+    normalized_sentiment = (finbert_score + 100) / 5.0  # [-100, +100] -> [0, 40]
     grade += normalized_sentiment
     grade -= var_penalty
 

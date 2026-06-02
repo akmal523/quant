@@ -1,15 +1,9 @@
 # test_cache.py
 import os
-from sentiment import _save_cached_score, _get_cached_score
 from fundamentals import _save_to_cache, _get_from_cache
 
 def test_caches():
-    # 1. Test NLP Cache
-    _save_cached_score("hash999", 42.0)
-    nlp_res = _get_cached_score("hash999")
-    assert nlp_res == 42.0, "NLP Cache I/O failed."
-
-    # 2. Test Fundamentals Cache
+    # 1. Test Fundamentals Cache
     dummy_data = {
         "PE": 15.0, "PEG": 1.1, "ROE": 0.2, 
         "DebtToEquity": 0.5, "EBIT": 500, "InterestExpense": 50
@@ -19,8 +13,9 @@ def test_caches():
     
     assert fund_res is not None, "Fundamentals Cache empty."
     assert fund_res["PE"] == 15.0, "Fundamentals Cache mismatch."
+    assert fund_res.get("ICR") == 10.0, f"ICR computation failed: {fund_res.get('ICR')}"
 
-    print("Task 2 validation passed. Caches operational.")
+    print("Cache validation passed. Fundamentals cache + ICR computation operational.")
 
 if __name__ == "__main__":
     test_caches()
