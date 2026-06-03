@@ -47,32 +47,32 @@ quant/
 
 ## New in v9.0
 
-### 🧠 FinBERT Runs Once in Main Process
+###FinBERT Runs Once in Main Process
 Previous versions loaded the FinBERT NLP model in **every multiprocessing worker** (4 workers × ~800MB = 3.2GB RAM). Now FinBERT is initialised once in the main process before the worker pool starts. Workers receive pre-computed `nlp_data` dicts — no model loading, no `init_worker()` needed. **~2.4GB RAM saved.**
 
-### 📈 Proper Logging Infrastructure
+###Proper Logging Infrastructure
 All `print()` debugging replaced with structured `logging.info/warning/exception` calls throughout the pipeline. Timestamped output (`HH:MM:SS [LEVEL] message`), with worker crashes captured via `logger.exception()` for full tracebacks.
 
-### 📊 Comprehensive Unit Test Suite
+###Comprehensive Unit Test Suite
 - **20 tests** for the scoring engine: HMM regime detection, stewardship scoring (general & financials), structural/tactical grade composition, capital allocation (CORE/SPECULATIVE/HOLD), Kelly/volatility position sizing, fast filter boundaries.
 - **6 tests** for the backtesting engine: survivorship bias warning emission, WFO window alignment, insufficient-data handling, macro/historical backtest edge cases.
 
-### 🔧 GARCH Scale Stability
+###GARCH Scale Stability
 Auto-scales log-returns to unit variance before GARCH(1,1) fitting, suppressing `DataScaleWarning` for low-price assets (e.g. ETFs trading at 0.67 EUR). Falls back to EWMA when GARCH cannot converge or data < 252 observations.
 
-### ⚡ Parallel Data Updater
+###Parallel Data Updater
 `data_updater.py` rewritten with `ThreadPoolExecutor` (10 workers). 300 tickers fetched in ~30 seconds instead of 150+ seconds sequential.
 
-### 🛡️ Graceful FX Degradation
+###Graceful FX Degradation
 `currency.py` no longer crashes the entire scan when EUR/USD rate cannot be fetched (ECB API + Yahoo both down). Falls back to 1.0 with a warning instead of `RuntimeError`.
 
-### 🗑️ Clean Configuration
+###Clean Configuration
 Removed 7 redundant threshold constants from `config.py` that were duplicated under different names (e.g. `MIN_ROE`/`FILTER_MIN_ROE`, `MAX_PE`/`FILTER_MAX_PE`, `GEN_MAX_DE`/`STW_GEN_MAX_DE`). One source of truth per parameter.
 
-### 🔍 Better NLP Reasoning
+###Better NLP Reasoning
 "No text data found" changed to `"No SEC/News data available — neutral score applied"` with debug-level logging to distinguish genuine data gaps from scoring issues.
 
-### ✅ Fixed Critical Bugs
+###Fixed Critical Bugs
 - **Duplicate data loading** in `main.py` — market data was loaded twice, the second load discarding chronological sorting. HMM/GARCH received scrambled data.
 - **`init_db()` never called** — NLP cache `INSERT` could crash with `CatalogException`.
 - **`backtest.py` import error** — `from indicators import rsi, atr` referenced non-existent functions. Both implemented with proper EWMA computation.
