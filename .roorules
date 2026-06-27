@@ -1,0 +1,4 @@
+# RULES FOR FREE MOE MODELS (QWEN)
+1. MAX 3 ITERATIONS: If you cannot fix the code within 3 tool calls, STOP and ask me for guidance. Do not loop infinitely.
+2. STRICT DIFFS ONLY: Never rewrite the whole file. Use 'replace_in_file' for any changes.
+3. SILENT EXECUTION: Do not explain your logic or output thoughts. Execute tool calls immediately to save output tokens.

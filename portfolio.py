@@ -1,6 +1,7 @@
 """
-portfolio.py — Portfolio audit engine v8.
-Schema updated for v8 scanner compatibility.
+portfolio.py — Portfolio audit engine v9.
+Schema: Symbol,Buy_Price,Amount_EUR,Original_Amount.
+Original_Amount tracks original cost basis for PnL tracking.
 """
 from __future__ import annotations
 import os
@@ -21,11 +22,14 @@ def load_portfolio(filepath: str = "portfolio.csv") -> pd.DataFrame:
             if col not in df.columns:
                 df[col] = 0.0 if col != "Symbol" else "UNKNOWN"
         
+        # Optional Original_Amount column — defaults to Amount_EUR if absent
+        if "Original_Amount" not in df.columns:
+            df["Original_Amount"] = df["Amount_EUR"]
+        
         df["Symbol"] = df["Symbol"].astype(str).str.strip()
-        # Strip whitespace before numeric conversion — trailing tabs survive
-        # comment removal and would otherwise cause NaN.
         df["Buy_Price"] = pd.to_numeric(df["Buy_Price"].astype(str).str.strip(), errors="coerce")
         df["Amount_EUR"] = pd.to_numeric(df["Amount_EUR"].astype(str).str.strip(), errors="coerce")
+        df["Original_Amount"] = pd.to_numeric(df["Original_Amount"].astype(str).str.strip(), errors="coerce")
         return df.dropna(subset=["Symbol"]).reset_index(drop=True)
     except Exception:
         return pd.DataFrame(columns=required_cols)
@@ -37,6 +41,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
     for _, p_row in portfolio_df.iterrows():
         symbol = p_row["Symbol"]
         buy_price = p_row["Buy_Price"]
+        orig_amount = p_row.get("Original_Amount", p_row["Amount_EUR"])
         
         if symbol not in scan_map:
             rows.append({**p_row, "Audit_Decision": "NOT SCANNED", "Reasoning": "Asset not in current universe", "Active_Score": 0, "Signal": "N/A"})
@@ -44,26 +49,41 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
 
         s = scan_map[symbol]
         curr_price = s.get("Current_Price", 0)
-        pnl_pct = ((curr_price - buy_price) / buy_price * 100) if buy_price and buy_price > 0 else 0
+        no_price_data = (curr_price is None or curr_price == 0 or
+                         (isinstance(curr_price, float) and pd.isna(curr_price)))
         
         decision = "HOLD"
         reasoning = "Maintain position"
         
-        if s["Signal"] == "SELL":
-            decision = "URGENT SELL"
-            reasoning = "Scoring model indicates exit"
-        elif s["Stewardship"] < 5 and pnl_pct < 0:
-            decision = "URGENT SELL"
-            reasoning = "Fundamental quality floor breached (Low Stewardship)"
-        elif s["Signal"] == "BUY" and pnl_pct < 15:
-            decision = "BUY MORE (DCA OK)"
-            reasoning = "High quality setup with room for position expansion"
-        # RSI removed -> indicators not passed in summary dict. 
+        if no_price_data:
+            pnl_pct = float('nan')
+            pnl_eur = float('nan')
+            current_value = float('nan')
+            decision = "NO DATA"
+            reasoning = f"No valid price data to compute PnL"
+        else:
+            pnl_pct = ((curr_price - buy_price) / buy_price * 100) if buy_price and buy_price > 0 else 0
+            shares = orig_amount / buy_price if buy_price > 0 else 0.0
+            current_value = curr_price * shares
+            pnl_eur = current_value - orig_amount
+            
+            if s["Signal"] == "SELL":
+                decision = "URGENT SELL"
+                reasoning = "Scoring model indicates exit"
+            elif s["Stewardship"] < 5 and pnl_pct < 0:
+                decision = "URGENT SELL"
+                reasoning = "Fundamental quality floor breached (Low Stewardship)"
+            elif s["Signal"] == "BUY" and pnl_pct < 15:
+                decision = "BUY MORE (DCA OK)"
+                reasoning = "High quality setup with room for position expansion"
         
         rows.append({
             "Symbol": symbol,
             "PnL_pct": round(pnl_pct, 2),
+            "PnL_EUR": round(pnl_eur, 2),
             "Current_Price": curr_price,
+            "Original_Amount": round(orig_amount, 2),
+            "Current_Value": round(current_value, 2),
             "Audit_Decision": decision,
             "Reasoning": f"{reasoning} | NLP: {s.get('NLP_Reasoning', 'N/A')}",
             "Active_Score": s.get("Active_Score", 0),
@@ -74,23 +94,26 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
     return pd.DataFrame(rows)
 
 def print_audit_report(audit_df: pd.DataFrame) -> None:
-    w = 165
+    w = 180
     print("\n" + "=" * w)
     print("  PORTFOLIO AUDIT REPORT")
     print("=" * w)
     
-    print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>10} {'Score':>8} {'Signal':<10} {'Reasoning'}")
-    print("  " + "-" * 130)
+    print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>8} {'PnL €':>10} {'Score':>6} {'Signal':<8} {'Reasoning'}")
+    print("  " + "-" * 140)
     
     for _, row in audit_df.iterrows():
         pnl = row.get("PnL_pct", 0)
         pnl_str = f"{pnl:+.1f}%" if pd.notnull(pnl) else "N/A"
+        pnl_eur = row.get("PnL_EUR", 0)
+        pnl_eur_str = f"€{pnl_eur:+.2f}" if pd.notnull(pnl_eur) else "N/A"
         
         print(f"  {str(row.get('Symbol', '')):<10} "
               f"{str(row.get('Audit_Decision', '')):<20} "
-              f"{pnl_str:>10} "
-              f"{float(row.get('Active_Score', 0)):>8.1f} "
-              f"{str(row.get('Signal', '')):<10} "
+              f"{pnl_str:>8} "
+              f"{pnl_eur_str:>10} "
+              f"{float(row.get('Active_Score', 0)):>6.1f} "
+              f"{str(row.get('Signal', '')):<8} "
               f"{str(row.get('Reasoning', ''))}")
     print("\n")
 
@@ -99,26 +122,27 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
     """
     Calculate overall account effectiveness metrics from the portfolio audit.
     
-    CSV schema: Buy_Price = avg cost per share, Amount_EUR = total invested EUR.
-    PnL per position = current_value - invested.
-    Current value  = Current_Price * (Amount_EUR / Buy_Price).
+    CSV schema: Buy_Price = avg cost per share, Amount_EUR = current market value,
+                Original_Amount = original cost basis.
+    PnL per position = current_value - cost_basis.
+    Shares derived from Original_Amount / Buy_Price.
     
     Returns a dict with:
-      - total_invested: sum of Amount_EUR (cost basis)
+      - total_invested: sum of Original_Amount (cost basis)
       - total_value: sum of position current values
       - total_pnl_eur: total_value - total_invested
       - total_pnl_pct: weighted PnL percentage
       - weighted_score: value-weighted average Active_Score
     """
-    # Build lookup: {"Symbol": {"Buy_Price": float, "Amount_EUR": float}}
+    # Build lookup: {"Symbol": {"Buy_Price": float, "Original_Amount": float}}
     port_map = {}
     if not portfolio_df.empty:
         for _, r in portfolio_df.iterrows():
             buy = pd.to_numeric(r.get("Buy_Price", 0), errors="coerce")
-            amt = pd.to_numeric(r.get("Amount_EUR", 0), errors="coerce")
+            orig = pd.to_numeric(r.get("Original_Amount", r.get("Amount_EUR", 0)), errors="coerce")
             port_map[r["Symbol"]] = {
                 "Buy_Price": float(buy) if pd.notna(buy) and buy > 0 else 0.0,
-                "Amount_EUR": float(amt) if pd.notna(amt) and amt > 0 else 0.0,
+                "Original_Amount": float(orig) if pd.notna(orig) and orig > 0 else 0.0,
             }
     
     total_invested = 0.0
@@ -129,12 +153,12 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
     
     for _, row in audit_df.iterrows():
         sym = row["Symbol"]
-        p_info = port_map.get(sym, {"Buy_Price": 0, "Amount_EUR": 0})
-        invested = p_info["Amount_EUR"]
+        p_info = port_map.get(sym, {"Buy_Price": 0, "Original_Amount": 0})
+        cost_basis = p_info["Original_Amount"]
         buy_price = p_info["Buy_Price"]
         
         # Skip unscanned or zero-invested positions
-        if invested <= 0:
+        if cost_basis <= 0 or buy_price <= 0:
             position_count += 1
             continue
         curr_price = row.get("Current_Price", 0)
@@ -145,11 +169,11 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
         curr_price = float(curr_price)
         buy_price = float(buy_price)
         
-        # Derive shares from cost basis, compute current value
-        shares = invested / buy_price if buy_price > 0 else 0.0
+        # Derive shares from Original_Amount cost basis
+        shares = cost_basis / buy_price if buy_price > 0 else 0.0
         value = curr_price * shares
         
-        total_invested += invested
+        total_invested += cost_basis
         total_value += value
         score = row.get("Active_Score", 0)
         if pd.notna(score):

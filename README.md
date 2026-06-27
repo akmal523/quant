@@ -47,6 +47,11 @@ quant/
 
 ## New in v9.0
 
+### Robust NaN Data Handling
+Yahoo Finance often appends future trading dates with NaN prices as the last row of `history()` output. `data_updater.py` now uses `df.dropna(subset=['Close'])` before reading the latest close price, ensuring all 277 tickers are fetched with valid price data regardless of trailing NaN rows.
+
+Assets with no valid price data are no longer silently dropped. `main.py` returns skeleton scan results for such symbols (rather than `None`), and `portfolio.py` shows `"NO DATA"` in the portfolio audit instead of `"NOT SCANNED"` with NaN PnL.
+
 ### FinBERT Runs Once in Main Process
 Previous versions loaded the FinBERT NLP model in **every multiprocessing worker** (4 workers × ~800MB = 3.2GB RAM). Now FinBERT is initialised once in the main process before the worker pool starts. Workers receive pre-computed `nlp_data` dicts — no model loading, no `init_worker()` needed. **~2.4GB RAM saved.**
 
@@ -73,6 +78,9 @@ Removed 7 redundant threshold constants from `config.py` that were duplicated un
 "No text data found" changed to `"No SEC/News data available — neutral score applied"` with debug-level logging to distinguish genuine data gaps from scoring issues.
 
 ### Fixed Critical Bugs
+- **NaN close price crash** in `data_updater.py` — Yahoo Finance appends future trading dates with NaN prices as the last row. `df['Close'].iloc[-1]` picked up NaN for ALL US-listed tickers, blocking 174/277 instruments. Fixed with `df.dropna(subset=['Close'])` before accessing the latest close.
+- **Portfolio symbols silently dropped** from scan results in `main.py` — `process_asset()` returned `None` on NaN close, causing portfolio holdings to show as `"NOT SCANNED"` in the audit. Fixed by returning a skeleton result with `Active_Score: 0.0` and `Signal: N/A`.
+- **Missing portfolio symbols fallback** — symbols with no market data at all (not in DuckDB) now get a placeholder entry in scan results instead of being silently absent.
 - **Duplicate data loading** in `main.py` — market data was loaded twice, the second load discarding chronological sorting. HMM/GARCH received scrambled data.
 - **`init_db()` never called** — NLP cache `INSERT` could crash with `CatalogException`.
 - **`backtest.py` import error** — `from indicators import rsi, atr` referenced non-existent functions. Both implemented with proper EWMA computation.
@@ -161,6 +169,7 @@ python3 main.py
 | **BUY MORE (DCA OK)** | High quality (Active Score > 80) and position at or below entry, or within high-conviction window |
 | **HOLD** | Fundamentals remain strong but tactical timing or profit level suggests waiting |
 | **URGENT SELL** | Significant fundamental decay (low stewardship) or extreme negative sentiment |
+| **NO DATA** | Symbol found in portfolio but has no valid price data (e.g. Yahoo Finance unavailable) |
 | **NOT SCANNED** | Asset not found in current market universe |
 
 ---

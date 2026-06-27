@@ -1,9 +1,12 @@
 """
-scoring.py — Unified Scoring Engine v8.1.
-Integrates HMM stochastic models, Stewardship fundamentals, and Bifurcated Horizons.
+scoring.py — Unified Scoring Engine v9.0.
+Integrates HMM stochastic models, Stewardship fundamentals, Data Confidence, and Bifurcated Horizons.
+Key change in v9.0: tactical grade now penalises assets with no NLP data source to prevent
+false BUY signals from default neutral scores.
 """
 from __future__ import annotations
 
+import math
 import numpy as np
 import pandas as pd
 import warnings
@@ -16,7 +19,8 @@ from config import (
     STRUCT_MAX_PE, STRUCT_MAX_PEG, STRUCT_MIN_ROE,
     STW_GEN_MAX_DE, STW_GEN_MID_DE, STW_GEN_MIN_ROE, STW_GEN_HI_ROE, STW_GEN_MIN_ICR,
     STW_FIN_MIN_PB, STW_FIN_MAX_PB, STW_FIN_MIN_ICR,
-    MIN_STRUCT_GRADE_FOR_BUY, MIN_TACT_GRADE_FOR_BUY
+    MIN_STRUCT_GRADE_FOR_BUY, MIN_TACT_GRADE_FOR_BUY,
+    SENTIMENT_NO_DATA_PENALTY,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -34,118 +38,83 @@ def hmm_market_state_score(
 
     returns = np.log(hist_close / hist_close.shift(1)).dropna()
     common_index = returns.index.intersection(garch_vol.dropna().index)
-    
+
     if len(common_index) < 252:
         return max_points / 2.0
-        
+
     X = pd.DataFrame({
         "Returns": returns[common_index],
-        "Volatility": garch_vol[common_index]
+        "Volatility": garch_vol[common_index],
     })
-    
+
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
     try:
         model = GaussianHMM(n_components=2, covariance_type="full", n_iter=100, random_state=42)
         model.fit(X_scaled)
-        
+
         posterior_probs = model.predict_proba(X_scaled)
         state_means = model.means_[:, 0]
         bull_state_idx = np.argmax(state_means)
         current_bull_prob = posterior_probs[-1, bull_state_idx]
-        
+
         return float(current_bull_prob * max_points)
     except Exception:
         return max_points / 2.0
 
 
+# ── Stewardship ───────────────────────────────────────────────────────────────
+
 def stewardship_score_v2(f_data: dict, sector: str = "Technology") -> float:
     score = 0.0
-    pb = f_data.get("PB") or 2.0
-    de = f_data.get("DebtToEquity") or 2.0
-    roe = f_data.get("ROE") or 0.0
-    icr = f_data.get("ICR") or 0.0
+    pb = f_data.get("PB")
+    de = f_data.get("DebtToEquity")
+    roe = f_data.get("ROE")
+    icr = f_data.get("ICR")
+
+    # Explicit None checks — 0 is a valid value, not "missing"
+    if pb is None:
+        pb = 2.0
+    if de is None:
+        de = 2.0
+    if roe is None:
+        roe = 0.0
+    if icr is None:
+        icr = 0.0
 
     if sector in ["Financials", "Financial Services"]:
-        if pb < STW_FIN_MIN_PB: score += 15
-        elif pb < STW_FIN_MAX_PB: score += 10
-        if icr > STW_FIN_MIN_ICR: score += 15
-        elif icr > 1.5: score += 7
+        if pb < STW_FIN_MIN_PB:
+            score += 15
+        elif pb < STW_FIN_MAX_PB:
+            score += 10
+        if icr > STW_FIN_MIN_ICR:
+            score += 15
+        elif icr > 1.5:
+            score += 7
     else:
-        if de < STW_GEN_MAX_DE: score += 12
-        elif de < STW_GEN_MID_DE: score += 7
-        if roe > STW_GEN_HI_ROE: score += 10
-        elif roe > STW_GEN_MIN_ROE: score += 5
-        if icr > STW_GEN_MIN_ICR: score += 8
-        
+        if de < STW_GEN_MAX_DE:
+            score += 12
+        elif de < STW_GEN_MID_DE:
+            score += 7
+        if roe > STW_GEN_HI_ROE:
+            score += 10
+        elif roe > STW_GEN_MIN_ROE:
+            score += 5
+        if icr > STW_GEN_MIN_ICR:
+            score += 8
+
     return min(score, float(WEIGHT_STEWARDSHIP))
 
-def stewardship_score(
-    debt_to_equity: float | None,
-    payout_ratio:   float | None,
-    dividend_yield: float | None,
-    icr:            float | None = None,
-) -> float:
-    s_score = 0.0
 
-    de_raw = float(debt_to_equity) if debt_to_equity is not None else None
-    if de_raw is None:
-        de = 2.0
-    elif de_raw > 5:
-        de = de_raw / 100.0
-    else:
-        de = de_raw
-
-    if de < 0.5:
-        s_score += 12
-    elif de < 1.0:
-        s_score += 7
-    elif de < 2.0:
-        s_score += 3
-
-    if icr is not None:
-        icr_f = float(icr)
-        if icr_f >= 5.0:
-            s_score += 10
-        elif icr_f >= 3.0:
-            s_score += 6
-        elif icr_f >= 1.5:
-            s_score += 3
-    else:
-        s_score += 5
-
-    payout = float(payout_ratio) if payout_ratio is not None else 1.0
-    div_y  = float(dividend_yield) if dividend_yield else 0.0
-
-    if div_y > 0:
-        if 0.30 <= payout <= 0.70:
-            s_score += 8
-        elif payout < 0.90:
-            s_score += 4
-    else:
-        if payout < 0.20:
-            s_score += 4
-
-    return min(s_score, float(WEIGHT_STEWARDSHIP))
-
-
-# ── Bifurcated Vectors ────────────────────────────────────────────────────────
+# ── Structural & Tactical Grades ──────────────────────────────────────────────
 
 def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | None, stewardship_val: float) -> float:
-    # --- [NEW] ETF BYPASS LOGIC ---
-    # ETFs don't have Debt or P/B, so their stewardship defaults to 0.0 or 18.0
-    # If PE and ROE are both missing, we assume it is a broad ETF
     if pe is None and roe is None:
         return 85.0
 
-    # --- NORMAL STOCK LOGIC ---
-    grade = stewardship_val * 1.5 
-    
-    # ... (rest of the function stays exactly the same)
-    
-    # Use .get() or check for math.isnan
-    import math
+    grade = stewardship_val * 1.5
+
     def is_valid(val):
         return val is not None and not (isinstance(val, float) and math.isnan(val))
 
@@ -153,26 +122,42 @@ def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | 
     peg_v = float(peg) if is_valid(peg) else 9.0
     roe_v = float(roe) if is_valid(roe) else 0.0
 
-    # Change the fixed +20 bonuses to scaled bonuses
-    if 0 < pe_v < 15.0: grade += 25  # Reward deep value more
-    elif 0 < pe_v < 25.0: grade += 15
-    
-    if 0 < peg_v < STRUCT_MAX_PEG: grade += 15
-    if roe_v > 0.25: grade += 25     # Reward elite efficiency
-    elif roe_v > 0.15: grade += 15
+    if 0 < pe_v < 15.0:
+        grade += 25
+    elif 0 < pe_v < 25.0:
+        grade += 15
+
+    if 0 < peg_v < STRUCT_MAX_PEG:
+        grade += 15
+    if roe_v > 0.25:
+        grade += 25
+    elif roe_v > 0.15:
+        grade += 15
 
     return float(min(100.0, grade))
 
+
 def evaluate_tactical_grade(
-    hmm_prob_bull: float,   # Expected range [0, 1] (normalised by caller)
-    finbert_score: float,   # Raw FinBERT output [-100, +100]
-    var_penalty:   float,   # Penalty range [0, 25]
+    hmm_prob_bull: float,    # [0, 1] normalised by caller
+    finbert_score: float,    # Raw FinBERT [-100, +100]
+    var_penalty: float,      # [0, 25]
+    data_confidence: float = 1.0,  # 1.0 = real NLP data, 0.0 = no-data fallback
 ) -> float:
-    """Tactical grade: weights HMM regime (60%), sentiment (25%), risk penalty (-15%)."""
-    grade = hmm_prob_bull * 60.0  # HMM contributes up to 60pts
-    normalized_sentiment = (finbert_score + 100) / 5.0  # [-100, +100] -> [0, 40]
+    """
+    Tactical grade: HMM (60%) + Sentiment (25%) - Risk (-15%) - NoDataPenalty.
+    When data_confidence < 1.0 (no SEC/News available), the tactical grade is
+    reduced by up to SENTIMENT_NO_DATA_PENALTY points to prevent false BUY
+    signals from default neutral scores.
+    """
+    grade = hmm_prob_bull * 60.0
+    normalized_sentiment = (finbert_score + 100) / 5.0
     grade += normalized_sentiment
     grade -= var_penalty
+
+    # Data-confidence penalty: when no real NLP data exists, reduce conviction
+    if data_confidence < 1.0:
+        penalty = (1.0 - data_confidence) * SENTIMENT_NO_DATA_PENALTY
+        grade -= penalty
 
     return float(max(0.0, min(100.0, grade)))
 
@@ -194,6 +179,7 @@ def allocate_capital_regime(structural_grade: float, tactical_grade: float, stew
         active_score = structural_grade
 
     return {"Horizon": horizon, "Signal": signal, "Active_Score": round(active_score, 1)}
+
 
 # ── Position Sizing ───────────────────────────────────────────────────────────
 
@@ -217,6 +203,7 @@ def position_size(
     avg_loss:         float | None,
     asset_annual_vol: float | None,
 ) -> dict:
+    from config import KELLY_FRACTION, TARGET_VOLATILITY, MAX_POSITION_PCT
     kelly = kelly_position_size(win_rate or 0.0, avg_win or 0.0, avg_loss or 0.0)
     tv = target_volatility_size(asset_annual_vol or 0.30)
     final = min(kelly, tv) if kelly > 0 else tv
@@ -227,11 +214,17 @@ def position_size(
         "Recommended_Size_pct":  round(final * 100, 2),
     }
 
+
+# ── Fast Filter ───────────────────────────────────────────────────────────────
+
 def apply_fast_filter(f_data: dict) -> bool:
-    if not f_data: return False
+    if not f_data:
+        return False
     pe = f_data.get("PE")
     roe = f_data.get("ROE")
-    
-    if pe is None or pe <= 0 or pe > FILTER_MAX_PE: return False
-    if roe is None or roe < FILTER_MIN_ROE: return False
+
+    if pe is None or pe <= 0 or pe > FILTER_MAX_PE:
+        return False
+    if roe is None or roe < FILTER_MIN_ROE:
+        return False
     return True

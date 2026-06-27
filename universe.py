@@ -89,8 +89,10 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
         "Textron":               "TXT",
         "Leidos":                "LDOS",
         "HEICO":                 "HEI",
-        "ITA Defense ETF":       "ITA",
-        "MSCI Defense ETF":      "DFEN",
+        "SpaceX":                "SPCX",
+        "iShares Global Aero & Def": "5J50.DE",
+        "ITA Defense ETF":           "ITA",
+        "MSCI Defense ETF":          "DFEN",
     },
 
     # ── Cybersecurity ─────────────────────────────────────────────────────────
@@ -279,7 +281,6 @@ SECTOR_UNIVERSE: dict[str, dict[str, str]] = {
     "Healthcare / Pharma": {
         "Novo Nordisk":          "NOVO-B.CO",
         "Roche Xetra":           "RHO.DE",
-        "Roche (Swiss)":         "ROG.SW",  # legacy — may be delisted
         "Novartis":              "NOVN.SW",
         "AstraZeneca":           "AZN.L",
         "Sanofi":                "SAN.PA",

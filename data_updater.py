@@ -10,29 +10,37 @@ REQUEST_DELAY = 0.5
 MAX_WORKERS = 10
 
 def fetch_single(sym: str, name: str, sector: str) -> pd.DataFrame | None:
-    """Fetch a single ticker's history. Designed for ThreadPoolExecutor."""
+    """Fetch a single ticker's history. Drops trailing NaN rows (e.g. future dates)."""
     try:
         ticker = yf.Ticker(sym)
         df = ticker.history(period="5y", auto_adjust=True)
 
-        if not df.empty:
-            latest_dt = df.index[-1].strftime('%Y-%m-%d')
-            latest_px = df['Close'].iloc[-1]
-            print(f" [OK] {sym}: Latest {latest_dt} | Price: {latest_px:.2f}")
-            df['Symbol'] = sym
-            df['Sector'] = sector
-
-            df = df.reset_index()
-            if 'Date' in df.columns:
-                df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
-                df = df.set_index('Date')
-
-            cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol', 'Sector']
-            df = df[[c for c in cols_to_keep if c in df.columns]]
-            return df
-        else:
+        if df.empty:
             print(f" [!] Empty history for {sym}")
             return None
+
+        # Drop rows with NaN Close (future dates, non-trading days, etc.)
+        valid = df.dropna(subset=['Close'])
+        if valid.empty:
+            print(f" [!] No valid Close data for {sym}")
+            return None
+
+        latest_px = valid['Close'].iloc[-1]
+        latest_dt = valid.index[-1].strftime('%Y-%m-%d')
+        print(f" [OK] {sym}: Latest {latest_dt} | Price: {latest_px:.2f}")
+
+        df['Symbol'] = sym
+        df['Sector'] = sector
+
+        df = df.reset_index()
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
+            df = df.set_index('Date')
+
+        cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol', 'Sector']
+        df = df[[c for c in cols_to_keep if c in df.columns]]
+        df = df.dropna(subset=['Close'])
+        return df
     except Exception as e:
         print(f" [!] Error {sym}: {e}")
         return None

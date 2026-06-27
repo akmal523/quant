@@ -15,7 +15,7 @@ FINBERT_MODEL         = "ProsusAI/finbert"
 FINBERT_MAX_HEADLINES = 32
 FINBERT_DEVICE        = -1    # -1 = CPU; 0 = first CUDA GPU
 
-# ── NER (Named Entity Recognition — semantic headline filter) ─────────────────
+# ── NER ───────────────────────────────────────────────────────────────────────
 NER_ENABLED     = True
 NER_SPACY_MODEL = "en_core_web_sm"
 
@@ -44,8 +44,6 @@ MAX_POSITION_PCT  = 0.10
 # ── Backtest ──────────────────────────────────────────────────────────────────
 BACKTEST_PERIOD_DAYS = 365
 COMMISSION_SLIPPAGE  = 0.0015
-
-# Walk-Forward Optimization
 WFO_IS_DAYS   = 365
 WFO_OOS_DAYS  = 90
 WFO_STEP_DAYS = 90
@@ -82,3 +80,8 @@ STW_FIN_MIN_ICR = 3.0
 # ── Allocation Logic Thresholds ───────────────────────────────────────────────
 MIN_STRUCT_GRADE_FOR_BUY = 75
 MIN_TACT_GRADE_FOR_BUY   = 70
+
+# ── Data Confidence ──────────────────────────────────────────────────────────
+# When no SEC/News data is available, the sentiment component is unreliable.
+# This penalty reduces the tactical grade to prevent false BUY signals.
+SENTIMENT_NO_DATA_PENALTY = 15.0  # max points deducted when NLP data is missing

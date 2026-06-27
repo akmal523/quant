@@ -30,7 +30,8 @@ def score_corporate_document(text: str) -> dict:
     if _tokenizer is None or _model is None:
         raise RuntimeError("Model not initialized. Call init_worker() first.")
 
-    # Use proper tokenizer with attention masks instead of raw token IDs
+    # Tokenize without special tokens, then chunk into 510-token windows
+    # (leaving room for [CLS] and [SEP] which are added manually)
     tokens = _tokenizer.encode(text, add_special_tokens=False, truncation=False)
     chunks = [tokens[i:i + 510] for i in range(0, len(tokens), 510)][:8]
 
@@ -39,14 +40,11 @@ def score_corporate_document(text: str) -> dict:
 
     with torch.no_grad():
         for chunk in chunks:
-            encoded = _tokenizer.prepare_for_model(
-                chunk,
-                add_special_tokens=True,
-                return_tensors="pt",
-                truncation=False,
+            # Manually construct [CLS] + chunk + [SEP] with attention mask
+            input_ids = torch.tensor(
+                [[_tokenizer.cls_token_id] + chunk + [_tokenizer.sep_token_id]]
             )
-            input_ids = encoded["input_ids"]
-            attention_mask = encoded.get("attention_mask", None)
+            attention_mask = torch.ones_like(input_ids)
 
             outputs = _model(input_ids, attention_mask=attention_mask)
             probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]

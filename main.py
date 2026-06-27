@@ -1,14 +1,14 @@
 """
-main.py — Orchestration engine v8.5.
+main.py — Orchestration engine v9.0.
 Architecture:
   1. Load & sort market data from DuckDB
   2. Filter survivors (portfolio + ETFs + fundamentals screener)
   3. Async fetch SEC 8-K / news texts
-  4. Pre-fetch cached NLP scores from DB
-  5. Score remaining uncached texts in-memory (single FinBERT instance — no worker RAM waste)
-  6. Multiprocess technical + fundamental analysis (no FinBERT in workers)
+  4. Score ALL texts in main process with single FinBERT instance
+  5. Multiprocess technical + fundamental analysis (no FinBERT in workers)
+  6. Data-confidence penalty prevents false BUY from missing NLP data
   7. Batch-write new NLP cache entries
-  8. Report: top buys, full scan, portfolio audit
+  8. Report: top buys + stocks (non-ETF), full scan, portfolio audit
 """
 from __future__ import annotations
 import hashlib
@@ -18,12 +18,12 @@ import numpy as np
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# Local Module Imports
 from database import get_connection, init_db
 from currency import apply_fx_conversion, get_eur_rate
 from portfolio import load_portfolio, audit_portfolio, account_effectiveness, print_effectiveness_report
 from indicators import add_all_indicators
 from sentiment import score_corporate_document
+from sentiment import init_worker as _init_nlp_worker
 from risk import calculate_risk_penalty
 from config import WEIGHT_TECHNICAL
 from scoring import (
@@ -32,12 +32,12 @@ from scoring import (
     allocate_capital_regime,
     hmm_market_state_score,
     stewardship_score_v2,
-    apply_fast_filter
+    apply_fast_filter,
 )
 from fundamentals import get_fundamentals
 from universe import is_etf
 
-# ── Logging Configuration ──────────────────────────────────────────────────────
+# ── Logging ───────────────────────────────────────────────────────────────────
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("yfinance").setLevel(logging.ERROR)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -52,8 +52,7 @@ logger = logging.getLogger(__name__)
 # ── Currency Detection ─────────────────────────────────────────────────────────
 
 def deduce_currency(symbol: str) -> str:
-    """Detect native currency from Yahoo Finance ticker suffix."""
-    if "." not in symbol: 
+    if "." not in symbol:
         return "USD"
     suffix = symbol.split(".")[-1].upper()
     eur_zones = {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}
@@ -69,13 +68,13 @@ def deduce_currency(symbol: str) -> str:
     return "USD"
 
 
-# ── Worker Process (No NLP — receives pre-computed nlp_data) ──────────────────
+# ── Worker Process ────────────────────────────────────────────────────────────
 
 def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, sector: str, nlp_data: dict) -> dict | None:
     """
     Compute technical, fundamental, and risk metrics for one asset.
-    NLP scoring (FinBERT) is NOT done here — it runs once in the main process
-    to avoid loading the model in every worker.
+    NLP data is pre-computed in main process — no FinBERT in workers.
+    data_confidence penalises the tactical grade when no real news exists.
     """
     try:
         price_hist = df.drop(columns=["Symbol", "Sector"], errors="ignore")
@@ -85,17 +84,28 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, sector: str, nlp_
         last_close = price_hist["Close"].iloc[-1] if "Close" in price_hist.columns else None
         if last_close is None or (isinstance(last_close, float) and (pd.isna(last_close) or np.isnan(last_close))):
             logger.warning("[SKIP] %s: No valid price data (NaN close)", symbol)
-            return None
+            return {
+                "Symbol": symbol,
+                "Is_ETF": is_etf(symbol),
+                "Current_Price": 0.0,
+                "Structural_Grade": 0.0,
+                "Tactical_Grade": 0.0,
+                "Stewardship": 18.0,
+                "Horizon": "N/A",
+                "Signal": "N/A",
+                "Active_Score": 0.0,
+                "NLP_Reasoning": nlp_data.get("reasoning", "No price data available"),
+            }
 
         hist_ind = add_all_indicators(price_hist)
         garch_vol = hist_ind["GARCH_Vol"]
-
         hmm_prob_bull = hmm_market_state_score(hist_ind["Close"], garch_vol) / float(WEIGHT_TECHNICAL)
 
         returns = np.log(hist_ind["Close"] / hist_ind["Close"].shift(1)).dropna()
         var_penalty = calculate_risk_penalty(returns)
 
-        if is_etf(symbol):
+        asset_is_etf = is_etf(symbol)
+        if asset_is_etf:
             s_val = 18.0
             struct_grade = 85.0
         else:
@@ -105,15 +115,19 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, sector: str, nlp_
                 roe=f_data.get("ROE"), stewardship_val=s_val,
             )
 
+        # data_confidence: 1.0 = real SEC/News data scored, 0.0 = no-data fallback
+        data_confidence = nlp_data.get("data_confidence", 1.0)
         tact_grade = evaluate_tactical_grade(
             hmm_prob_bull=hmm_prob_bull,
             finbert_score=nlp_data.get("score", 0.0),
             var_penalty=var_penalty,
+            data_confidence=data_confidence,
         )
         allocation = allocate_capital_regime(struct_grade, tact_grade, s_val)
 
         return {
             "Symbol": symbol,
+            "Is_ETF": asset_is_etf,
             "Current_Price": round(hist_ind["Close"].iloc[-1], 2),
             "Structural_Grade": round(struct_grade, 1),
             "Tactical_Grade": round(tact_grade, 1),
@@ -152,7 +166,7 @@ def main() -> None:
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
     logger.info("Loaded Portfolio: %s", list(portfolio_symbols))
 
-    # ── Step 1: Filtering ────────────────────────────────────────────────────
+    # ── Step 1: Filter survivors ────────────────────────────────────────────
     survivors: dict[str, pd.DataFrame] = {}
     survivor_funds: dict[str, dict] = {}
     for sym, df in grouped_data.items():
@@ -164,44 +178,52 @@ def main() -> None:
             survivor_funds[sym] = f_data
     logger.info("Survivors after filtering: %d", len(survivors))
 
-    # ── Step 2: Async Text Fetch ─────────────────────────────────────────────
+    # ── Step 2: Async text fetch ────────────────────────────────────────────
     import asyncio
     from async_fetcher import fetch_all_texts_concurrently
     survivor_texts = asyncio.run(fetch_all_texts_concurrently(list(survivors.keys())))
 
-    # ── Step 3: Pre-fetch cached NLP + score uncached in MAIN process ────────
-    # This is the key optimisation: FinBERT runs ONCE in main, not in every worker.
-    from sentiment import init_worker as _init_nlp_worker
-    _init_nlp_worker()  # load FinBERT once in main process
+    # ── Step 3: NLP scoring in MAIN process (single FinBERT) ────────────────
+    _init_nlp_worker()
 
     nlp_cache_rows: list[tuple] = []
     nlp_data_map: dict[str, dict] = {}
 
     for sym, text in survivor_texts.items():
         if not text:
-            neutral_score = 50.0 if is_etf(sym) else 0.0
-            nlp_data_map[sym] = {"score": neutral_score, "reasoning": "No SEC/News data available — neutral score applied", "doc_hash": None}
-            logger.debug("[NLP] %s: no text data, neutral=%.0f", sym, neutral_score)
+            # No data found — neutral score with ZERO confidence penalty
+            nlp_data_map[sym] = {
+                "score": 0.0,
+                "reasoning": "No SEC/News data available — low confidence neutral score",
+                "doc_hash": None,
+                "data_confidence": 0.0,
+            }
+            logger.debug("[NLP] %s: no text data, data_confidence=0.0", sym)
             continue
 
         h = hashlib.sha256(text.encode('utf-8')).hexdigest()
         row = conn.execute("SELECT score FROM nlp_scores WHERE doc_hash = ?", [h]).fetchone()
         if row:
-            nlp_data_map[sym] = {"score": row[0], "reasoning": "Cache Hit", "doc_hash": h}
+            nlp_data_map[sym] = {
+                "score": row[0],
+                "reasoning": "Cache Hit",
+                "doc_hash": h,
+                "data_confidence": 1.0,
+            }
             logger.debug("[NLP] %s: cache hit (score=%.1f)", sym, row[0])
         else:
-            # Score in main process — no worker loading FinBERT
             nlp_result = score_corporate_document(text)
             nlp_data_map[sym] = {
                 "score": nlp_result["score"],
                 "reasoning": nlp_result["reasoning"],
                 "doc_hash": nlp_result["doc_hash"],
+                "data_confidence": 1.0,
             }
             if nlp_result["doc_hash"]:
                 nlp_cache_rows.append((nlp_result["doc_hash"], nlp_result["score"]))
             logger.debug("[NLP] %s: scored in main (score=%.1f)", sym, nlp_result["score"])
 
-    # ── Step 4: Multiprocessing (No FinBERT — lightweight workers) ───────────
+    # ── Step 4: Multiprocessing (no FinBERT in workers) ──────────────────────
     results = []
     cpu_cores = min(4, max(1, multiprocessing.cpu_count() - 1))
     logger.info("Processing %d survivors with %d workers...", len(survivors), cpu_cores)
@@ -211,7 +233,7 @@ def main() -> None:
             executor.submit(
                 process_asset, sym, df, survivor_funds[sym],
                 df['Sector'].iloc[0] if 'Sector' in df.columns else "Other",
-                nlp_data_map.get(sym, {"score": 0.0, "reasoning": "No NLP data"}),
+                nlp_data_map.get(sym, {"score": 0.0, "reasoning": "No NLP data", "data_confidence": 0.0}),
             ): sym for sym, df in survivors.items()
         }
 
@@ -224,13 +246,30 @@ def main() -> None:
                     nlp_cache_rows.append((doc_hash, nlp_score_val))
                 results.append(res)
 
-    # Bulk-write new NLP cache entries
     if nlp_cache_rows:
         conn.execute("BEGIN TRANSACTION")
         for h, s in nlp_cache_rows:
             conn.execute("INSERT OR REPLACE INTO nlp_scores (doc_hash, score) VALUES (?, ?)", [h, s])
         conn.execute("COMMIT")
         logger.info("NLP cache: %d new entries saved", len(nlp_cache_rows))
+
+    # Ensure all portfolio symbols appear in results, even if missing from DB
+    scanned_symbols = {r["Symbol"] for r in results}
+    for sym in portfolio_symbols:
+        if sym not in scanned_symbols:
+            logger.warning("[PORTFOLIO] %s: No market data found — adding placeholder", sym)
+            results.append({
+                "Symbol": sym,
+                "Is_ETF": is_etf(sym),
+                "Current_Price": 0.0,
+                "Structural_Grade": 0.0,
+                "Tactical_Grade": 0.0,
+                "Stewardship": 18.0,
+                "Horizon": "N/A",
+                "Signal": "N/A",
+                "Active_Score": 0.0,
+                "NLP_Reasoning": "No market data available for this symbol",
+            })
 
     if not results:
         logger.warning("No assets passed the filters or completed scoring.")
@@ -242,6 +281,7 @@ def main() -> None:
 
     print(f"\n CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
 
+    # --- TOP 3 BUY OPPORTUNITIES (Inc. ETFs) ---
     print("\n" + "=" * 40)
     print("TOP 3 BUY OPPORTUNITIES")
     print("=" * 40)
@@ -252,24 +292,38 @@ def main() -> None:
     else:
         print("No high-conviction BUY signals found.")
 
-    print("\n" + "=" * 100)
-    print("FULL MARKET SCAN")
-    print("=" * 100)
-    print(final_df.to_string(index=False))
+    # --- TOP 3 STOCKS (Non-ETF) ---
+    print("\n" + "=" * 40)
+    print("TOP 3 STOCKS (Non-ETF)")
+    print("=" * 40)
+    stock_buys = final_df[(final_df['Signal'] == 'BUY') & (final_df['Is_ETF'] == False) & (final_df['Current_Price'].notna())]
+    top_stocks = stock_buys.sort_values(by='Active_Score', ascending=False).head(3)
+    if not top_stocks.empty:
+        print(top_stocks[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
+    else:
+        print("No stock BUY signals found (only ETFs).")
 
+    # --- FULL MARKET SCAN ---
+    print("\n" + "=" * 145)
+    print("FULL MARKET SCAN")
+    print("=" * 145)
+    display_cols = ['Symbol', 'Is_ETF', 'Current_Price', 'Structural_Grade', 'Tactical_Grade',
+                    'Stewardship', 'Horizon', 'Signal', 'Active_Score', 'NLP_Reasoning']
+    print(final_df[display_cols].to_string(index=False))
+
+    # --- PORTFOLIO AUDIT ---
     if not port_df.empty:
         audit_res = audit_portfolio(port_df, final_df)
         audit_res.to_csv("outputs/portfolio_audit.csv", index=False)
 
-        print("\n" + "=" * 100)
+        print("\n" + "=" * 120)
         print("FULL PORTFOLIO AUDIT")
-        print("=" * 100)
-        cols = ['Symbol', 'PnL_pct', 'Audit_Decision', 'Active_Score', 'Signal']
+        print("=" * 120)
+        cols = ['Symbol', 'PnL_pct', 'PnL_EUR', 'Audit_Decision', 'Active_Score', 'Signal']
         print(audit_res[cols].to_string(index=False))
         print("\n")
 
         eff = account_effectiveness(audit_res, port_df)
-        from portfolio import print_effectiveness_report
         print_effectiveness_report(eff)
 
 
