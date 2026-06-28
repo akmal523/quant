@@ -21,7 +21,34 @@ sec_filings/
 *.h5
 
 # Virtual Environments
+.venv/
 myenv/
 venv/
 .env/
 env/
+
+# Python bytecode & cache
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
