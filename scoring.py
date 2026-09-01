@@ -28,6 +28,46 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Core Models ───────────────────────────────────────────────────────────────
 
+def fit_market_regime(
+    hist_close: pd.Series,
+    vol: pd.Series,
+    max_points: float = WEIGHT_TECHNICAL,
+) -> float:
+    """
+    Fit GaussianHMM ONCE on a broad market index (SPY/URTH) to derive the
+    macro "Probability of Bull Market". Per-asset HMM is statistically flawed
+    (micro-caps lack independent regimes) and costs ~1s/asset.
+    Intent: single macro regime multiplier applied to all asset tactical scores.
+    Invariants: returns float in [0, max_points]; neutral 0.5*max_points on failure.
+    Dependencies: hmmlearn, sklearn. Pure function (no I/O).
+    """
+    if len(hist_close) < 252 or vol.isna().all():
+        return max_points / 2.0
+
+    returns = np.log(hist_close / hist_close.shift(1)).dropna()
+    common_index = returns.index.intersection(vol.dropna().index)
+    if len(common_index) < 252:
+        return max_points / 2.0
+
+    X = pd.DataFrame({
+        "Returns": returns[common_index],
+        "Volatility": vol[common_index],
+    })
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    try:
+        model = GaussianHMM(n_components=2, covariance_type="full", n_iter=100, random_state=42)
+        model.fit(X_scaled)
+        posterior_probs = model.predict_proba(X_scaled)
+        state_means = model.means_[:, 0]
+        bull_state_idx = np.argmax(state_means)
+        current_bull_prob = posterior_probs[-1, bull_state_idx]
+        return float(current_bull_prob * max_points)
+    except Exception:
+        return max_points / 2.0
+
+
 def hmm_market_state_score(
     hist_close: pd.Series,
     garch_vol: pd.Series,
@@ -184,6 +224,7 @@ def allocate_capital_regime(structural_grade: float, tactical_grade: float, stew
 # ── Position Sizing ───────────────────────────────────────────────────────────
 
 def kelly_position_size(win_rate: float, avg_win: float, avg_loss: float) -> float:
+    from config import KELLY_FRACTION, MAX_POSITION_PCT
     if avg_loss <= 0 or avg_win <= 0 or not (0.0 < win_rate < 1.0):
         return 0.0
     b = avg_win / avg_loss
@@ -192,6 +233,7 @@ def kelly_position_size(win_rate: float, avg_win: float, avg_loss: float) -> flo
     return float(np.clip(fractional, 0.0, MAX_POSITION_PCT))
 
 def target_volatility_size(asset_annual_vol: float) -> float:
+    from config import TARGET_VOLATILITY, MAX_POSITION_PCT
     if asset_annual_vol <= 0:
         return float(MAX_POSITION_PCT)
     size = TARGET_VOLATILITY / asset_annual_vol
@@ -213,6 +255,82 @@ def position_size(
         "TargetVol_Size_pct":    round(tv    * 100, 2),
         "Recommended_Size_pct":  round(final * 100, 2),
     }
+
+
+# ── Cross-Sectional Factor Model ──────────────────────────────────────────────
+# Replaces hardcoded absolute thresholds with universe-relative z-scores.
+# Adapts to market conditions; robust to regime shifts.
+
+# Factor weights (must sum to 1.0).
+FACTOR_WEIGHTS = {
+    "value":     0.25,
+    "quality":   0.25,
+    "momentum":  0.20,
+    "low_risk":  0.15,
+    "sentiment": 0.15,
+}
+
+
+def zscore(series: pd.Series) -> pd.Series:
+    """Standardize a factor across the universe. NaN-safe."""
+    std = series.std()
+    if std is None or std == 0 or pd.isna(std):
+        return pd.Series(0.0, index=series.index)
+    return (series - series.mean()) / std
+
+
+def factor_scores(features: pd.DataFrame) -> pd.DataFrame:
+    """Compute cross-sectional factor z-scores and composite score.
+
+    Intent: replace absolute thresholds (FILTER_MAX_PE etc.) with relative
+    ranking. Each factor is z-scored across the tradable universe, then combined
+    with FACTOR_WEIGHTS. Higher composite = more attractive.
+    Invariants: input must have columns PE, ROE, momentum_6m, vol_60d, nlp_score.
+    Returns a copy with value_z/quality_z/momentum_z/low_risk_z/sentiment_z/
+    composite_score added.
+    """
+    out = features.copy()
+
+    # Value: lower PE/PEG is better -> negate.
+    value = -out["PE"].fillna(out["PE"].median())
+    # Quality: higher ROE is better.
+    quality = out["ROE"].fillna(out["ROE"].median())
+    # Momentum: higher 6m return is better.
+    momentum = out["momentum_6m"].fillna(0.0)
+    # Low risk: lower vol is better -> negate.
+    low_risk = -out["vol_60d"].fillna(out["vol_60d"].median())
+    # Sentiment: higher NLP score is better.
+    sentiment = out["nlp_score"].fillna(0.0)
+
+    out["value_z"] = zscore(value)
+    out["quality_z"] = zscore(quality)
+    out["momentum_z"] = zscore(momentum)
+    out["low_risk_z"] = zscore(low_risk)
+    out["sentiment_z"] = zscore(sentiment)
+
+    out["composite_score"] = (
+        FACTOR_WEIGHTS["value"] * out["value_z"]
+        + FACTOR_WEIGHTS["quality"] * out["quality_z"]
+        + FACTOR_WEIGHTS["momentum"] * out["momentum_z"]
+        + FACTOR_WEIGHTS["low_risk"] * out["low_risk_z"]
+        + FACTOR_WEIGHTS["sentiment"] * out["sentiment_z"]
+    )
+    return out
+
+
+def sector_neutral_rank(features: pd.DataFrame) -> pd.DataFrame:
+    """Neutralize sector bias by ranking composite_score within each sector.
+
+    Intent: prevent the portfolio from concentrating in one sector (e.g. cheap
+    financials or high-momentum tech). Adds sector_rank (1 = best in sector).
+    Invariants: requires composite_score and Sector columns.
+    """
+    out = features.copy()
+    out["sector_rank"] = (
+        out.groupby("Sector")["composite_score"]
+        .rank(ascending=False, method="min")
+    )
+    return out
 
 
 # ── Fast Filter ───────────────────────────────────────────────────────────────

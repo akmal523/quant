@@ -16,21 +16,21 @@ import logging
 import multiprocessing
 import numpy as np
 import pandas as pd
+import polars as pl
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from database import get_connection, init_db
 from currency import apply_fx_conversion, get_eur_rate
 from portfolio import load_portfolio, audit_portfolio, account_effectiveness, print_effectiveness_report
-from indicators import add_all_indicators
-from sentiment import score_corporate_document
-from sentiment import init_worker as _init_nlp_worker
+from indicators import add_all_indicators, fast_volatility
+from sentiment import NLPScorer
 from risk import calculate_risk_penalty
 from config import WEIGHT_TECHNICAL
 from scoring import (
     evaluate_structural_grade,
     evaluate_tactical_grade,
     allocate_capital_regime,
-    hmm_market_state_score,
+    fit_market_regime,
     stewardship_score_v2,
     apply_fast_filter,
 )
@@ -70,16 +70,24 @@ def deduce_currency(symbol: str) -> str:
 
 # ── Worker Process ────────────────────────────────────────────────────────────
 
-def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, sector: str, nlp_data: dict) -> dict | None:
-    """
-    Compute technical, fundamental, and risk metrics for one asset.
-    NLP data is pre-computed in main process — no FinBERT in workers.
-    data_confidence penalises the tactical grade when no real news exists.
-    """
+# main.py -> process_asset()
+def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict, market_regime_prob: float) -> dict | None:
     try:
+        # FIX: Worker must now fetch its own DataFrame from the database
+        from database import get_connection
+        conn = get_connection()
+        df = conn.execute(
+            "SELECT * FROM market_history WHERE Symbol = ? ORDER BY Date ASC", 
+            [symbol]
+        ).df()
+        
+        if df.empty:
+            return None
+
         price_hist = df.drop(columns=["Symbol", "Sector"], errors="ignore")
         native_ccy = deduce_currency(symbol)
-        price_hist = apply_fx_conversion(price_hist, from_currency=native_ccy, to_currency="EUR")
+        # Get sector from the queried data
+        sector = df['Sector'].iloc[0] if 'Sector' in df.columns else "Unknown"
 
         last_close = price_hist["Close"].iloc[-1] if "Close" in price_hist.columns else None
         if last_close is None or (isinstance(last_close, float) and (pd.isna(last_close) or np.isnan(last_close))):
@@ -98,8 +106,9 @@ def process_asset(symbol: str, df: pd.DataFrame, f_data: dict, sector: str, nlp_
             }
 
         hist_ind = add_all_indicators(price_hist)
-        garch_vol = hist_ind["GARCH_Vol"]
-        hmm_prob_bull = hmm_market_state_score(hist_ind["Close"], garch_vol) / float(WEIGHT_TECHNICAL)
+        # Pillar 2b: use precomputed MARKET regime prob (fit once on index),
+        # not per-asset HMM. Saves ~1s/asset and is statistically sound.
+        hmm_prob_bull = market_regime_prob
 
         returns = np.log(hist_ind["Close"] / hist_ind["Close"].shift(1)).dropna()
         var_penalty = calculate_risk_penalty(returns)
@@ -153,20 +162,30 @@ def main() -> None:
     init_db()
 
     try:
-        market_data = conn.execute("SELECT * FROM market_history ORDER BY Date ASC").df()
+        # Pillar 4: read DuckDB -> Polars natively (Rust, multi-core, no GIL).
+        # .pl() avoids pandas intermediate, so no pyarrow dependency needed.
+        pl_df = conn.execute("SELECT * FROM market_history ORDER BY Symbol ASC, Date ASC").pl()
     except Exception:
         logger.error("market_history missing. Run data_updater.py.")
         return
 
-    market_data['Date'] = pd.to_datetime(market_data['Date'])
-    market_data = market_data.sort_values(['Symbol', 'Date'])
-    grouped_data = {symbol: df for symbol, df in market_data.groupby("Symbol")}
+    if "Date" in pl_df.columns:
+        pl_df = pl_df.with_columns(pl.col("Date").str.to_datetime())
+    # Vectorized log-returns across ALL symbols simultaneously (Rust).
+    pl_df = pl_df.sort(["Symbol", "Date"]).with_columns(
+        (pl.col("Close").log().diff() * 100).alias("LogReturns").over("Symbol")
+    )
+    # group_by yields tuple keys ('005930.KS',) — unpack to scalar symbol string.
+    grouped_data = {sym[0]: df.to_pandas() for sym, df in pl_df.group_by("Symbol")}
 
     port_df = load_portfolio("portfolio.csv")
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
     logger.info("Loaded Portfolio: %s", list(portfolio_symbols))
 
-    # ── Step 1: Filter survivors ────────────────────────────────────────────
+    # ── Pillar 1: Smart Funnel ──────────────────────────────────────────────
+    # Tier 1 (microseconds): fast fundamental filter.
+    # Tier 2 (milliseconds): fast technical filter (uptrend check).
+    # Tier 3 (seconds): heavy NLP/SEC only on top ~30 survivors.
     survivors: dict[str, pd.DataFrame] = {}
     survivor_funds: dict[str, dict] = {}
     for sym, df in grouped_data.items():
@@ -174,17 +193,32 @@ def main() -> None:
         is_portfolio = sym in portfolio_symbols
         is_asset_etf = is_etf(sym)
         if is_portfolio or is_asset_etf or apply_fast_filter(f_data):
+            # Tier 2: uptrend check — Price > 200 SMA (fast, vectorized).
+            if not is_portfolio and not is_asset_etf:
+                close = df["Close"]
+                if len(close) < 200 or close.iloc[-1] <= close.rolling(200).mean().iloc[-1]:
+                    continue
             survivors[sym] = df
             survivor_funds[sym] = f_data
-    logger.info("Survivors after filtering: %d", len(survivors))
+    logger.info("Survivors after Tier1+Tier2 funnel: %d", len(survivors))
 
-    # ── Step 2: Async text fetch ────────────────────────────────────────────
+    # ── Pillar 2b: Fit market regime HMM ONCE on a broad index ──────────────
+    # Use SPY if present in universe, else the longest-history asset as proxy.
+    market_regime_prob = 0.5
+    regime_sym = "SPY" if "SPY" in grouped_data else max(grouped_data, key=lambda s: len(grouped_data[s]))
+    regime_df = grouped_data[regime_sym]
+    regime_vol = fast_volatility(regime_df["Close"])
+    regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
+    market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
+    logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
+
+    # ── Step 2: Async text fetch (Tier 3 — only on funnel survivors) ────────
     import asyncio
     from async_fetcher import fetch_all_texts_concurrently
     survivor_texts = asyncio.run(fetch_all_texts_concurrently(list(survivors.keys())))
 
-    # ── Step 3: NLP scoring in MAIN process (single FinBERT) ────────────────
-    _init_nlp_worker()
+    # ── Step 3: NLP scoring in MAIN process (single FinBERT, DI) ────────────
+    scorer = NLPScorer()
 
     nlp_cache_rows: list[tuple] = []
     nlp_data_map: dict[str, dict] = {}
@@ -212,7 +246,7 @@ def main() -> None:
             }
             logger.debug("[NLP] %s: cache hit (score=%.1f)", sym, row[0])
         else:
-            nlp_result = score_corporate_document(text)
+            nlp_result = scorer.score_document(text)
             nlp_data_map[sym] = {
                 "score": nlp_result["score"],
                 "reasoning": nlp_result["reasoning"],
@@ -223,6 +257,19 @@ def main() -> None:
                 nlp_cache_rows.append((nlp_result["doc_hash"], nlp_result["score"]))
             logger.debug("[NLP] %s: scored in main (score=%.1f)", sym, nlp_result["score"])
 
+    # FIX: Free the 500MB model from RAM BEFORE forking the workers!
+    del scorer
+    import gc
+    gc.collect()
+
+    # FIX: Use 'spawn' to avoid inheriting PyTorch state into child processes
+    import multiprocessing as mp
+    try:
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass 
+
+
     # ── Step 4: Multiprocessing (no FinBERT in workers) ──────────────────────
     results = []
     cpu_cores = min(4, max(1, multiprocessing.cpu_count() - 1))
@@ -231,9 +278,13 @@ def main() -> None:
     with ProcessPoolExecutor(max_workers=cpu_cores) as executor:
         futures = {
             executor.submit(
-                process_asset, sym, df, survivor_funds[sym],
+                process_asset,
+                sym,
+                # df is REMOVED from here
+                survivor_funds[sym],
                 df['Sector'].iloc[0] if 'Sector' in df.columns else "Other",
-                nlp_data_map.get(sym, {"score": 0.0, "reasoning": "No NLP data", "data_confidence": 0.0}),
+                nlp_data_map.get(sym, {"score": 0.0, "reasoning": "No NLP data"}),
+                market_regime_prob,
             ): sym for sym, df in survivors.items()
         }
 

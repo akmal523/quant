@@ -1,4 +1,5 @@
 import time
+import datetime as dt
 import pandas as pd
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,12 +9,40 @@ from database import get_connection
 OUTPUT_FILE = "market_data.parquet"
 REQUEST_DELAY = 0.5
 MAX_WORKERS = 10
+# Incremental update: only fetch history after this many days back from last_date.
+# yfinance needs a small overlap to avoid gaps on non-trading days.
+INCREMENTAL_OVERLAP_DAYS = 5
 
-def fetch_single(sym: str, name: str, sector: str) -> pd.DataFrame | None:
-    """Fetch a single ticker's history. Drops trailing NaN rows (e.g. future dates)."""
+
+def get_last_dates(conn) -> dict[str, str]:
+    """Return {symbol: last_date_str} from market_history. Empty dict if table missing."""
+    try:
+        rows = conn.execute(
+            "SELECT Symbol, MAX(Date) AS last_date FROM market_history GROUP BY Symbol"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+    except Exception:
+        return {}
+
+
+def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None) -> pd.DataFrame | None:
+    """Fetch a single ticker's history. Incremental if last_date provided.
+
+    Intent: avoid re-downloading 5y every run. Fetch only data after last_date
+    (minus overlap) and append. Drops trailing NaN rows (e.g. future dates).
+    Invariants: returns df with Symbol/Sector columns, Date index, no NaN Close.
+    Dependencies: yfinance, pandas.
+    """
     try:
         ticker = yf.Ticker(sym)
-        df = ticker.history(period="5y", auto_adjust=True)
+
+        if last_date:
+            # Incremental: fetch from overlap window before last known date.
+            start = (dt.date.fromisoformat(last_date) - dt.timedelta(days=INCREMENTAL_OVERLAP_DAYS))
+            df = ticker.history(start=start.isoformat(), auto_adjust=True)
+        else:
+            # Full fetch: 5 years.
+            df = ticker.history(period="5y", auto_adjust=True)
 
         if df.empty:
             print(f" [!] Empty history for {sym}")
@@ -56,11 +85,15 @@ def main() -> None:
     total = len(tickers)
     all_data = []
 
-    print(f"Fetching {total} tickers with {MAX_WORKERS} parallel workers...")
+    conn = get_connection()
+    last_dates = get_last_dates(conn)
+    incremental = bool(last_dates)
+    print(f"Fetching {total} tickers with {MAX_WORKERS} parallel workers... "
+          f"({'INCREMENTAL' if incremental else 'FULL 5y'} mode)")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
-            executor.submit(fetch_single, sym, name, sector): sym
+            executor.submit(fetch_single, sym, name, sector, last_dates.get(sym)): sym
             for sym, name, sector in tickers
         }
 
@@ -77,10 +110,16 @@ def main() -> None:
         if 'Date' in final_df.columns:
             final_df['Date'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d')
 
-        conn = get_connection()
-        conn.execute("CREATE OR REPLACE TABLE market_history AS SELECT * FROM final_df")
-
-        print(f"\nWrite complete: {len(final_df)} rows saved to DuckDB ({len(all_data)}/{total} tickers fetched).")
+        if incremental:
+            # Append only new rows; overlap rows are deduped by (Symbol, Date).
+            conn.execute("CREATE TABLE IF NOT EXISTS market_history AS SELECT * FROM final_df LIMIT 0")
+            conn.execute("INSERT OR REPLACE INTO market_history SELECT * FROM final_df")
+            print(f"\nIncremental update: {len(final_df)} rows appended/updated "
+                  f"({len(all_data)}/{total} tickers fetched).")
+        else:
+            conn.execute("CREATE OR REPLACE TABLE market_history AS SELECT * FROM final_df")
+            print(f"\nWrite complete: {len(final_df)} rows saved to DuckDB "
+                  f"({len(all_data)}/{total} tickers fetched).")
     else:
         print("\nFatal: No data acquired.")
 

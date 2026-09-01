@@ -2,7 +2,7 @@ import os
 import threading
 import logging
 from sec_edgar_downloader import Downloader
-from bs4 import BeautifulSoup
+from selectolax.parser import HTMLParser
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,13 @@ def _download_and_parse(symbol: str, download_dir: str, result_container: list) 
             for file in files:
                 if file.endswith(".txt"):
                     file_path = os.path.join(root, file)
+# sec_edgar.py -> _download_and_parse()
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        raw_html = f.read()
-                        soup = BeautifulSoup(raw_html, "html.parser")
-                        result_container[0] = soup.get_text(separator=" ", strip=True)
+                        # FIX: Read up to 1MB of HTML instead of the entire multi-MB file
+                        raw_html = f.read(1024 * 1024)
+                        # Pillar 5: selectolax C-based parser ~50x faster than BS4
+                        tree = HTMLParser(raw_html)
+                        result_container[0] = tree.text(separator=" ").strip()[:50000]
                         return
     except Exception:
         pass

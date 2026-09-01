@@ -74,6 +74,54 @@ def _save_to_cache(symbol: str, data: dict) -> None:
     )
 
 
+def save_fundamentals_history(symbol: str, data: dict, as_of_date: str, published_date: str | None = None) -> None:
+    """Persist a point-in-time fundamentals snapshot.
+
+    Intent: enable no-lookahead backtests. published_date defaults to as_of_date
+    (assume data known same day); set explicitly when a lag is known.
+    Invariants: one row per (symbol, as_of_date); INSERT OR REPLACE.
+    """
+    conn = get_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO fundamentals_history
+           (symbol, as_of_date, published_date, pe, peg, roe, debt_to_equity, ebit, interest_expense)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            symbol,
+            as_of_date,
+            published_date or as_of_date,
+            data.get("PE"), data.get("PEG"), data.get("ROE"),
+            data.get("DebtToEquity"),
+            data.get("EBIT"), data.get("InterestExpense"),
+        ]
+    )
+
+
+def get_fundamentals_as_of(symbol: str, as_of_date: str) -> dict | None:
+    """Return the most recent fundamentals snapshot known by as_of_date.
+
+    Intent: no-lookahead. Only rows with published_date <= as_of_date are used.
+    Returns None if no snapshot is available by that date.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT pe, peg, roe, debt_to_equity, ebit, interest_expense
+           FROM fundamentals_history
+           WHERE symbol = ? AND published_date <= ?
+           ORDER BY published_date DESC
+           LIMIT 1""",
+        [symbol, as_of_date]
+    ).fetchone()
+    if not row:
+        return None
+    pe, peg, roe, de, ebit, interest_exp = row
+    return {
+        "PE": pe, "PEG": peg, "ROE": roe,
+        "DebtToEquity": de,
+        "EBIT": ebit, "InterestExpense": interest_exp,
+    }
+
+
 # ── ICR Computation ───────────────────────────────────────────────────────────
 
 def _compute_icr(data: dict) -> float | None:

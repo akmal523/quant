@@ -36,3 +36,22 @@ def init_db() -> None:
             score DOUBLE
         )
     """)
+
+    # Point-in-time fundamentals history (Pillar 1.3 — no lookahead bias).
+    # as_of_date: the date the fundamentals are valid for.
+    # published_date: when the market actually knew them.
+    # Backtests must filter published_date <= scoring_date to avoid lookahead.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fundamentals_history (
+            symbol VARCHAR,
+            as_of_date DATE,
+            published_date DATE,
+            pe DOUBLE,
+            peg DOUBLE,
+            roe DOUBLE,
+            debt_to_equity DOUBLE,
+            ebit DOUBLE,
+            interest_expense DOUBLE,
+            PRIMARY KEY (symbol, as_of_date)
+        )
+    """)

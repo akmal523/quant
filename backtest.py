@@ -25,6 +25,11 @@ import pandas as pd
 from config import COMMISSION_SLIPPAGE, WFO_IS_DAYS, WFO_OOS_DAYS, WFO_STEP_DAYS
 from indicators import rsi as calc_rsi, atr
 
+# Realistic cost model (Pillar 1.4): commission + slippage + spread.
+COST_BPS = 10      # commission
+SLIPPAGE_BPS = 5   # slippage
+TOTAL_COST_BPS = COST_BPS + SLIPPAGE_BPS
+
 logger = logging.getLogger(__name__)
 
 # ── Survivorship Bias Warning ─────────────────────────────────────────────────
@@ -252,4 +257,70 @@ def run_historical_backtest(
         "Backtest_StopHit":    stop_hit,
         "Backtest_Signal":     "EXIT_STOP" if stop_hit else "EXIT_CURRENT",
         "Backtest_Entry_Date": str(hist.index[entry_idx].date()),
+    }
+
+
+# ── Cost-Aware Backtest (T+1 execution) ───────────────────────────────────────
+
+def run_cost_aware_backtest(
+    hist: pd.DataFrame,
+    signal_col: str = "Signal",
+    cost_bps: float = TOTAL_COST_BPS,
+) -> dict:
+    """
+    Realistic backtest with transaction costs and T+1 execution.
+
+    Methodology:
+      - Signal generated at close of day T (from signal_col).
+      - Trade executed at OPEN of day T+1 (no same-close execution).
+      - Round-trip cost = cost_bps applied on entry and exit.
+      - Returns net PnL, win rate, trade count, and cost drag.
+
+    Intent: verify the signal produces risk-adjusted returns AFTER costs.
+    Invariants: requires hist with Open, Close, and signal_col (BUY/SELL/HOLD).
+    """
+    empty = {
+        "CA_Trades": 0,
+        "CA_WinRate_pct": 0.0,
+        "CA_Net_PnL_pct": 0.0,
+        "CA_Gross_PnL_pct": 0.0,
+        "CA_Cost_Drag_pct": 0.0,
+    }
+    if hist is None or len(hist) < 2 or signal_col not in hist.columns:
+        return empty
+
+    cost = cost_bps / 10000.0  # bps -> decimal
+
+    trades: list[float] = []
+    in_trade = False
+    entry_price = 0.0
+
+    for i in range(len(hist) - 1):
+        signal = hist.iloc[i][signal_col]
+        # Execute at T+1 open.
+        exec_price = float(hist.iloc[i + 1]["Open"])
+
+        if not in_trade and signal == "BUY":
+            in_trade = True
+            entry_price = exec_price * (1 + cost)  # pay cost on entry
+        elif in_trade and signal == "SELL":
+            exit_price = exec_price * (1 - cost)   # pay cost on exit
+            gross = (exit_price - entry_price) / entry_price
+            trades.append(gross)
+            in_trade = False
+
+    if not trades:
+        return empty
+
+    gross_pnl = float(np.mean(trades))
+    # Cost drag estimate: cost applied twice per round trip.
+    cost_drag = cost * 2
+    net_pnl = gross_pnl - cost_drag
+
+    return {
+        "CA_Trades": len(trades),
+        "CA_WinRate_pct": round(len([t for t in trades if t > 0]) / len(trades) * 100, 1),
+        "CA_Net_PnL_pct": round(net_pnl * 100, 2),
+        "CA_Gross_PnL_pct": round(gross_pnl * 100, 2),
+        "CA_Cost_Drag_pct": round(cost_drag * 100, 2),
     }

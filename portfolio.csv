@@ -1,10 +1,5 @@
 Symbol,Buy_Price,Amount_EUR,Original_Amount
-XEON.DE,148.98,502.15,500		#Euro Overnight Rate Swap Euro (Acc) [TR: XEON]
-5J50.DE,7.99,104.06,100			#Global Aerospace and Defence USD (ACC)
-IQQQ.DE,63.69,138.29,130		#Global Water USD (Dist) [TR: IQQQ]
-EUNL.DE,121.19,78.49,77			#Core MSCI World USD (Acc) [TR: EUNL]
-LMT,443.62,75.27,75			#Lockheed Martin [TR: LOM]
-HMY,13.77,50.37,50			#Harmony Gold Mining (ADR) [TR: HAM]
-RHO.DE,356.40,51.80,50			#Roche [TR: RHO]
-SXRV.DE,1508.43,48.69,50		#Nasdaq 100 USD (Acc) [TR: SXRV]
-HEI.DE,186.31,3.73,3.78			#Heidelberg Materials
+5J50.DE,8.28,151.39,151			#Global Aerospace and Defence USD (ACC)
+IQQQ.DE,63.69,134.5,130			#Global Water USD (Dist) [TR: IQQQ]
+EUNL.DE,124.48,206.44,203		#Core MSCI World USD (Acc) [TR: EUNL]
+SXRV.DE,1467.04,174.58,177		#Nasdaq 100 USD (Acc) [TR: SXRV]
