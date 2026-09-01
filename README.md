@@ -60,6 +60,33 @@ quant/
 ```
 
 ---
+## New in v10.1
+
+> **Universe model change:** [`data_updater.py`](data_updater.py) no longer fetches
+> all 277 `SECTOR_UNIVERSE` stocks. It fetches only **CORE ETFs + ACTIVE
+> (graduated) universe + portfolio holdings** via `build_fetch_list()`. New
+> symbols default to `WATCHLIST`; only `discovery.py` graduation or manual pin
+> promotes them to `ACTIVE`. This keeps the heavy-analysis universe lean.
+
+### 1. Execution Reality (Trade Republic Integration)
+- **1-EUR fee asymmetry** — [`optimizer.py`](optimizer.py) adds `minimum_trade_size()` and `passes_fee_hurdle()`. Formula: `Min Capital = (Round_Trip_Fee / Alpha_BPS) * 10000`. A 200 bps alpha needs ≥ 100 EUR to clear the 2 EUR round-trip fee.
+- **ISIN mapping** — [`broker_registry.csv`](broker_registry.csv) maps `yahoo_ticker` → `isin` / `tr_ticker` / `exchange` / `currency`. [`data_updater.py`](data_updater.py) fetches the LS Exchange ticker for execution-relevant local prices.
+- **Signal routing** — [`routing.py`](routing.py) routes high-structural/low-tactical to **Sparplan** (0 EUR buy) and high-tactical to **Active Trade** (1 EUR).
+
+### 2. Portfolio Architecture (Buckets & Cash)
+- **Cash as risk-free baseline** — [`config.py`](config.py) `BROKER_CASH_APY = 0.0225`. [`risk.py`](risk.py) converts to daily yield `(1+APY)^(1/365)-1` and uses it in Sortino/Sharpe.
+- **Smart Balance buckets** — [`optimizer.py`](optimizer.py) enforces `Safety ≥ 10%`, `Core ≥ 40%`, `Alpha ≤ 50%` as hard cvxpy inequality constraints.
+
+### 3. Asset Taxonomy & Universe Management
+- **Bifurcated scoring** — [`taxonomy.py`](taxonomy.py) tags `EQUITY`/`ETF`/`COMMODITY`/`CASH`. [`main.py`](main.py) bypasses Fundamentals/NLP for ETFs/commodities, scoring them on macro regime + trend + relative strength.
+- **Graduation universe** — [`discovery.py`](discovery.py) scans [`watchlist.csv`](watchlist.csv) weekly (5-day data only). 52-week-high or 3x-volume anomalies graduate to ACTIVE; stale ACTIVE assets demote after 6 months.
+
+### 4. Local Interface & Automation
+- **Streamlit dashboard** — [`dashboard.py`](dashboard.py): Daily Briefing, Asset Explorer (Plotly + GARCH bands), Universe Manager.
+- **Push notifications** — [`notifier.py`](notifier.py) sends daily Telegram/Discord summaries (trades, cash allocation, risk warnings).
+- **Cron** — [`setup_cron.sh`](setup_cron.sh) installs daily 18:00 CET + weekly discovery jobs.
+
+---
 
 ## New in v10.0
 
@@ -112,34 +139,6 @@ This cuts total execution time by 50-60% by skipping expensive NLP on assets wit
 
 ### 15. Fixed Pre-Existing Bugs
 - [`scoring.py`](scoring.py) `kelly_position_size()` and `target_volatility_size()` referenced `KELLY_FRACTION`/`TARGET_VOLATILITY`/`MAX_POSITION_PCT` without importing them - added local imports (unblocked `test_scoring.py`).
-
----
-
-## New in v10.1 (Phase 4 — Broker-Aware Family Office Terminal)
-
-> **Universe model change:** [`data_updater.py`](data_updater.py) no longer fetches
-> all 277 `SECTOR_UNIVERSE` stocks. It fetches only **CORE ETFs + ACTIVE
-> (graduated) universe + portfolio holdings** via `build_fetch_list()`. New
-> symbols default to `WATCHLIST`; only `discovery.py` graduation or manual pin
-> promotes them to `ACTIVE`. This keeps the heavy-analysis universe lean.
-
-### 1. Execution Reality (Trade Republic Integration)
-- **1-EUR fee asymmetry** — [`optimizer.py`](optimizer.py) adds `minimum_trade_size()` and `passes_fee_hurdle()`. Formula: `Min Capital = (Round_Trip_Fee / Alpha_BPS) * 10000`. A 200 bps alpha needs ≥ 100 EUR to clear the 2 EUR round-trip fee.
-- **ISIN mapping** — [`broker_registry.csv`](broker_registry.csv) maps `yahoo_ticker` → `isin` / `tr_ticker` / `exchange` / `currency`. [`data_updater.py`](data_updater.py) fetches the LS Exchange ticker for execution-relevant local prices.
-- **Signal routing** — [`routing.py`](routing.py) routes high-structural/low-tactical to **Sparplan** (0 EUR buy) and high-tactical to **Active Trade** (1 EUR).
-
-### 2. Portfolio Architecture (Buckets & Cash)
-- **Cash as risk-free baseline** — [`config.py`](config.py) `BROKER_CASH_APY = 0.0225`. [`risk.py`](risk.py) converts to daily yield `(1+APY)^(1/365)-1` and uses it in Sortino/Sharpe.
-- **Smart Balance buckets** — [`optimizer.py`](optimizer.py) enforces `Safety ≥ 10%`, `Core ≥ 40%`, `Alpha ≤ 50%` as hard cvxpy inequality constraints.
-
-### 3. Asset Taxonomy & Universe Management
-- **Bifurcated scoring** — [`taxonomy.py`](taxonomy.py) tags `EQUITY`/`ETF`/`COMMODITY`/`CASH`. [`main.py`](main.py) bypasses Fundamentals/NLP for ETFs/commodities, scoring them on macro regime + trend + relative strength.
-- **Graduation universe** — [`discovery.py`](discovery.py) scans [`watchlist.csv`](watchlist.csv) weekly (5-day data only). 52-week-high or 3x-volume anomalies graduate to ACTIVE; stale ACTIVE assets demote after 6 months.
-
-### 4. Local Interface & Automation
-- **Streamlit dashboard** — [`dashboard.py`](dashboard.py): Daily Briefing, Asset Explorer (Plotly + GARCH bands), Universe Manager.
-- **Push notifications** — [`notifier.py`](notifier.py) sends daily Telegram/Discord summaries (trades, cash allocation, risk warnings).
-- **Cron** — [`setup_cron.sh`](setup_cron.sh) installs daily 18:00 CET + weekly discovery jobs.
 
 ---
 
