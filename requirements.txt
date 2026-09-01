@@ -21,3 +21,8 @@ hmmlearn>=0.3
 scikit-learn>=1.4
 arch>=6.0
 sec-edgar-downloader>=5.0
+
+# ── Phase 4: Local UI & Automation ────────────────────────────────────────────
+streamlit>=1.30
+plotly>=5.18
+requests>=2.31

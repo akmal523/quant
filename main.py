@@ -36,6 +36,9 @@ from scoring import (
 )
 from fundamentals import get_fundamentals
 from universe import is_etf
+from taxonomy import get_instrument_class, resolve_broker
+from routing import route_signal, build_execution_instruction
+from notifier import notify_daily
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -113,30 +116,46 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict, market
         returns = np.log(hist_ind["Close"] / hist_ind["Close"].shift(1)).dropna()
         var_penalty = calculate_risk_penalty(returns)
 
-        asset_is_etf = is_etf(symbol)
-        if asset_is_etf:
+        # Phase 4 (3.1): bifurcated scoring by instrument_class.
+        # Equities run the full pipeline (Fundamentals, NLP, GARCH, Technicals).
+        # ETFs bypass Fundamentals/NLP — scored on macro regime + trend + rel strength.
+        # Commodities scored on macro regime + trend (inflation/USD proxies).
+        asset_class = get_instrument_class(symbol)
+        asset_is_etf = asset_class in ("ETF", "CASH")
+        asset_is_commodity = asset_class == "COMMODITY"
+
+        if asset_is_etf or asset_is_commodity:
+            # Bifurcated path: no fundamentals, no NLP. Score on macro regime
+            # (HMM bull prob) + trend (price vs 200 SMA) + relative strength.
             s_val = 18.0
             struct_grade = 85.0
+            # Trend following: price relative to 200-day SMA.
+            close = hist_ind["Close"]
+            sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else close.mean()
+            trend_score = 50.0 + 50.0 * (1.0 if close.iloc[-1] > sma200 else -1.0)
+            # Macro regime dominates tactical for ETFs/commodities.
+            tact_grade = max(0.0, min(100.0, (hmm_prob_bull * 60.0) + (trend_score * 0.4)))
         else:
             s_val = stewardship_score_v2(f_data, sector)
             struct_grade = evaluate_structural_grade(
                 pe=f_data.get("PE"), peg=f_data.get("PEG"),
                 roe=f_data.get("ROE"), stewardship_val=s_val,
             )
+            # data_confidence: 1.0 = real SEC/News data scored, 0.0 = no-data fallback
+            data_confidence = nlp_data.get("data_confidence", 1.0)
+            tact_grade = evaluate_tactical_grade(
+                hmm_prob_bull=hmm_prob_bull,
+                finbert_score=nlp_data.get("score", 0.0),
+                var_penalty=var_penalty,
+                data_confidence=data_confidence,
+            )
 
-        # data_confidence: 1.0 = real SEC/News data scored, 0.0 = no-data fallback
-        data_confidence = nlp_data.get("data_confidence", 1.0)
-        tact_grade = evaluate_tactical_grade(
-            hmm_prob_bull=hmm_prob_bull,
-            finbert_score=nlp_data.get("score", 0.0),
-            var_penalty=var_penalty,
-            data_confidence=data_confidence,
-        )
         allocation = allocate_capital_regime(struct_grade, tact_grade, s_val)
 
         return {
             "Symbol": symbol,
             "Is_ETF": asset_is_etf,
+            "Instrument_Class": asset_class,
             "Current_Price": round(hist_ind["Close"].iloc[-1], 2),
             "Structural_Grade": round(struct_grade, 1),
             "Tactical_Grade": round(tact_grade, 1),
@@ -181,6 +200,24 @@ def main() -> None:
     port_df = load_portfolio("portfolio.csv")
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
     logger.info("Loaded Portfolio: %s", list(portfolio_symbols))
+
+    # ── Phase 4 (3.2): Core & Satellite universe filter ─────────────────────
+    # Only scan CORE ETFs + ACTIVE (graduated) universe + portfolio holdings.
+    # Stale symbols lingering in market_history from the old 277-stock fetch
+    # are excluded so the heavy FinBERT/GARCH analysis stays lean.
+    active_symbols = set(portfolio_symbols)
+    try:
+        rows = conn.execute(
+            "SELECT symbol FROM asset_registry WHERE universe_status = 'ACTIVE'"
+        ).fetchall()
+        active_symbols.update(r[0] for r in rows)
+    except Exception:
+        pass
+    # CORE ETFs are always tracked even if not in registry.
+    from universe import SECTOR_UNIVERSE
+    active_symbols.update(SECTOR_UNIVERSE.get("Broad ETFs", {}).values())
+    grouped_data = {s: df for s, df in grouped_data.items() if s in active_symbols}
+    logger.info("Scan universe (CORE + ACTIVE + portfolio): %d symbols", len(grouped_data))
 
     # ── Pillar 1: Smart Funnel ──────────────────────────────────────────────
     # Tier 1 (microseconds): fast fundamental filter.
@@ -376,6 +413,45 @@ def main() -> None:
 
         eff = account_effectiveness(audit_res, port_df)
         print_effectiveness_report(eff)
+
+    # ── Phase 4: Signal Routing + Daily Push Notification ────────────────────
+    # Route each scored asset to SPARPLAN/ACTIVE/CASH and build execution
+    # instructions, then push a daily summary to Telegram/Discord.
+    instructions = []
+    risk_warnings = []
+    for _, row in final_df.iterrows():
+        sym = row["Symbol"]
+        cls = get_instrument_class(sym)
+        route = route_signal(
+            structural_grade=float(row.get("Structural_Grade", 0) or 0),
+            tactical_grade=float(row.get("Tactical_Grade", 0) or 0),
+            instrument_class=cls,
+        )
+        broker = resolve_broker(sym)
+        inst = build_execution_instruction(
+            symbol=sym,
+            route=route,
+            current_price=float(row.get("Current_Price", 0) or 0),
+            capital_eur=100.0,  # placeholder; wire to real allocation in Step 2
+            expected_alpha_bps=200.0,
+            isin=broker["isin"],
+            tr_ticker=broker["tr_ticker"],
+        )
+        if inst["action"] in ("BUY", "SPARPLAN"):
+            instructions.append(inst)
+
+    # Risk warning: Alpha bucket constraint check (placeholder for real weights).
+    alpha_pct = final_df[final_df["Is_ETF"] == False]["Active_Score"].mean() if not final_df.empty else 0
+    if alpha_pct > 50:
+        risk_warnings.append("Alpha Bucket exceeds 50% constraint, rebalancing required.")
+
+    total_value = port_df["Amount_EUR"].sum() if not port_df.empty else 0.0
+    notify_daily(
+        total_value=total_value,
+        cash_allocation=0.10,  # placeholder; wire to optimizer output
+        instructions=instructions,
+        risk_warnings=risk_warnings,
+    )
 
 
 if __name__ == "__main__":

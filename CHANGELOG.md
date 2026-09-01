@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.1.0] - 2026-09-01
+
+### Added - Phase 4: Broker-Aware Family Office Terminal
+
+1. **Execution Reality (Trade Republic)** - [`optimizer.py`](optimizer.py), [`routing.py`](routing.py)
+   - `minimum_trade_size()` / `passes_fee_hurdle()` — 2 EUR round-trip fee hurdle.
+   - `route_signal()` — Sparplan (0 EUR buy) vs Active Trade (1 EUR) routing.
+   - `broker_registry.csv` — yahoo_ticker → ISIN / tr_ticker / exchange mapping.
+
+2. **Cash & Fee Mathematics** - [`config.py`](config.py), [`risk.py`](risk.py), [`optimizer.py`](optimizer.py)
+   - `BROKER_CASH_APY = 0.0225` (TR cash yield as real risk-free rate).
+   - `daily_risk_free_rate()` — `(1+APY)^(1/365)-1` used in Sortino/Sharpe.
+   - Smart Balance buckets: Safety ≥ 10%, Core ≥ 40%, Alpha ≤ 50% (cvxpy constraints).
+
+3. **Asset Taxonomy & Universe Management** - [`taxonomy.py`](taxonomy.py), [`discovery.py`](discovery.py)
+   - `instrument_class` (EQUITY/ETF/COMMODITY/CASH) bifurcated scoring in `main.py`.
+   - `asset_registry` table with `universe_status` (ACTIVE/WATCHLIST/CORE).
+   - Weekly watchlist scan: 52-week-high / 3x-volume graduation, 6-month demotion.
+
+4. **Local Interface & Automation** - [`dashboard.py`](dashboard.py), [`notifier.py`](notifier.py), [`setup_cron.sh`](setup_cron.sh)
+   - 3-page Streamlit dashboard (Daily Briefing / Asset Explorer / Universe Manager).
+   - Telegram/Discord daily push notification.
+   - Cron installer (daily 18:00 CET + weekly discovery).
+
+### Dependencies
+
+- Added `streamlit`, `plotly`, `requests` to [`requirements.txt`](requirements.txt).
+
+### Fixed
+
+- [`database.py`](database.py) `market_history` had no PRIMARY KEY, so
+  `INSERT OR REPLACE` raised `BinderException`. Added `PRIMARY KEY (Symbol, Date)`
+  schema + a migration that rebuilds legacy tables with the PK and
+  `Instrument_Class` column.
+- [`data_updater.py`](data_updater.py) still fetched all 277 `SECTOR_UNIVERSE`
+  stocks. New `build_fetch_list()` fetches only **CORE ETFs + ACTIVE universe +
+  portfolio holdings** (Core & Satellite model).
+- [`taxonomy.py`](taxonomy.py) new symbols defaulted to `ACTIVE`, defeating the
+  graduation model. Now default to `WATCHLIST`; only `discovery.graduate()` or
+  manual pin promotes to `ACTIVE`.
+
+### Added - Phase 4: Broker-Aware Family Office Terminal
+
+1. **Execution Reality (Trade Republic)** - [`optimizer.py`](optimizer.py), [`routing.py`](routing.py)
+   - `minimum_trade_size()` / `passes_fee_hurdle()` — 2 EUR round-trip fee hurdle.
+   - `route_signal()` — Sparplan (0 EUR buy) vs Active Trade (1 EUR) routing.
+   - `broker_registry.csv` — yahoo_ticker → ISIN / tr_ticker / exchange mapping.
+
+2. **Cash & Fee Mathematics** - [`config.py`](config.py), [`risk.py`](risk.py), [`optimizer.py`](optimizer.py)
+   - `BROKER_CASH_APY = 0.0225` (TR cash yield as real risk-free rate).
+   - `daily_risk_free_rate()` — `(1+APY)^(1/365)-1` used in Sortino/Sharpe.
+   - Smart Balance buckets: Safety ≥ 10%, Core ≥ 40%, Alpha ≤ 50% (cvxpy constraints).
+
+3. **Asset Taxonomy & Universe Management** - [`taxonomy.py`](taxonomy.py), [`discovery.py`](discovery.py)
+   - `instrument_class` (EQUITY/ETF/COMMODITY/CASH) bifurcated scoring in `main.py`.
+   - `asset_registry` table with `universe_status` (ACTIVE/WATCHLIST/CORE).
+   - Weekly watchlist scan: 52-week-high / 3x-volume graduation, 6-month demotion.
+
+4. **Local Interface & Automation** - [`dashboard.py`](dashboard.py), [`notifier.py`](notifier.py), [`setup_cron.sh`](setup_cron.sh)
+   - 3-page Streamlit dashboard (Daily Briefing / Asset Explorer / Universe Manager).
+   - Telegram/Discord daily push notification.
+   - Cron installer (daily 18:00 CET + weekly discovery).
+
+### Dependencies
+
+- Added `streamlit`, `plotly`, `requests` to [`requirements.txt`](requirements.txt).
+
+---
+
 ## [10.0.0] - 2026-09-01
 
 ### Added - Performance & Architecture

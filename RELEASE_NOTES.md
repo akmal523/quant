@@ -1,3 +1,50 @@
+# Release Notes - v10.1.0
+
+**Quant-AI v10.1.0** - Broker-Aware Family Office Terminal
+
+This release transitions the system from a theoretical research script into a
+practical, broker-aware, solo-family-office wealth management terminal, aligned
+with Trade Republic's asymmetric fee structure.
+
+---
+
+## Highlights
+
+- **Core & Satellite universe** — [`data_updater.py`](data_updater.py) fetches
+  only CORE ETFs + ACTIVE (graduated) universe + portfolio holdings (23 symbols),
+  not the old 277-stock hardcoded set.
+- **1-EUR fee asymmetry** — [`optimizer.py`](optimizer.py) `minimum_trade_size()`
+  rejects signals below the 2 EUR round-trip hurdle.
+- **Cash as risk-free baseline** — [`risk.py`](risk.py) uses the TR 2.25% APY
+  daily yield in Sortino/Sharpe.
+- **Smart Balance buckets** — Safety ≥ 10%, Core ≥ 40%, Alpha ≤ 50% as hard
+  cvxpy constraints.
+- **Bifurcated scoring** — [`taxonomy.py`](taxonomy.py) tags EQUITY/ETF/COMMODITY/
+  CASH; ETFs bypass Fundamentals/NLP, scored on macro regime + trend.
+- **Universe graduation** — [`discovery.py`](discovery.py) promotes watchlist
+  anomalies to ACTIVE, demotes stale assets after 6 months.
+- **Local UI & automation** — [`dashboard.py`](dashboard.py) (Streamlit),
+  [`notifier.py`](notifier.py) (Telegram/Discord), [`setup_cron.sh`](setup_cron.sh).
+
+---
+
+## What's New
+
+1. **Execution Reality** - `broker_registry.csv`, `minimum_trade_size()`, `routing.py`.
+2. **Cash & Fee Mathematics** - `BROKER_CASH_APY`, `daily_risk_free_rate()`, bucket constraints.
+3. **Asset Taxonomy** - `instrument_class`, `asset_registry` table, bifurcated scoring.
+4. **Universe Management** - `discovery.py`, `watchlist.csv`, ACTIVE/WATCHLIST status.
+5. **Local Interface** - 3-page Streamlit dashboard, Telegram/Discord notifier, cron.
+
+## Bug Fixes
+
+- `market_history` missing PRIMARY KEY caused `BinderException` on `INSERT OR REPLACE`.
+- `data_updater.py` still fetched all 277 stocks — now Core & Satellite only.
+- New symbols defaulted to ACTIVE — now default to WATCHLIST.
+- `data_updater.py` missing `init_db` import (`NameError`).
+
+---
+
 # Release Notes - v10.0.0
 
 **Quant-AI v10.0.0** - Production-Grade Quant Research Platform

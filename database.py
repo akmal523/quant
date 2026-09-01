@@ -16,7 +16,66 @@ def get_connection() -> duckdb.DuckDBPyConnection:
 def init_db() -> None:
     """Initializes unified OLAP schemas."""
     conn = get_connection()
-    
+
+    # market_history: PRIMARY KEY (Symbol, Date) enables INSERT OR REPLACE
+    # dedup on incremental updates. Without a PK, DuckDB raises BinderException
+    # on INSERT OR REPLACE (no UNIQUE constraint to conflict on).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS market_history (
+            Date VARCHAR,
+            Open DOUBLE,
+            High DOUBLE,
+            Low DOUBLE,
+            Close DOUBLE,
+            Volume DOUBLE,
+            Symbol VARCHAR,
+            Sector VARCHAR,
+            Instrument_Class VARCHAR,
+            PRIMARY KEY (Symbol, Date)
+        )
+    """)
+
+    # Migration: legacy market_history was created via CREATE TABLE AS SELECT
+    # with NO primary key and NO Instrument_Class column. Rebuild it with the
+    # PK schema, preserving existing rows, so INSERT OR REPLACE works.
+    try:
+        pk_cols = conn.execute(
+            "SELECT kcu.column_name FROM information_schema.table_constraints tc "
+            "JOIN information_schema.key_column_usage kcu "
+            "  ON tc.constraint_name = kcu.constraint_name "
+            "WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = 'market_history'"
+        ).fetchall()
+        has_pk = len(pk_cols) > 0
+        has_ic = conn.execute(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'market_history' AND column_name = 'Instrument_Class'"
+        ).fetchone()[0] > 0
+        if not has_pk or not has_ic:
+            conn.execute("CREATE TABLE market_history_new AS SELECT * FROM market_history")
+            conn.execute("DROP TABLE market_history")
+            conn.execute("""
+                CREATE TABLE market_history (
+                    Date VARCHAR,
+                    Open DOUBLE,
+                    High DOUBLE,
+                    Low DOUBLE,
+                    Close DOUBLE,
+                    Volume DOUBLE,
+                    Symbol VARCHAR,
+                    Sector VARCHAR,
+                    Instrument_Class VARCHAR,
+                    PRIMARY KEY (Symbol, Date)
+                )
+            """)
+            conn.execute("""
+                INSERT INTO market_history (Date, Open, High, Low, Close, Volume, Symbol, Sector)
+                SELECT Date, Open, High, Low, Close, Volume, Symbol, Sector FROM market_history_new
+            """)
+            conn.execute("DROP TABLE market_history_new")
+    except Exception:
+        # Table may not exist yet on first run; non-fatal.
+        pass
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS fundamentals (
             symbol VARCHAR PRIMARY KEY,
@@ -53,5 +112,27 @@ def init_db() -> None:
             ebit DOUBLE,
             interest_expense DOUBLE,
             PRIMARY KEY (symbol, as_of_date)
+        )
+    """)
+
+    # ── Phase 4: Asset Taxonomy & Universe Management ─────────────────────────
+    # instrument_class: EQUITY | ETF | COMMODITY | CASH. Drives bifurcated
+    # scoring pipelines (ETFs bypass Fundamentals/NLP; Commodities use macro).
+    # isin: Trade Republic routing key (LS Exchange / Tradegate).
+    # universe_status: ACTIVE (heavy analysis) | WATCHLIST (light scan) | CORE.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS asset_registry (
+            symbol VARCHAR PRIMARY KEY,
+            name VARCHAR,
+            instrument_class VARCHAR NOT NULL DEFAULT 'EQUITY',
+            isin VARCHAR,
+            tr_ticker VARCHAR,
+            exchange VARCHAR,
+            currency VARCHAR,
+            universe_status VARCHAR NOT NULL DEFAULT 'ACTIVE',
+            sector VARCHAR,
+            graduated_at DATE,
+            last_signal_date DATE,
+            updated_at DOUBLE
         )
     """)

@@ -1,6 +1,6 @@
-# Quant-AI v10.0 - Global Stochastic Equity Engine (EUR-Native)
+# Quant-AI v10.1 - Broker-Aware Family Office Terminal (EUR-Native)
 
-A professional-grade Python pipeline for systematic multi-sector equity analysis. Scans ~300 instruments across 20 sectors, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship.
+A professional-grade Python pipeline for systematic multi-sector equity analysis. Uses a **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities + portfolio holdings) instead of a hardcoded 277-stock set, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship. Fully aligned with Trade Republic's asymmetric 1-EUR fee structure and 2.25% cash APY.
 
 **Trade Republic Ready.** The engine detects native currency (USD, CHF, GBP, DKK, NOK, SEK, CAD, AUD, KRW, GBX) and converts to EUR using live FX rates from Yahoo Finance and the ECB (Frankfurter API).
 
@@ -15,7 +15,7 @@ quant/
 ├── main.py                 # Orchestration engine (Smart Funnel -> Batch FinBERT -> Multiprocessing -> Audit)
 ├── data_updater.py          # Incremental market data fetcher (ThreadPoolExecutor, 10x faster)
 ├── build_features.py        # Vectorized cross-sectional feature engine (Polars)
-├── optimizer.py             # Portfolio optimizer (cvxpy, Ledoit-Wolf covariance)
+├── optimizer.py             # Portfolio optimizer (cvxpy, Ledoit-Wolf covariance + risk buckets)
 ├── validation.py            # Data validation + liquidity filters
 ├── artifacts.py             # Run artifacts + structured JSON logging
 ├── currency.py              # Real-time FX normalisation with graceful degradation
@@ -23,17 +23,26 @@ quant/
 ├── scoring.py               # Factor model, market-regime HMM, stewardship, capital allocation
 ├── sentiment.py             # Batched FinBERT NLP (NLPScorer + FinBERTBatchScorer)
 ├── indicators.py            # EWMA volatility (primary) + RSI + ATR
-├── risk.py                  # Empirical VaR and Sortino ratio
+├── risk.py                  # Empirical VaR, Sortino/Sharpe (broker cash risk-free rate)
 ├── backtest.py              # WFO + cost-aware backtest (T+1 execution)
 ├── portfolio.py             # Portfolio audit with PnL tracking
 ├── fundamentals.py          # Hierarchical fundamentals + point-in-time history
 ├── database.py              # DuckDB thread-local connection management
 ├── universe.py              # 20-sector asset universe + ETF detection + geo risk tables
+├── taxonomy.py              # Asset taxonomy (EQUITY/ETF/COMMODITY/CASH) + broker registry  [NEW]
+├── routing.py               # Signal routing: Sparplan vs Active Trade + fee hurdle       [NEW]
+├── discovery.py             # Universe graduation: watchlist -> ACTIVE scan               [NEW]
+├── notifier.py              # Telegram/Discord daily push notification                    [NEW]
+├── dashboard.py             # 3-page Streamlit local UI (Daily Briefing/Explorer/Universe)[NEW]
 ├── config.py                # Centralised runtime settings
 ├── reporting.py             # Terminal output + Excel/CSV export
 ├── sec_edgar.py             # SEC 8-K downloader (selectolax C-parser)
 ├── news.py                  # Yahoo Finance RSS headline fetcher
 ├── mailer.py                # Optional email reporting
+│
+├── broker_registry.csv      # yahoo_ticker -> ISIN / tr_ticker / exchange mapping        [NEW]
+├── watchlist.csv            # Satellite universe (potential graduates)                   [NEW]
+├── setup_cron.sh            # Cron installer (daily 18:00 CET + weekly discovery)        [NEW]
 │
 ├── test_scoring.py          # 20 unit tests for scoring engine
 ├── test_backtest_validity.py # 6 validation tests for backtesting
@@ -106,10 +115,38 @@ This cuts total execution time by 50-60% by skipping expensive NLP on assets wit
 
 ---
 
+## New in v10.1 (Phase 4 — Broker-Aware Family Office Terminal)
+
+> **Universe model change:** [`data_updater.py`](data_updater.py) no longer fetches
+> all 277 `SECTOR_UNIVERSE` stocks. It fetches only **CORE ETFs + ACTIVE
+> (graduated) universe + portfolio holdings** via `build_fetch_list()`. New
+> symbols default to `WATCHLIST`; only `discovery.py` graduation or manual pin
+> promotes them to `ACTIVE`. This keeps the heavy-analysis universe lean.
+
+### 1. Execution Reality (Trade Republic Integration)
+- **1-EUR fee asymmetry** — [`optimizer.py`](optimizer.py) adds `minimum_trade_size()` and `passes_fee_hurdle()`. Formula: `Min Capital = (Round_Trip_Fee / Alpha_BPS) * 10000`. A 200 bps alpha needs ≥ 100 EUR to clear the 2 EUR round-trip fee.
+- **ISIN mapping** — [`broker_registry.csv`](broker_registry.csv) maps `yahoo_ticker` → `isin` / `tr_ticker` / `exchange` / `currency`. [`data_updater.py`](data_updater.py) fetches the LS Exchange ticker for execution-relevant local prices.
+- **Signal routing** — [`routing.py`](routing.py) routes high-structural/low-tactical to **Sparplan** (0 EUR buy) and high-tactical to **Active Trade** (1 EUR).
+
+### 2. Portfolio Architecture (Buckets & Cash)
+- **Cash as risk-free baseline** — [`config.py`](config.py) `BROKER_CASH_APY = 0.0225`. [`risk.py`](risk.py) converts to daily yield `(1+APY)^(1/365)-1` and uses it in Sortino/Sharpe.
+- **Smart Balance buckets** — [`optimizer.py`](optimizer.py) enforces `Safety ≥ 10%`, `Core ≥ 40%`, `Alpha ≤ 50%` as hard cvxpy inequality constraints.
+
+### 3. Asset Taxonomy & Universe Management
+- **Bifurcated scoring** — [`taxonomy.py`](taxonomy.py) tags `EQUITY`/`ETF`/`COMMODITY`/`CASH`. [`main.py`](main.py) bypasses Fundamentals/NLP for ETFs/commodities, scoring them on macro regime + trend + relative strength.
+- **Graduation universe** — [`discovery.py`](discovery.py) scans [`watchlist.csv`](watchlist.csv) weekly (5-day data only). 52-week-high or 3x-volume anomalies graduate to ACTIVE; stale ACTIVE assets demote after 6 months.
+
+### 4. Local Interface & Automation
+- **Streamlit dashboard** — [`dashboard.py`](dashboard.py): Daily Briefing, Asset Explorer (Plotly + GARCH bands), Universe Manager.
+- **Push notifications** — [`notifier.py`](notifier.py) sends daily Telegram/Discord summaries (trades, cash allocation, risk warnings).
+- **Cron** — [`setup_cron.sh`](setup_cron.sh) installs daily 18:00 CET + weekly discovery jobs.
+
+---
+
 ## New in v9.0
 
 ### Robust NaN Data Handling
-Yahoo Finance often appends future trading dates with NaN prices as the last row of `history()` output. `data_updater.py` now uses `df.dropna(subset=['Close'])` before reading the latest close price, ensuring all 277 tickers are fetched with valid price data regardless of trailing NaN rows.
+Yahoo Finance often appends future trading dates with NaN prices as the last row of `history()` output. `data_updater.py` now uses `df.dropna(subset=['Close'])` before reading the latest close price, ensuring all fetched tickers have valid price data regardless of trailing NaN rows.
 
 Assets with no valid price data are no longer silently dropped. `main.py` returns skeleton scan results for such symbols (rather than `None`), and `portfolio.py` shows `"NO DATA"` in the portfolio audit instead of `"NOT SCANNED"` with NaN PnL.
 
@@ -127,7 +164,7 @@ All `print()` debugging replaced with structured `logging.info/warning/exception
 Auto-scales log-returns to unit variance before GARCH(1,1) fitting, suppressing `DataScaleWarning` for low-price assets (e.g. ETFs trading at 0.67 EUR). Falls back to EWMA when GARCH cannot converge or data < 252 observations.
 
 ### Parallel Data Updater
-`data_updater.py` rewritten with `ThreadPoolExecutor` (10 workers). 300 tickers fetched in ~30 seconds instead of 150+ seconds sequential.
+`data_updater.py` rewritten with `ThreadPoolExecutor` (10 workers). The Core & Satellite universe (CORE ETFs + ACTIVE + portfolio) is fetched in seconds instead of minutes.
 
 ### Graceful FX Degradation
 `currency.py` no longer crashes the entire scan when EUR/USD rate cannot be fetched (ECB API + Yahoo both down). Falls back to 1.0 with a warning instead of `RuntimeError`.
@@ -150,6 +187,10 @@ Removed 7 redundant threshold constants from `config.py` that were duplicated un
 
 ## Features
 
+- **Core & Satellite Universe** - Fetches only CORE ETFs + ACTIVE (graduated) equities + portfolio holdings, not a hardcoded 277-stock set. New symbols default to `WATCHLIST`; `discovery.py` graduates anomalies to `ACTIVE`.
+- **Bifurcated Scoring** - [`taxonomy.py`](taxonomy.py) tags `EQUITY`/`ETF`/`COMMODITY`/`CASH`. ETFs/commodities bypass Fundamentals/NLP and score on macro regime + trend + relative strength.
+- **Trade Republic Execution** - 1-EUR fee asymmetry via `minimum_trade_size()`; Sparplan vs Active Trade routing; ISIN/`tr_ticker` resolution via `broker_registry.csv`.
+- **Smart Balance Buckets** - Safety ≥ 10%, Core ≥ 40%, Alpha ≤ 50% hard constraints in the cvxpy optimizer; cash earns the 2.25% broker APY as the risk-free rate.
 - **20-Sector Universe** - Uranium, Energy, Oil & Gas, Defense, Cybersecurity, Gold, Silver, Copper, Lithium, Quantum, Semiconductors, AI/Cloud, Logistics, Banking, Insurance, Healthcare, Water, Agriculture, Real Estate, Broad ETFs.
 - **Universal ETF Detection** - Automatically identifies ETFs by sector, display name keywords, and hardcoded fallbacks. ETFs bypass corporate fundamental filters and score purely on market-regime momentum.
 - **Global Sentiment Fallback** - US equities scored via SEC 8-K filings; international assets fall back to News RSS.
@@ -169,7 +210,7 @@ Removed 7 redundant threshold constants from `config.py` that were duplicated un
 
 ---
 
-## Scoring Model (v10.0)
+## Scoring Model (v10.1)
 
 | Category | Weight | Components |
 |:---|:---:|:---|
@@ -210,9 +251,11 @@ python -m spacy download en_core_web_sm
 python3 data_updater.py
 ```
 
-Fetches ~300 tickers across 20 sectors with 10 parallel workers. **Incremental mode:**
-on subsequent runs it fetches only data after each symbol's last stored date (with a
-5-day overlap), reducing update time from minutes to seconds.
+Fetches the **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities +
+portfolio holdings) with 10 parallel workers. **Incremental mode:** on subsequent
+runs it fetches only data after each symbol's last stored date (with a 5-day
+overlap), reducing update time from minutes to seconds. New symbols default to
+`WATCHLIST`; run `discovery.py` weekly to graduate anomalies to `ACTIVE`.
 
 ### 3. Configure Portfolio
 
@@ -228,10 +271,28 @@ RHO.DE,356.40,48.26
 
 Comments after `#` are automatically stripped.
 
-### 4. Run the Dashboard
+### 4. Run the Scan
 
 ```bash
 python3 main.py
+```
+
+### 5. Run the Streamlit Dashboard
+
+```bash
+streamlit run dashboard.py
+```
+
+### 6. Weekly Universe Discovery
+
+```bash
+python3 discovery.py
+```
+
+### 7. Daily Automation (optional)
+
+```bash
+bash setup_cron.sh   # installs daily 18:00 CET + weekly discovery cron jobs
 ```
 
 ---
@@ -267,6 +328,15 @@ All tunable parameters in [`config.py`](config.py):
 | `KELLY_FRACTION` | 0.25 | Quarter-Kelly position sizing |
 | `TARGET_VOLATILITY` | 0.15 | 15% annualised target vol |
 | `MAX_POSITION_PCT` | 0.10 | 10% hard cap per position |
+| `BROKER_CASH_APY` | 0.0225 | TR cash yield (2.25%) as risk-free rate |
+| `ROUND_TRIP_FEE_EUR` | 2.0 | Active trade round-trip fee (1 EUR buy + 1 EUR sell) |
+| `SAFETY_BUCKET_MIN` | 0.10 | Safety bucket floor (cash & short-term bonds) |
+| `CORE_BUCKET_MIN` | 0.40 | Core bucket floor (broad ETFs via Sparplan) |
+| `ALPHA_BUCKET_MAX` | 0.50 | Alpha bucket ceiling (active equities) |
+| `SPARPLAN_STRUCT_MIN` | 75.0 | Structural grade threshold for Sparplan routing |
+| `ACTIVE_TACT_MIN` | 70.0 | Tactical grade threshold for Active Trade routing |
+| `WATCHLIST_VOLUME_MULT` | 3.0 | Volume > 3x 20-day avg graduates to ACTIVE |
+| `ACTIVE_DEMOTE_MONTHS` | 6 | No signals for 6 months demotes to WATCHLIST |
 
 ---
 
@@ -281,6 +351,9 @@ python3 test_backtest_validity.py
 
 # Factor model, no-lookahead, costs, liquidity (9 tests)
 python3 test_factors.py
+
+# Phase 4: fee hurdle, cash rf, routing, taxonomy, graduation (20 tests)
+python3 test_phase4.py
 
 # Database I/O
 python3 test_db.py
