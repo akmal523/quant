@@ -49,7 +49,8 @@ def _get_from_cache(symbol: str) -> dict | None:
     if row:
         pe, peg, roe, de, ebit, interest_exp, updated_at = row
         import time
-        if time.time() - updated_at < CACHE_TTL_SECONDS:
+        # A NULL updated_at means the cache row is stale/incomplete; refetch.
+        if updated_at is not None and time.time() - updated_at < CACHE_TTL_SECONDS:
             return {
                 "PE": pe, "PEG": peg, "ROE": roe,
                 "DebtToEquity": de,

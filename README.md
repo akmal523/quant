@@ -1,4 +1,4 @@
-# Quant-AI v10.1 - Broker-Aware Family Office Terminal (EUR-Native)
+# Quant-AI v10.2 - Broker-Aware Family Office Terminal (EUR-Native)
 
 A professional-grade Python pipeline for systematic multi-sector equity analysis. Uses a **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities + portfolio holdings) instead of a hardcoded 277-stock set, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship. Fully aligned with Trade Republic's asymmetric 1-EUR fee structure and 2.25% cash APY.
 
@@ -60,6 +60,43 @@ quant/
 ```
 
 ---
+## New in v10.2
+
+> **Dashboard clarity release.** The universe state machine no longer fights
+> itself (no graduate-then-demote contradictions), the broker ISIN registry is
+> complete, ETF scoring is differentiated, and the dashboard is rebuilt with
+> zero emoji characters.
+
+### 1. Universe State Machine
+- Statuses `CORE` / `ACTIVE` / `WATCHLIST` / `DELISTED`; `structure` flags
+  (`PLAIN` / `INVERSE` / `LEVERAGED`).
+- CORE is immutable; new graduates get a `GRADUATION_GRACE_MONTHS` grace period.
+- `fetch_failures` tracking marks a symbol `DELISTED` after `MAX_FETCH_FAILURES`.
+- `universe_events` audit table logs every state change.
+
+### 2. Broker Registry & Routing
+- `validate_isin()` checksum validator; `sync_broker_registry()` populates ISINs.
+- INVERSE/LEVERAGED products never route to SPARPLAN.
+- Missing ISIN emits an explicit "ISIN MISSING" instruction.
+- Dynamic fee hurdle: `min_trade_size_eur` varies with expected alpha.
+
+### 3. Scoring Differentiation
+- `etf_quality_score()` cross-sectional ETF structural grade.
+- `etf_tactical_grade()` continuous tactical grade (kills the 93.6 tie).
+- `etf_factor_scores()` populates the dashboard Z-score section for ETFs.
+
+### 4. Dashboard Rebuild (3 pages, zero emojis)
+- Daily Briefing, Asset Explorer, Universe Manager.
+- `.streamlit/config.toml` disables telemetry and runs headless.
+- All reads cached via `@st.cache_data(ttl=300)`; `width="stretch"` replaces
+  `use_container_width`.
+
+### 5. Notifier & Tests
+- Zero-emoji message text; explicit missing-config logging.
+- `test_phase5.py` + `test_no_emoji.py` enforce the fixes permanently.
+
+---
+
 ## New in v10.1
 
 > **Universe model change:** [`data_updater.py`](data_updater.py) no longer fetches
@@ -282,6 +319,13 @@ python3 main.py
 streamlit run dashboard.py
 ```
 
+The dashboard has three pages: **Daily Briefing**, **Asset Explorer**, and
+**Universe Manager**. It reads directly from DuckDB with cached reads
+(`@st.cache_data(ttl=300)`). The `.streamlit/config.toml` in the repo root
+disables telemetry and runs headless, so no browser opens on the server and no
+usage-stats email prompt appears. Run it from the repo root so Streamlit picks
+up the config.
+
 ### 6. Weekly Universe Discovery
 
 ```bash
@@ -353,6 +397,12 @@ python3 test_factors.py
 
 # Phase 4: fee hurdle, cash rf, routing, taxonomy, graduation (20 tests)
 python3 test_phase4.py
+
+# Phase 5: state machine, ISIN, inverse routing, ETF scoring (12 tests)
+python3 test_phase5.py
+
+# No-emoji lint (dashboard/notifier/reporting/main)
+python3 test_no_emoji.py
 
 # Database I/O
 python3 test_db.py

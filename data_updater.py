@@ -91,6 +91,7 @@ def build_fetch_list() -> list[tuple[str, str, str]]:
       1. CORE — broad ETFs & macro indices (always tracked).
       2. ACTIVE — graduated equities from asset_registry (heavy analysis).
       3. Portfolio — current holdings (must always have fresh prices).
+    Phase 5 (v10.2): DELISTED symbols are excluded (stop retrying forever).
     Invariants: returns list of (symbol, name, sector); deduplicated by symbol.
     """
     from database import init_db
@@ -102,11 +103,12 @@ def build_fetch_list() -> list[tuple[str, str, str]]:
     for name, sym in SECTOR_UNIVERSE.get("Broad ETFs", {}).items():
         tickers[sym] = (name, "Broad ETFs")
 
-    # 2. ACTIVE universe from asset_registry.
+    # 2. ACTIVE universe from asset_registry (exclude DELISTED).
     try:
         conn = get_connection()
         rows = conn.execute(
-            "SELECT symbol, sector FROM asset_registry WHERE universe_status = 'ACTIVE'"
+            "SELECT symbol, sector FROM asset_registry "
+            "WHERE universe_status = 'ACTIVE' AND universe_status != 'DELISTED'"
         ).fetchall()
         for sym, sector in rows:
             if sym not in tickers:

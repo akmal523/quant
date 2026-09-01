@@ -80,6 +80,23 @@ WATCHLIST_VOLUME_MULT   = 3.0    # volume > 3x 20-day avg -> graduate
 WATCHLIST_52W_HIGH_DAYS = 252    # cross 52-week high -> graduate
 ACTIVE_DEMOTE_MONTHS    = 6      # no signals for 6 months -> demote to watchlist
 
+# ── Universe State Machine (Phase 5 / v10.2) ──────────────────────────────────
+# New graduates get a grace period before the demotion check can age them out.
+# This prevents the graduate-then-demote-in-same-run contradiction.
+GRADUATION_GRACE_MONTHS = 3
+# Data health: a price older than this many days is flagged as stale.
+STALE_DATA_DAYS = 3
+# Consecutive fetch failures before a symbol is marked DELISTED.
+MAX_FETCH_FAILURES = 3
+
+# CORE sleeve: immutable, never graduated, never demoted. Broad market, water,
+# bonds, and money market ETFs. These are the long-term accumulation vehicles.
+CORE_ETFS = [
+    "URTH", "IWDA.AS", "EUNL.DE", "VOO", "CSPX.L", "EIMI.L",
+    "SWRD.L", "EXW1.DE", "EXIA.DE", "ISF.L", "IEAG.L", "ITPS.L",
+    "XEON.DE", "SXRV.DE", "IQQQ.DE", "GLUG.L", "PHO",
+]
+
 # ── Optional email reporting ──────────────────────────────────────────────────
 SMTP_USER     = os.getenv("SMTP_USER",     "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")

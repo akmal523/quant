@@ -33,11 +33,16 @@ from scoring import (
     fit_market_regime,
     stewardship_score_v2,
     apply_fast_filter,
+    etf_tactical_grade,
 )
 from fundamentals import get_fundamentals
 from universe import is_etf
-from taxonomy import get_instrument_class, resolve_broker
-from routing import route_signal, build_execution_instruction
+from taxonomy import (
+    get_instrument_class, resolve_broker, get_structure,
+)
+from routing import (
+    route_signal, build_execution_instruction, alpha_bps_from_active_score,
+)
 from notifier import notify_daily
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -74,7 +79,8 @@ def deduce_currency(symbol: str) -> str:
 # ── Worker Process ────────────────────────────────────────────────────────────
 
 # main.py -> process_asset()
-def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict, market_regime_prob: float) -> dict | None:
+def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
+                  market_regime_prob: float, etf_quality_map: dict | None = None) -> dict | None:
     try:
         # FIX: Worker must now fetch its own DataFrame from the database
         from database import get_connection
@@ -128,13 +134,20 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict, market
             # Bifurcated path: no fundamentals, no NLP. Score on macro regime
             # (HMM bull prob) + trend (price vs 200 SMA) + relative strength.
             s_val = 18.0
-            struct_grade = 85.0
-            # Trend following: price relative to 200-day SMA.
             close = hist_ind["Close"]
             sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else close.mean()
-            trend_score = 50.0 + 50.0 * (1.0 if close.iloc[-1] > sma200 else -1.0)
-            # Macro regime dominates tactical for ETFs/commodities.
-            tact_grade = max(0.0, min(100.0, (hmm_prob_bull * 60.0) + (trend_score * 0.4)))
+            if asset_is_etf and etf_quality_map and symbol in etf_quality_map:
+                # Phase 5 (v10.2): cross-sectional ETF structural grade (0-100),
+                # computed in the main process over the ETF subset.
+                struct_grade = etf_quality_map[symbol]
+                # Continuous tactical grade: regime tilt + momentum z.
+                momentum_z = etf_quality_map.get(f"{symbol}_momentum_z", 0.0)
+                tact_grade = etf_tactical_grade(hmm_prob_bull, momentum_z)
+            else:
+                struct_grade = 85.0
+                trend_score = 50.0 + 50.0 * (1.0 if close.iloc[-1] > sma200 else -1.0)
+                # Macro regime dominates tactical for ETFs/commodities.
+                tact_grade = max(0.0, min(100.0, (hmm_prob_bull * 60.0) + (trend_score * 0.4)))
         else:
             s_val = stewardship_score_v2(f_data, sector)
             struct_grade = evaluate_structural_grade(
@@ -208,7 +221,8 @@ def main() -> None:
     active_symbols = set(portfolio_symbols)
     try:
         rows = conn.execute(
-            "SELECT symbol FROM asset_registry WHERE universe_status = 'ACTIVE'"
+            "SELECT symbol FROM asset_registry "
+            "WHERE universe_status = 'ACTIVE' AND universe_status != 'DELISTED'"
         ).fetchall()
         active_symbols.update(r[0] for r in rows)
     except Exception:
@@ -225,18 +239,24 @@ def main() -> None:
     # Tier 3 (seconds): heavy NLP/SEC only on top ~30 survivors.
     survivors: dict[str, pd.DataFrame] = {}
     survivor_funds: dict[str, dict] = {}
+    tier1_kept = 0
+    tier2_kept = 0
     for sym, df in grouped_data.items():
         f_data = get_fundamentals(sym)
         is_portfolio = sym in portfolio_symbols
         is_asset_etf = is_etf(sym)
         if is_portfolio or is_asset_etf or apply_fast_filter(f_data):
+            tier1_kept += 1
             # Tier 2: uptrend check — Price > 200 SMA (fast, vectorized).
             if not is_portfolio and not is_asset_etf:
                 close = df["Close"]
                 if len(close) < 200 or close.iloc[-1] <= close.rolling(200).mean().iloc[-1]:
                     continue
+            tier2_kept += 1
             survivors[sym] = df
             survivor_funds[sym] = f_data
+    logger.info("Funnel: Tier1 kept %d, Tier2 kept %d (of %d in)",
+                tier1_kept, tier2_kept, len(grouped_data))
     logger.info("Survivors after Tier1+Tier2 funnel: %d", len(survivors))
 
     # ── Pillar 2b: Fit market regime HMM ONCE on a broad index ──────────────
@@ -248,6 +268,30 @@ def main() -> None:
     regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
     market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
     logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
+
+    # ── Phase 5 (v10.2): cross-sectional ETF quality map ────────────────────
+    # Compute the ETF structural grade + momentum z in the MAIN process over the
+    # ETF subset (workers lack the full subset). Passed to process_asset.
+    etf_quality_map: dict[str, float] = {}
+    try:
+        from build_features import latest_features
+        from scoring import etf_quality_score
+        etf_syms = [s for s in survivors if is_etf(s)]
+        if etf_syms:
+            feat = latest_features()
+            etf_feat = feat.filter(pl.col("Symbol").is_in(etf_syms)).to_pandas()
+            if not etf_feat.empty:
+                # Benchmark-relative 6m return vs IWDA.AS (MSCI World).
+                bench = feat.filter(pl.col("Symbol") == "IWDA.AS").to_pandas()
+                bench_ret = bench["ret_6m"].iloc[-1] if not bench.empty else 0.0
+                etf_feat["rel_strength_6m"] = etf_feat["ret_6m"] - bench_ret
+                scored = etf_quality_score(etf_feat)
+                for _, r in scored.iterrows():
+                    etf_quality_map[r["Symbol"]] = float(r["etf_quality"])
+                    etf_quality_map[f"{r['Symbol']}_momentum_z"] = float(r["momentum_z"])
+                logger.info("ETF quality map: %d ETFs scored cross-sectionally", len(scored))
+    except Exception as e:
+        logger.warning("ETF quality map failed (fallback to 85.0): %s", e)
 
     # ── Step 2: Async text fetch (Tier 3 — only on funnel survivors) ────────
     import asyncio
@@ -322,6 +366,7 @@ def main() -> None:
                 df['Sector'].iloc[0] if 'Sector' in df.columns else "Other",
                 nlp_data_map.get(sym, {"score": 0.0, "reasoning": "No NLP data"}),
                 market_regime_prob,
+                etf_quality_map,
             ): sym for sym, df in survivors.items()
         }
 
@@ -366,6 +411,27 @@ def main() -> None:
     # ── Step 5: Reporting ────────────────────────────────────────────────────
     final_df = pd.DataFrame(results)
     final_df.to_csv("outputs/market_scan_v8.csv", index=False)
+
+    # ── Phase 5 (v10.2): write ETF factor scores into the run artifact ──────
+    # The dashboard Z-score section reads factor_scores.parquet. Populate it
+    # for ETFs too (trend/RS/low-vol/momentum), not just equities.
+    try:
+        from artifacts import new_run_dir, save_artifact
+        run_dir = new_run_dir()
+        if etf_quality_map:
+            etf_syms = [s for s in survivors if is_etf(s)]
+            feat = latest_features()
+            etf_feat = feat.filter(pl.col("Symbol").is_in(etf_syms)).to_pandas()
+            if not etf_feat.empty:
+                bench = feat.filter(pl.col("Symbol") == "IWDA.AS").to_pandas()
+                bench_ret = bench["ret_6m"].iloc[-1] if not bench.empty else 0.0
+                etf_feat["rel_strength_6m"] = etf_feat["ret_6m"] - bench_ret
+                from scoring import etf_factor_scores
+                scored = etf_factor_scores(etf_feat)
+                save_artifact(run_dir, "factor_scores", scored)
+                logger.info("ETF factor scores written to %s/factor_scores.parquet", run_dir)
+    except Exception as e:
+        logger.warning("ETF factor scores artifact failed: %s", e)
 
     print(f"\n CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
 
@@ -422,18 +488,23 @@ def main() -> None:
     for _, row in final_df.iterrows():
         sym = row["Symbol"]
         cls = get_instrument_class(sym)
+        structure = get_structure(sym)
         route = route_signal(
             structural_grade=float(row.get("Structural_Grade", 0) or 0),
             tactical_grade=float(row.get("Tactical_Grade", 0) or 0),
             instrument_class=cls,
+            structure=structure,
         )
         broker = resolve_broker(sym)
+        # Dynamic fee hurdle: alpha scales with active score, not a constant.
+        active_score = float(row.get("Active_Score", 0) or 0)
+        alpha_bps = alpha_bps_from_active_score(active_score)
         inst = build_execution_instruction(
             symbol=sym,
             route=route,
             current_price=float(row.get("Current_Price", 0) or 0),
             capital_eur=100.0,  # placeholder; wire to real allocation in Step 2
-            expected_alpha_bps=200.0,
+            expected_alpha_bps=alpha_bps,
             isin=broker["isin"],
             tr_ticker=broker["tr_ticker"],
         )

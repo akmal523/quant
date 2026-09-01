@@ -202,6 +202,25 @@ def evaluate_tactical_grade(
     return float(max(0.0, min(100.0, grade)))
 
 
+def etf_tactical_grade(
+    hmm_prob_bull: float,    # [0, 1] normalised by caller
+    momentum_z: float,       # cross-sectional 12m momentum z-score
+) -> float:
+    """
+    Continuous tactical grade for ETFs (Phase 5 / v10.2).
+
+    Intent: the old ETF tactical grade was binary (99.4 vs 59.4) because the
+    regime bull prob saturated at 0.99. Blend regime tilt with momentum so a
+    saturated regime no longer forces every uptrending ETF to the same value.
+        tactical = 50 + 25 * regime_tilt + 25 * tanh(momentum_z)
+    where regime_tilt = (bull_prob - 0.5) * 2 (scaled to [-1, 1]).
+    Invariants: returns float in [0, 100]; pure function (no I/O).
+    """
+    regime_tilt = (hmm_prob_bull - 0.5) * 2.0
+    tactical = 50.0 + 25.0 * regime_tilt + 25.0 * math.tanh(momentum_z)
+    return float(max(0.0, min(100.0, tactical)))
+
+
 # ── Horizon Synchronization ───────────────────────────────────────────────────
 
 def allocate_capital_regime(structural_grade: float, tactical_grade: float, stewardship_val: float) -> dict:
@@ -270,6 +289,17 @@ FACTOR_WEIGHTS = {
     "sentiment": 0.15,
 }
 
+# ── ETF Factor Model (Phase 5 / v10.2) ────────────────────────────────────────
+# ETFs bypass Fundamentals/NLP, so they need a different factor set. Weights
+# must sum to 1.0. This kills the degenerate 93.6 tie by ranking ETFs
+# cross-sectionally on trend / relative strength / low-vol / momentum.
+ETF_FACTOR_WEIGHTS = {
+    "trend":    0.30,
+    "rel_strength": 0.30,
+    "low_vol":  0.20,
+    "momentum": 0.20,
+}
+
 
 def zscore(series: pd.Series) -> pd.Series:
     """Standardize a factor across the universe. NaN-safe."""
@@ -315,6 +345,58 @@ def factor_scores(features: pd.DataFrame) -> pd.DataFrame:
         + FACTOR_WEIGHTS["low_risk"] * out["low_risk_z"]
         + FACTOR_WEIGHTS["sentiment"] * out["sentiment_z"]
     )
+    return out
+
+
+def etf_factor_scores(features: pd.DataFrame) -> pd.DataFrame:
+    """Compute cross-sectional factor z-scores for the ETF subset.
+
+    Intent (Phase 5 / v10.2): ETFs bypass Fundamentals/NLP, so they need a
+    different factor set (trend / rel_strength / low_vol / momentum). This
+    populates the dashboard Z-score section for ETFs and kills the 93.6 tie.
+    Invariants: input must have columns trend_strength, rel_strength_6m,
+    vol_60d, ret_12m. Returns a copy with trend_z/rel_strength_z/low_vol_z/
+    momentum_z/composite_score added.
+    """
+    out = features.copy()
+
+    # Trend: higher close-vs-200SMA strength is better.
+    trend = out["trend_strength"].fillna(0.0)
+    # Relative strength: higher benchmark-relative 6m return is better.
+    rel_strength = out["rel_strength_6m"].fillna(0.0)
+    # Low vol: lower 60d vol is better -> negate.
+    low_vol = -out["vol_60d"].fillna(out["vol_60d"].median())
+    # Momentum: higher 12m return is better.
+    momentum = out["ret_12m"].fillna(0.0)
+
+    out["trend_z"] = zscore(trend)
+    out["rel_strength_z"] = zscore(rel_strength)
+    out["low_vol_z"] = zscore(low_vol)
+    out["momentum_z"] = zscore(momentum)
+
+    out["composite_score"] = (
+        ETF_FACTOR_WEIGHTS["trend"] * out["trend_z"]
+        + ETF_FACTOR_WEIGHTS["rel_strength"] * out["rel_strength_z"]
+        + ETF_FACTOR_WEIGHTS["low_vol"] * out["low_vol_z"]
+        + ETF_FACTOR_WEIGHTS["momentum"] * out["momentum_z"]
+    )
+    return out
+
+
+def etf_quality_score(features: pd.DataFrame) -> pd.DataFrame:
+    """Compute a cross-sectional structural grade (0-100) for the ETF subset.
+
+    Intent (Phase 5 / v10.2): replace the hardcoded 85.0 ETF structural grade
+    with a cross-sectional ranking so EIMI.L, CSPX.L, EUNL.DE rank differently.
+    Uses the same ETF factor z-scores as etf_factor_scores, mapped to 0-100.
+    Invariants: input must have columns trend_strength, rel_strength_6m,
+    vol_60d, ret_12m. Returns a copy with etf_quality added.
+    """
+    out = etf_factor_scores(features)
+    # Map the weighted z-sum to 0-100 via a logistic squash. A composite of 0
+    # (universe average) maps to 50; strong positive z maps toward 100.
+    composite = out["composite_score"]
+    out["etf_quality"] = 50.0 + 50.0 * (composite / (1.0 + composite.abs()))
     return out
 
 

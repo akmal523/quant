@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.2.0] - 2026-09-01
+
+### Added - Dashboard Clarity, Universe State Machine, Broker Data
+
+1. **Universe State Machine** - [`taxonomy.py`](taxonomy.py), [`discovery.py`](discovery.py)
+   - Statuses now `CORE` / `ACTIVE` / `WATCHLIST` / `DELISTED`; new `structure`
+     column (`PLAIN` / `INVERSE` / `LEVERAGED`).
+   - `CORE_STATUSES` / `DEMOTABLE_STATUSES` sets; CORE is immutable (never
+     graduated, never demoted).
+   - `GRADUATION_GRACE_MONTHS` grace period: new graduates are not demoted in
+     the same run (fixes the graduate-then-demote contradiction).
+   - Demotion anchor is the most recent of `graduated_at` / `last_signal_date`.
+   - `fetch_failures` tracking: after `MAX_FETCH_FAILURES` consecutive failures,
+     a symbol is marked `DELISTED` and excluded from fetching (ZNWD.L).
+   - `universe_events` audit table: every GRADUATE / DEMOTE / DELIST / PIN / ADD
+     is logged for the dashboard event log.
+
+2. **Registry Repair** - [`scripts/repair_registry.py`](scripts/repair_registry.py) *(new)*
+   - Sets `CORE_ETFS` to CORE, marks SDS/SH as INVERSE, clears `graduated_at`
+     for WATCHLIST symbols, marks ZNWD.L DELISTED, syncs broker ISINs.
+
+3. **Broker Registry & Routing** - [`taxonomy.py`](taxonomy.py), [`routing.py`](routing.py)
+   - `validate_isin()` checksum validator (ISO 6166).
+   - `sync_broker_registry()` populates `asset_registry.isin` from the CSV.
+   - INVERSE/LEVERAGED structure never routes to SPARPLAN (decay over time).
+   - Missing ISIN emits an explicit "ISIN MISSING" instruction.
+   - Dynamic fee hurdle: `alpha_bps_from_active_score()` maps active score to
+     expected alpha, so `min_trade_size_eur` varies per symbol.
+
+4. **Scoring Differentiation** - [`scoring.py`](scoring.py), [`main.py`](main.py)
+   - `etf_quality_score()` cross-sectional ETF structural grade (trend / RS /
+     low-vol / momentum) replaces the hardcoded 85.0.
+   - `etf_tactical_grade()` continuous tactical grade (regime tilt + momentum z)
+     replaces the binary 99.4 / 59.4.
+   - `etf_factor_scores()` populates the dashboard Z-score section for ETFs.
+   - Per-tier funnel logs: `Tier1 kept X, Tier2 kept Y`.
+
+5. **Dashboard Rebuild** - [`dashboard.py`](dashboard.py), [`.streamlit/config.toml`](.streamlit/config.toml)
+   - Zero emoji characters; plain-text headers.
+   - `width="stretch"` replaces `use_container_width`.
+   - `@st.cache_data(ttl=300)` on all reads.
+   - Sidebar: version, last run, market regime, cash APY.
+   - Daily Briefing: metric row, SPARPLAN/ACTIVE tables, bucket check, data
+     health, backtest expander.
+   - Asset Explorer: identity card, price chart with rendered volatility bands,
+     factor profile, broker card.
+   - Universe Manager: status counts, event log, filterable registry, actions.
+
+6. **Notifier** - [`notifier.py`](notifier.py)
+   - Zero emoji message text; run date, regime, action list, bucket violations,
+     data-health warnings.
+   - `missing_config()` logs the exact missing env variable names.
+
+7. **Tests** - [`test_phase5.py`](test_phase5.py), [`test_no_emoji.py`](test_no_emoji.py) *(new)*
+   - Grace period, CORE immunity, delist tracking, ISIN checksum, inverse
+     routing, ETF score differentiation.
+   - No-emoji lint over `dashboard.py` / `notifier.py` / `reporting.py` / `main.py`.
+
+### Fixed
+
+- [`discovery.py`](discovery.py) graduate-then-demote-in-same-run contradiction.
+- [`discovery.py`](discovery.py) CORE ETFs were demoted to WATCHLIST.
+- [`discovery.py`](discovery.py) ZNWD.L retried forever; now DELISTED after
+  `MAX_FETCH_FAILURES`.
+- [`taxonomy.py`](taxonomy.py) WATCHLIST symbols with `graduated_at` populated
+  (status/history contradiction) - cleared by the repair script.
+- [`routing.py`](routing.py) inverse ETFs (SDS, SH) routed to SPARPLAN.
+- [`scoring.py`](scoring.py) degenerate ETF scoring (all 93.6 tie).
+- [`dashboard.py`](dashboard.py) empty volatility bands, placeholder Z-scores,
+  emoji headers, `use_container_width` deprecation.
+- [`database.py`](database.py) legacy `asset_registry` missing `structure` /
+  `fetch_failures` columns - added via migration.
+
+### Changed
+
+- [`config.py`](config.py) added `GRADUATION_GRACE_MONTHS`, `STALE_DATA_DAYS`,
+  `MAX_FETCH_FAILURES`, `CORE_ETFS`.
+- [`artifacts.py`](artifacts.py) added `latest_run_dir()`.
+- [`data_updater.py`](data_updater.py) / [`main.py`](main.py) exclude DELISTED
+  symbols from fetching and scanning.
+
+---
+
 ## [10.1.0] - 2026-09-01
 
 ### Added - Phase 4: Broker-Aware Family Office Terminal

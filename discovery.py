@@ -8,8 +8,16 @@ crosses a 52-week high OR volume exceeds 3x its 20-day average, it "graduates"
 to the ACTIVE universe (heavy FinBERT/GARCH analysis). Active stocks with no
 signals for 6 months are demoted back to the watchlist.
 
+Phase 5 (v10.2) state machine fixes:
+  - CORE status is immutable: never graduated, never demoted.
+  - New graduates get a GRADUATION_GRACE_MONTHS grace period before the demotion
+    check can age them out (fixes graduate-then-demote-in-same-run).
+  - Demotion anchor is the most recent of graduated_at / last_signal_date.
+  - Consecutive fetch failures (MAX_FETCH_FAILURES) mark a symbol DELISTED.
+  - Every state change is logged to universe_events (audit trail).
+
 Invariants:
-  - universe_status ∈ {ACTIVE, WATCHLIST, CORE}
+  - universe_status ∈ {CORE, ACTIVE, WATCHLIST, DELISTED}
   - graduation is idempotent (INSERT OR REPLACE on asset_registry).
   - Only last WATCHLIST_LOOKBACK_DAYS of data fetched for watchlist symbols.
 
@@ -24,9 +32,13 @@ import pandas as pd
 from config import (
     WATCHLIST_LOOKBACK_DAYS, WATCHLIST_VOLUME_MULT,
     WATCHLIST_52W_HIGH_DAYS, ACTIVE_DEMOTE_MONTHS,
+    GRADUATION_GRACE_MONTHS, MAX_FETCH_FAILURES,
 )
 from database import get_connection, init_db
-from taxonomy import get_instrument_class
+from taxonomy import (
+    get_instrument_class, log_universe_event, mark_delisted,
+    CORE_STATUSES, DEMOTABLE_STATUSES,
+)
 
 # Default watchlist: symbols not in the active SECTOR_UNIVERSE but tracked for
 # potential graduation. Extend this CSV with up to ~1,000 tickers.
@@ -95,9 +107,32 @@ def detect_graduation(symbol: str, df: pd.DataFrame) -> tuple[bool, str]:
     return False, "no anomaly"
 
 
+def months_between(start, end) -> float:
+    """Months between two dates (ISO strings or datetime.date). Negative if start is after end."""
+    if isinstance(start, str):
+        s = dt.date.fromisoformat(start)
+    else:
+        s = start
+    if isinstance(end, str):
+        e = dt.date.fromisoformat(end)
+    else:
+        e = end
+    return (e.year - s.year) * 12 + (e.month - s.month) + (e.day - s.day) / 30.0
+
+
 def graduate(symbol: str, reason: str) -> None:
-    """Promote a watchlist symbol to ACTIVE universe status."""
+    """Promote a watchlist symbol to ACTIVE universe status.
+
+    Intent (Phase 5 / v10.2): CORE symbols are never graduated. Sets
+    graduated_at to today so the grace period starts now.
+    Invariants: status becomes ACTIVE; event logged.
+    """
     conn = get_connection()
+    row = conn.execute(
+        "SELECT universe_status FROM asset_registry WHERE symbol = ?", [symbol]
+    ).fetchone()
+    if row and row[0] in CORE_STATUSES:
+        return  # CORE is immutable; never graduate.
     conn.execute(
         """INSERT INTO asset_registry (symbol, instrument_class, universe_status, graduated_at, updated_at)
            VALUES (?, ?, 'ACTIVE', ?, ?)
@@ -107,58 +142,116 @@ def graduate(symbol: str, reason: str) -> None:
              updated_at = excluded.updated_at""",
         [symbol, get_instrument_class(symbol), dt.date.today().isoformat(), time.time()],
     )
+    log_universe_event(symbol, "GRADUATE", reason)
     print(f" [GRADUATE] {symbol} -> ACTIVE ({reason})")
 
 
-def demote_stale_active(months: int = ACTIVE_DEMOTE_MONTHS) -> int:
+def demote_stale_active(months: int = ACTIVE_DEMOTE_MONTHS,
+                        grace_months: int = GRADUATION_GRACE_MONTHS,
+                        graduated_this_run: set[str] | None = None) -> int:
     """Demote ACTIVE assets with no signals for `months` back to WATCHLIST.
 
-    Intent: keep the heavy-analysis universe lean. Assets that generate no
-    signals for 6 months are demoted to the lightweight watchlist.
+    Intent (Phase 5 / v10.2): keep the heavy-analysis universe lean, but never
+    demote CORE assets, never demote a symbol graduated in the current run, and
+    give new graduates a grace period. The demotion anchor is the most recent of
+    graduated_at / last_signal_date.
     Invariants: returns count of demoted symbols.
     """
     conn = get_connection()
+    now = dt.date.today().isoformat()
     cutoff = (dt.date.today() - dt.timedelta(days=months * 30)).isoformat()
+    graduated_this_run = graduated_this_run or set()
+
     rows = conn.execute(
-        """SELECT symbol FROM asset_registry
-           WHERE universe_status = 'ACTIVE'
-             AND (last_signal_date IS NULL OR last_signal_date < ?)""",
-        [cutoff],
+        """SELECT symbol, graduated_at, last_signal_date FROM asset_registry
+           WHERE universe_status = 'ACTIVE'""",
     ).fetchall()
-    for (sym,) in rows:
+
+    demoted = 0
+    for sym, graduated_at, last_signal_date in rows:
+        if sym in graduated_this_run:
+            continue  # never demote a symbol graduated in the current run.
+        # Demotion anchor: most recent activity. Skip if no activity recorded.
+        dates = [d for d in [graduated_at, last_signal_date] if d]
+        if not dates:
+            continue
+        anchor = max(dates)
+        if months_between(anchor, now) < grace_months:
+            continue  # grace period, do not demote.
+        if months_between(anchor, now) < months:
+            continue  # not stale yet.
         conn.execute(
             "UPDATE asset_registry SET universe_status = 'WATCHLIST', updated_at = ? WHERE symbol = ?",
             [time.time(), sym],
         )
+        log_universe_event(sym, "DEMOTE", f"no signals for {months} months")
         print(f" [DEMOTE] {sym} -> WATCHLIST (no signals for {months} months)")
-    return len(rows)
+        demoted += 1
+    return demoted
 
 
 def run_discovery() -> dict:
     """Run the weekly watchlist scan and return a summary.
 
     Intent: entry point for the cron job. Scans watchlist, graduates anomalies,
-    demotes stale active assets.
-    Invariants: returns dict with graduated/demoted/scanned counts.
+    demotes stale active assets, tracks fetch failures -> DELISTED.
+    Invariants: returns dict with graduated/demoted/scanned/delisted counts.
     """
     init_db()
+    conn = get_connection()
     watchlist = load_watchlist()
     if not watchlist:
         print(" [!] No watchlist.csv found — skipping discovery scan.")
-        return {"scanned": 0, "graduated": 0, "demoted": 0}
+        return {"scanned": 0, "graduated": 0, "demoted": 0, "delisted": 0}
 
     graduated = 0
+    graduated_this_run: set[str] = set()
+    delisted = 0
+
     for sym in watchlist:
+        # Skip DELISTED symbols entirely (stop retrying forever).
+        row = conn.execute(
+            "SELECT universe_status FROM asset_registry WHERE symbol = ?", [sym]
+        ).fetchone()
+        if row and row[0] == "DELISTED":
+            continue
+
         df = fetch_recent(sym)
+        if df is None:
+            # Consecutive fetch failure tracking -> DELISTED after MAX_FETCH_FAILURES.
+            failures = conn.execute(
+                "SELECT fetch_failures FROM asset_registry WHERE symbol = ?", [sym]
+            ).fetchone()
+            count = (failures[0] if failures else 0) + 1
+            conn.execute(
+                """INSERT INTO asset_registry (symbol, fetch_failures, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT (symbol) DO UPDATE SET
+                     fetch_failures = excluded.fetch_failures,
+                     updated_at = excluded.updated_at""",
+                [sym, count, time.time()],
+            )
+            if count >= MAX_FETCH_FAILURES:
+                mark_delisted(sym, "possibly delisted (consecutive fetch failures)")
+                delisted += 1
+            continue
+
+        # Fetch succeeded: reset the failure counter.
+        conn.execute(
+            "UPDATE asset_registry SET fetch_failures = 0 WHERE symbol = ?", [sym]
+        )
+
         ok, reason = detect_graduation(sym, df)
         if ok:
             graduate(sym, reason)
             graduated += 1
+            graduated_this_run.add(sym)
 
-    demoted = demote_stale_active()
+    demoted = demote_stale_active(graduated_this_run=graduated_this_run)
     print(f"\nDiscovery complete: scanned {len(watchlist)}, "
-          f"graduated {graduated}, demoted {demoted}.")
-    return {"scanned": len(watchlist), "graduated": graduated, "demoted": demoted}
+          f"graduated {graduated}, demoted {demoted}, delisted {delisted}.")
+    return {"scanned": len(watchlist), "graduated": graduated,
+            "demoted": demoted, "delisted": delisted}
 
 
 if __name__ == "__main__":

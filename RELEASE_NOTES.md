@@ -1,3 +1,78 @@
+# Release Notes - v10.2.0
+
+**Quant-AI v10.2.0** - Dashboard Clarity Release
+
+This release fixes the universe state machine contradictions, completes the
+broker ISIN registry, differentiates ETF scoring, and rebuilds the dashboard
+with zero emoji characters.
+
+---
+
+## Defects Fixed (from the v10.1 run)
+
+1. **Graduate-then-demote contradiction** - 18 symbols graduated, then 15
+   demoted seconds later. New graduates now get a `GRADUATION_GRACE_MONTHS`
+   grace period and are never demoted in the same run.
+2. **CORE ETFs demoted to WATCHLIST** - URTH, IWDA.AS, EUNL.DE, VOO, XEON.DE
+   and the core set are now immutable (`CORE` status, never demoted).
+3. **Contradictory registry state** - WATCHLIST symbols with `graduated_at`
+   populated are cleared by the repair script.
+4. **Delisted symbol retried forever** - ZNWD.L is now marked `DELISTED` after
+   `MAX_FETCH_FAILURES` consecutive failures and excluded from fetching.
+5. **Broker registry mostly empty** - ISINs synced into `asset_registry`; a
+   missing ISIN now emits an explicit "ISIN MISSING" instruction.
+6. **Inverse ETFs routed to Sparplan** - SDS and SH are marked `INVERSE` and
+   never route to SPARPLAN (they decay over time).
+7. **Degenerate ETF scoring** - `etf_quality_score()` and `etf_tactical_grade()`
+   rank ETFs cross-sectionally, killing the 93.6 tie.
+8. **Half-empty dashboard** - volatility bands now render, Z-scores are
+   populated for ETFs, headers are plain text, `use_container_width` replaced.
+9. **Stale data not surfaced** - the Data Health section flags prices older than
+   `STALE_DATA_DAYS`.
+10. **Static fee hurdle** - `min_trade_size_eur` now varies with expected alpha.
+
+---
+
+## Highlights
+
+- **Universe state machine** - `CORE`/`ACTIVE`/`WATCHLIST`/`DELISTED` statuses,
+  `structure` flags, grace period, delist tracking, `universe_events` audit log.
+- **Registry repair** - [`scripts/repair_registry.py`](scripts/repair_registry.py)
+  fixes the registry in one run.
+- **ISIN validation** - `validate_isin()` checksum validator.
+- **ETF scoring** - cross-sectional structural grade + continuous tactical grade.
+- **Dashboard rebuild** - 3 pages, zero emojis, cached reads, rendered bands.
+- **No-emoji lint** - [`test_no_emoji.py`](test_no_emoji.py) enforces the rule.
+
+---
+
+## What's New
+
+1. **Universe State Machine** - `taxonomy.py`, `discovery.py`, `database.py`.
+2. **Registry Repair** - `scripts/repair_registry.py`.
+3. **Broker Registry & Routing** - `validate_isin`, `sync_broker_registry`,
+   inverse exclusion, dynamic fee hurdle.
+4. **Scoring Differentiation** - `etf_quality_score`, `etf_tactical_grade`,
+   `etf_factor_scores`, per-tier funnel logs.
+5. **Dashboard Rebuild** - 3 pages, `.streamlit/config.toml`, cached reads.
+6. **Notifier** - zero-emoji message, explicit missing-config logging.
+7. **Tests** - `test_phase5.py`, `test_no_emoji.py`.
+
+---
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_scoring.py` | 20 | Pass |
+| `test_factors.py` | 9 | Pass |
+| `test_backtest_validity.py` | 6 | Pass |
+| `test_phase4.py` | 20 | Pass |
+| `test_phase5.py` | 12 | Pass |
+| `test_no_emoji.py` | 1 | Pass |
+
+---
+
 # Release Notes - v10.1.0
 
 **Quant-AI v10.1.0** - Broker-Aware Family Office Terminal

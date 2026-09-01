@@ -27,6 +27,21 @@ def new_run_dir() -> str:
     return path
 
 
+def latest_run_dir() -> str | None:
+    """Return the most recent outputs/run_<ts>/ directory, or None.
+
+    Intent (Phase 5 / v10.2): the dashboard sidebar shows the last run timestamp
+    and reads the latest factor_scores.parquet from the newest artifact dir.
+    Invariants: returns None if no run artifacts exist.
+    """
+    if not os.path.isdir(OUTPUTS_DIR):
+        return None
+    runs = [d for d in os.listdir(OUTPUTS_DIR) if d.startswith("run_")]
+    if not runs:
+        return None
+    return os.path.join(OUTPUTS_DIR, max(runs))
+
+
 def save_artifact(run_dir: str, name: str, df: pd.DataFrame) -> str:
     """Save a DataFrame to run_dir/<name>.parquet. Returns full path."""
     path = os.path.join(run_dir, f"{name}.parquet")

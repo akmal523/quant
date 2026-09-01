@@ -131,8 +131,51 @@ def init_db() -> None:
             currency VARCHAR,
             universe_status VARCHAR NOT NULL DEFAULT 'ACTIVE',
             sector VARCHAR,
+            structure VARCHAR NOT NULL DEFAULT 'PLAIN',
             graduated_at DATE,
             last_signal_date DATE,
+            fetch_failures INTEGER NOT NULL DEFAULT 0,
             updated_at DOUBLE
+        )
+    """)
+
+    # Migration (v10.2): add structure / fetch_failures columns to a legacy
+    # asset_registry created before the Phase 5 schema. CREATE TABLE IF NOT
+    # EXISTS does not add columns to an existing table, so add them explicitly.
+    # DuckDB cannot add columns WITH constraints, so add bare columns and
+    # backfill the defaults.
+    try:
+        cols = {r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'asset_registry'"
+        ).fetchall()}
+        if "structure" not in cols:
+            conn.execute("ALTER TABLE asset_registry ADD COLUMN structure VARCHAR")
+            conn.execute("UPDATE asset_registry SET structure = 'PLAIN'")
+        if "fetch_failures" not in cols:
+            conn.execute("ALTER TABLE asset_registry ADD COLUMN fetch_failures INTEGER")
+            conn.execute("UPDATE asset_registry SET fetch_failures = 0")
+    except Exception:
+        # Table may not exist yet on first run; non-fatal.
+        pass
+
+    # ── Phase 5 (v10.2): Universe audit trail ────────────────────────────────
+    # Every state change (GRADUATE / DEMOTE / DELIST / PIN / ADD) is logged here
+    # so the dashboard can render an auditable event log.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS universe_events (
+            ts TIMESTAMP DEFAULT now(),
+            symbol VARCHAR,
+            event VARCHAR,
+            reason VARCHAR
+        )
+    """)
+
+    # ── Phase 5 (v10.2): Account state ───────────────────────────────────────
+    # Persists the user's cash input from the Daily Briefing bucket check.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS account_state (
+            key VARCHAR PRIMARY KEY,
+            value DOUBLE
         )
     """)
