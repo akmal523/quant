@@ -97,6 +97,52 @@ CORE_ETFS = [
     "XEON.DE", "SXRV.DE", "IQQQ.DE", "GLUG.L", "PHO",
 ]
 
+# ── Strategic Rebalancing Tiers (v11) ─────────────────────────────────────────
+# Intent: differentiate buy-and-hold vs active trading assets so the bot stops
+# emitting SELL on core ETFs over minor noise. Tier lists take PRECEDENCE over
+# CORE_ETFS for tier assignment (e.g. SXRV.DE is in CORE_ETFS but classified
+# SATELLITE here). classify_asset() checks these lists first.
+# Invariants: a symbol maps to exactly one tier; unknown symbols default ACTIVE.
+CORE_ASSETS = [
+    "EUNL.DE", "IWDA.AS", "VOO", "CSPX.L", "URTH", "EIMI.L",
+    "SWRD.L", "EXW1.DE", "EXIA.DE", "ISF.L", "IEAG.L", "ITPS.L",
+    "XEON.DE", "IQQQ.DE", "GLUG.L", "PHO",
+]
+SATELLITE_ASSETS = ["SXRV.DE", "QQQ", "TQQQ", "IQQQ.DE"]
+ACTIVE_ASSETS = ["AMZN", "AAPL", "TSLA", "MSFT", "NVDA", "GOOGL", "META"]
+SECTOR_ASSETS = ["5J50.DE", "URA", "TAN", "ICLN", "XLE", "XLK"]
+
+# Target portfolio weights per tier (must sum to 1.0). Used for drift analysis.
+# Intent: 50% broad market, 20% growth/leveraged, 20% individual stocks,
+# 10% sector plays. First-run baseline eases in (no forced rebalance).
+TARGET_WEIGHTS = {
+    "CORE": 0.50,
+    "SATELLITE": 0.20,
+    "ACTIVE": 0.20,
+    "SECTOR": 0.10,
+}
+
+# Rebalancing thresholds & frequencies.
+REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
+MIN_TRADE_SIZE_EUR = 50.0          # minimum trade to clear the 2 EUR round-trip
+REBALANCE_FIRST_RUN = False        # True = force rebalance to targets on first run
+
+# Days between allowed rebalances per tier.
+REBALANCE_FREQUENCY_DAYS = {
+    "CORE": 90,       # quarterly
+    "SATELLITE": 30,  # monthly
+    "ACTIVE": 1,      # daily (active trading)
+    "SECTOR": 14,     # bi-weekly
+}
+
+# Per-tier drift thresholds (fraction) that trigger a rebalance.
+REBALANCE_DRIFT_TIERS = {
+    "CORE": 0.10,      # only major drift
+    "SATELLITE": 0.075,
+    "ACTIVE": 0.05,
+    "SECTOR": 0.06,
+}
+
 # ── Optional email reporting ──────────────────────────────────────────────────
 SMTP_USER     = os.getenv("SMTP_USER",     "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")

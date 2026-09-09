@@ -1,5 +1,5 @@
 Symbol,Buy_Price,Amount_EUR,Original_Amount
-5J50.DE,8.28,151.39,151			#Global Aerospace and Defence USD (ACC)
-IQQQ.DE,63.69,134.5,130			#Global Water USD (Dist) [TR: IQQQ]
-EUNL.DE,124.48,206.44,203		#Core MSCI World USD (Acc) [TR: EUNL]
-SXRV.DE,1467.04,174.58,177		#Nasdaq 100 USD (Acc) [TR: SXRV]
+5J50.DE,8.28,148.55,151			#Global Aerospace and Defence USD (ACC)
+AMZN,220.55,150.10,150			#Amazon
+EUNL.DE,125.03,281.81,179		#Core MSCI World USD (Acc) [TR: EUNL]
+SXRV.DE,1460.00,253.62,251		#Nasdaq 100 USD (Acc) [TR: SXRV]

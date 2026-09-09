@@ -7,6 +7,12 @@ from __future__ import annotations
 import os
 import pandas as pd
 
+from config import (
+    CORE_ASSETS, SATELLITE_ASSETS, ACTIVE_ASSETS, SECTOR_ASSETS,
+    TARGET_WEIGHTS, REBALANCE_FREQUENCY_DAYS, REBALANCE_DRIFT_TIERS,
+    MIN_TRADE_SIZE_EUR, REBALANCE_FIRST_RUN,
+)
+
 def load_portfolio(filepath: str = "portfolio.csv") -> pd.DataFrame:
     required_cols = ["Symbol", "Buy_Price", "Amount_EUR"]
     if not os.path.exists(filepath):
@@ -33,6 +39,99 @@ def load_portfolio(filepath: str = "portfolio.csv") -> pd.DataFrame:
         return df.dropna(subset=["Symbol"]).reset_index(drop=True)
     except Exception:
         return pd.DataFrame(columns=required_cols)
+
+def classify_asset(symbol: str) -> str:
+    """Classify a symbol into a management tier.
+
+    Intent: differentiate buy-and-hold vs active trading so the bot stops
+    emitting SELL on core ETFs over minor noise. Tier lists take PRECEDENCE
+    over CORE_ETFS (e.g. SXRV.DE is in CORE_ETFS but classified SATELLITE).
+    Invariants: returns one of {CORE, SATELLITE, ACTIVE, SECTOR}; unknown
+    symbols default to ACTIVE. Pure function (no I/O).
+    """
+    if symbol in CORE_ASSETS:
+        return "CORE"
+    if symbol in SATELLITE_ASSETS:
+        return "SATELLITE"
+    if symbol in ACTIVE_ASSETS:
+        return "ACTIVE"
+    if symbol in SECTOR_ASSETS:
+        return "SECTOR"
+    return "ACTIVE"
+
+
+def get_last_rebalance(symbol: str) -> str | None:
+    """Read last rebalance date for a symbol from rebalance_log.
+
+    Intent: time-gate rebalancing per tier. Absence of a row = first run.
+    Dependencies: database.get_connection. Returns ISO date string or None.
+    """
+    try:
+        from database import get_connection
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT last_rebalance_date FROM rebalance_log WHERE symbol = ?",
+            [symbol],
+        ).fetchone()
+        return str(row[0]) if row and row[0] else None
+    except Exception:
+        return None
+
+
+def set_last_rebalance(symbol: str, date_str: str) -> None:
+    """Upsert last rebalance date for a symbol into rebalance_log.
+
+    Intent: persist rebalance timing so CORE/SATELLITE/SECTOR respect their
+    frequency windows. Dependencies: database.get_connection.
+    """
+    try:
+        from database import get_connection
+        conn = get_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO rebalance_log (symbol, last_rebalance_date) "
+            "VALUES (?, ?)",
+            [symbol, date_str],
+        )
+    except Exception:
+        pass
+
+
+def should_rebalance_asset(
+    symbol: str,
+    current_weight: float,
+    target_weight: float,
+    tier: str,
+    current_date: str,
+) -> tuple[bool, str]:
+    """Determine if an asset needs rebalancing based on drift + tier rules.
+
+    Intent: rebalance only on meaningful drift, gated by tier frequency.
+    First run (no rebalance_log row) eases in: records baseline, no forced
+    trade. CORE only rebalances on >10% drift and quarterly.
+    Invariants: returns (bool, reason). Pure logic; reads rebalance_log.
+    """
+    drift = current_weight - target_weight
+    abs_drift = abs(drift)
+    threshold = REBALANCE_DRIFT_TIERS.get(tier, REBALANCE_DRIFT_TIERS["ACTIVE"])
+    min_days = REBALANCE_FREQUENCY_DAYS.get(tier, 7)
+
+    last = get_last_rebalance(symbol)
+    if last is None:
+        # First run: baseline ease-in. Record baseline, no forced rebalance.
+        set_last_rebalance(symbol, current_date)
+        return False, f"{tier} first-run baseline set; no forced rebalance"
+
+    days_since = (pd.to_datetime(current_date) - pd.to_datetime(last)).days
+
+    # Time gate: ACTIVE rebalances daily (no wait), others respect frequency.
+    if tier != "ACTIVE" and days_since < min_days:
+        return False, f"{tier} wait {min_days - days_since}d (last {last})"
+
+    if abs_drift < threshold:
+        return False, f"{tier} drift {abs_drift:.1%} < {threshold:.1%} threshold"
+
+    return True, f"{tier} drift {abs_drift:.1%} exceeds {threshold:.1%} threshold"
+
 
 def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -92,6 +191,113 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         })
 
     return pd.DataFrame(rows)
+
+def enhanced_portfolio_audit(
+    portfolio_df: pd.DataFrame,
+    scan_df: pd.DataFrame,
+    current_date: str,
+    market_data: dict | None = None,
+) -> pd.DataFrame:
+    """Enhanced portfolio audit with drift analysis and fee-aware recommendations.
+
+    Intent: replace the naive BUY/SELL audit with tier-aware rebalancing.
+    Each position is classified into a tier, its drift vs target weight is
+    computed, time-gated by rebalance_log, and gated by fee + liquidity.
+    CORE assets never get a SELL signal (see generate_signal_for_tier).
+    Invariants: returns a DataFrame with Tier/Drift/Signal/Recommendation.
+    Dependencies: classify_asset, should_rebalance_asset, scoring.generate_signal_for_tier,
+    optimizer.calculate_min_trade_size / check_volume_liquidity.
+    """
+    from scoring import generate_signal_for_tier
+    from optimizer import calculate_min_trade_size, check_volume_liquidity
+
+    total_value = portfolio_df["Amount_EUR"].sum()
+    scan_map = scan_df.set_index("Symbol").to_dict("index")
+    rows = []
+
+    for _, p_row in portfolio_df.iterrows():
+        symbol = p_row["Symbol"]
+        tier = classify_asset(symbol)
+        target_weight = TARGET_WEIGHTS.get(tier, 0.25)
+
+        if symbol not in scan_map:
+            rows.append({
+                "Symbol": symbol, "Tier": tier, "Signal": "N/A",
+                "Drift": None, "Recommendation": "NOT SCANNED",
+            })
+            continue
+
+        s = scan_map[symbol]
+        curr_price = s.get("Current_Price", 0)
+        no_price = (curr_price is None or curr_price == 0 or
+                    (isinstance(curr_price, float) and pd.isna(curr_price)))
+        if no_price:
+            rows.append({
+                "Symbol": symbol, "Tier": tier, "Signal": "N/A",
+                "Drift": None, "Recommendation": "NO DATA",
+            })
+            continue
+
+        buy_price = p_row["Buy_Price"]
+        orig_amount = p_row.get("Original_Amount", p_row["Amount_EUR"])
+        shares = orig_amount / buy_price if buy_price and buy_price > 0 else 0.0
+        current_value = curr_price * shares
+        # Correct weight formula: current value / total portfolio value.
+        current_weight = current_value / total_value if total_value > 0 else 0.0
+        drift = current_weight - target_weight
+
+        should_rebalance, rebalance_reason = should_rebalance_asset(
+            symbol, current_weight, target_weight, tier, current_date,
+        )
+
+        structural_grade = float(s.get("Structural_Grade", 50) or 50)
+        tactical_grade = float(s.get("Tactical_Grade", 50) or 50)
+        stewardship = float(s.get("Stewardship", 15) or 15)
+        horizon, signal = generate_signal_for_tier(
+            symbol, structural_grade, tactical_grade, stewardship,
+            tier, current_weight, target_weight,
+        )
+
+        if should_rebalance:
+            min_trade = calculate_min_trade_size(
+                target_weight, current_weight, total_value,
+            )
+            drift_value_eur = abs(drift) * total_value
+            trade_size_eur = max(drift_value_eur, min_trade)
+
+            if market_data and symbol in market_data:
+                is_valid, vol_reason = check_volume_liquidity(
+                    symbol, trade_size_eur, market_data[symbol],
+                )
+                if not is_valid:
+                    recommendation = f"SKIP: {vol_reason}"
+                else:
+                    direction = "BUY" if drift < 0 else "SELL"
+                    recommendation = f"{direction} {trade_size_eur:.0f} EUR ({rebalance_reason})"
+            else:
+                direction = "BUY" if drift < 0 else "SELL"
+                recommendation = f"{direction} {trade_size_eur:.0f} EUR ({rebalance_reason})"
+        else:
+            recommendation = f"HOLD: {rebalance_reason}"
+
+        rows.append({
+            "Symbol": symbol,
+            "Tier": tier,
+            "Current_Weight": f"{current_weight:.1%}",
+            "Target_Weight": f"{target_weight:.1%}",
+            "Drift": f"{drift:.1%}",
+            "Signal": signal,
+            "Horizon": horizon,
+            "Recommendation": recommendation,
+            "PnL_pct": round(((current_value - orig_amount) / orig_amount * 100) if orig_amount else 0, 2),
+            "PnL_EUR": round(current_value - orig_amount, 2),
+            "Current_Price": curr_price,
+            "Current_Value": round(current_value, 2),
+            "Active_Score": s.get("Active_Score", 0),
+        })
+
+    return pd.DataFrame(rows)
+
 
 def print_audit_report(audit_df: pd.DataFrame) -> None:
     w = 180

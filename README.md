@@ -1,4 +1,4 @@
-# Quant-AI v10.2 - Broker-Aware Family Office Terminal (EUR-Native)
+# Quant-AI v10.3.0 - Broker-Aware Family Office Terminal (EUR-Native)
 
 A professional-grade Python pipeline for systematic multi-sector equity analysis. Uses a **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities + portfolio holdings) instead of a hardcoded 277-stock set, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship. Fully aligned with Trade Republic's asymmetric 1-EUR fee structure and 2.25% cash APY.
 
@@ -94,6 +94,163 @@ quant/
 ### 5. Notifier & Tests
 - Zero-emoji message text; explicit missing-config logging.
 - `test_phase5.py` + `test_no_emoji.py` enforce the fixes permanently.
+
+---
+
+## New in v10.2.1 — Strategic Portfolio Rebalancing
+
+> **Strategy release.** The bot stops treating all assets equally. It now
+> classifies each holding into a management tier (CORE / SATELLITE / ACTIVE /
+> SECTOR), rebalances only on meaningful drift, respects the 2 EUR round-trip
+> fee, and never emits SELL on core buy-and-hold ETFs.
+
+### 1. Asset Tier Classification
+- [`config.py`](config.py) defines `CORE_ASSETS` / `SATELLITE_ASSETS` /
+  `ACTIVE_ASSETS` / `SECTOR_ASSETS`. Tier lists take **precedence** over
+  `CORE_ETFS` (e.g. `SXRV.DE` is in `CORE_ETFS` but classified SATELLITE).
+- [`portfolio.py`](portfolio.py) `classify_asset()` maps a symbol to one tier;
+  unknown symbols default to ACTIVE.
+
+### 2. Drift-Based Rebalancing
+- `TARGET_WEIGHTS` (CORE 50% / SATELLITE 20% / ACTIVE 20% / SECTOR 10%).
+- `should_rebalance_asset()` rebalances only when drift exceeds the per-tier
+  threshold (`REBALANCE_DRIFT_TIERS`) AND the frequency window
+  (`REBALANCE_FREQUENCY_DAYS`) has elapsed.
+- **First-run ease-in**: no `rebalance_log` row = baseline recorded, no forced
+  trade. Set `REBALANCE_FIRST_RUN = True` to force rebalancing to targets.
+
+### 3. CORE Never Sells
+- [`scoring.py`](scoring.py) `generate_signal_for_tier()` overrides the generic
+  signal. CORE assets emit only `HOLD` or `BUY MORE (DCA OK)` — never SELL.
+- SATELLITE trims only on >10% overweight; ACTIVE keeps the full tactical
+  spectrum; SECTOR rotates cyclically.
+
+### 4. Fee & Liquidity Awareness
+- [`optimizer.py`](optimizer.py) `calculate_min_trade_size()` returns the max of
+  (drift value, fee-hurdle capital, `MIN_TRADE_SIZE_EUR`).
+- `check_volume_liquidity()` rejects trades exceeding 1% of 20-day ADV.
+
+### 5. Rebalance Log
+- [`database.py`](database.py) adds the `rebalance_log` table
+  (`symbol`, `last_rebalance_date`) for time-gated rebalancing.
+
+### 6. Tests
+- `test_rebalancing.py` (13 tests): tier classification, fee hurdle, per-tier
+  rebalance logic, CORE never SELL, drift thresholds, first-run baseline.
+
+---
+
+## New in v10.2.2 — Advanced Strategic Enhancements
+
+> **Adaptive portfolio manager release.** Part 1 differentiated CORE vs ACTIVE
+> assets. Part 2 adds portfolio-level context, a multi-strategy ensemble,
+> tax-loss harvesting, dynamic cash management, drawdown circuit breakers,
+> P&L attribution, an event bus, overtrading guardrails, and regime-aware
+> backtest validation.
+
+### 1. Risk-Aware Portfolio Context
+- [`portfolio_context.py`](portfolio_context.py) `PortfolioContext` computes
+  marginal risk contribution (MRC), PCA factor exposure, and a concentration
+  penalty that modulates asset scores. Catches hidden concentration risk
+  (e.g. SXRV.DE + AMZN ~80% correlated).
+
+### 2. Multi-Strategy Ensemble
+- [`strategies/`](strategies/) — `Momentum`, `MeanReversion`, `Value`,
+  `RiskParity` strategies.
+- [`strategy_engine.py`](strategy_engine.py) `StrategyEngine` blends signals
+  with regime-dependent weights. In high-vol regimes it shifts from momentum
+  to mean-reversion; in bear markets value + risk-parity dominate.
+
+### 3. German Tax-Loss Harvesting
+- [`tax_optimizer.py`](tax_optimizer.py) `TaxOptimizer` applies Abgeltungsteuer
+  (26.375%), the EUR 1,000 Sparerpauschbetrag, and loss-offset rules. Proposes
+  harvesting non-CORE losers with a correlated replacement when tax savings
+  clear the 2 EUR fee by a 3x buffer.
+
+### 4. Dynamic Cash Reserve
+- [`cash_manager.py`](cash_manager.py) `CashManager` targets cash allocation
+  from regime + VIX + opportunity set (5-30%), and scales dip-buying with
+  drawdown depth.
+
+### 5. Drawdown Circuit Breakers
+- [`risk_monitor.py`](risk_monitor.py) `RiskMonitor` returns NORMAL / CAUTION /
+  ALERT / LOCKDOWN based on drawdown and volatility, with recommended actions.
+
+### 6. P&L Attribution
+- [`attribution.py`](attribution.py) `BrinsonFachlerAttribution` decomposes
+  P&L into allocation / selection / interaction effects vs a benchmark.
+
+### 7. Event-Driven Architecture
+- [`event_bus.py`](event_bus.py) `EventBus` pub/sub decouples modules so they
+  react to regime change, drawdown, tax opportunity, and dip events.
+
+### 8. Behavioral Guardrails
+- [`behavioral_guardrails.py`](behavioral_guardrails.py) enforces per-symbol
+  cooldowns, a weekly trade limit, and size reduction after consecutive losses.
+
+### 9. Regime-Aware Validation
+- [`validation_engine.py`](validation_engine.py) `ValidationEngine` runs
+  walk-forward backtests with regime detection and reports robustness metrics.
+
+### 10. Unified Briefing
+- [`reporting_advanced.py`](reporting_advanced.py) assembles all modules into a
+  single daily briefing, wired into [`main.py`](main.py) (non-fatal).
+
+### 11. Tests
+- `test_advanced.py` (15 tests): risk contribution, concentration penalty,
+  strategy ensemble, tax harvesting, cash bounds, circuit breakers,
+  attribution, event bus, guardrails, validation robustness.
+
+---
+
+## New in v10.3.0 — Architectural Refinement
+
+> **Hygiene release.** Removes complexity, modernizes patterns, and closes
+> gaps: data quality validation, feature caching, observability, incremental
+> processing, YAML config, alerts, health score, and what-if scenarios.
+
+### 1. Data Quality Gate (P0)
+- [`data_quality.py`](data_quality.py) `DataQualityValidator` validates
+  incoming market data (NaN, negative prices, extreme moves, duplicates,
+  staleness) BEFORE it enters DuckDB. `auto_repair()` fixes common issues.
+- Wired into [`data_updater.py`](data_updater.py) — unfixable data is skipped.
+
+### 2. Feature Cache (P0)
+- [`feature_cache.py`](feature_cache.py) `FeatureCache` caches computed
+  indicators keyed by `hash(symbol + feature + data_hash)`. Invalidates when
+  the underlying Close data changes. Cuts incremental computation 60-80%.
+
+### 3. Observability (P0)
+- [`observability.py`](observability.py) `ObservabilityCollector` times each
+  pipeline step, records errors, and prints a summary + JSON export.
+- Wired into [`main.py`](main.py) — prints a pipeline timing summary.
+
+### 4. Incremental Processing (P1)
+- [`incremental.py`](incremental.py) `IncrementalProcessor` detects which
+  symbols changed (via data hash) so the pipeline is O(changed) not O(all).
+
+### 5. YAML Config (P1)
+- [`config_loader.py`](config_loader.py) `Config` loads [`config.yaml`](config.yaml)
+  with nested dot-path access. Non-programmers can tune thresholds without
+  editing Python.
+
+### 6. Alert System (P2)
+- [`alerts.py`](alerts.py) `AlertSystem` surfaces drawdowns, rebalancing
+  triggers, and tax-loss opportunities as leveled alerts.
+
+### 7. Portfolio Health Score (P2)
+- [`health_score.py`](health_score.py) `PortfolioHealthScore` collapses
+  diversification, risk-adjusted return, drawdown, cost, and liquidity into a
+  single 0-100 score with a grade and recommendations.
+
+### 8. What-If Scenarios (P2)
+- [`scenario_simulator.py`](scenario_simulator.py) `ScenarioSimulator` answers
+  "what if I sell X buy Y" and "what if the market crashes 20%" before
+  committing capital.
+
+### 9. Tests
+- `test_part3.py` (14 tests): data quality, feature cache, observability,
+  incremental, YAML config, alerts, health score, scenario simulator.
 
 ---
 
@@ -380,6 +537,11 @@ All tunable parameters in [`config.py`](config.py):
 | `ACTIVE_TACT_MIN` | 70.0 | Tactical grade threshold for Active Trade routing |
 | `WATCHLIST_VOLUME_MULT` | 3.0 | Volume > 3x 20-day avg graduates to ACTIVE |
 | `ACTIVE_DEMOTE_MONTHS` | 6 | No signals for 6 months demotes to WATCHLIST |
+| `TARGET_WEIGHTS` | 50/20/20/10 | Per-tier target weights (CORE/SATELLITE/ACTIVE/SECTOR) |
+| `REBALANCE_DRIFT_TIERS` | 10/7.5/5/6% | Per-tier drift threshold that triggers rebalance |
+| `REBALANCE_FREQUENCY_DAYS` | 90/30/1/14 | Per-tier min days between rebalances |
+| `MIN_TRADE_SIZE_EUR` | 50.0 | Minimum trade to clear the 2 EUR round-trip fee |
+| `REBALANCE_FIRST_RUN` | False | True = force rebalance to targets on first run |
 
 ---
 
@@ -400,6 +562,15 @@ python3 test_phase4.py
 
 # Phase 5: state machine, ISIN, inverse routing, ETF scoring (12 tests)
 python3 test_phase5.py
+
+# v10.2.1: tier classification, fee hurdle, rebalance logic, CORE never SELL (13 tests)
+python3 test_rebalancing.py
+
+# v10.2.2: portfolio context, strategy ensemble, tax, cash, risk, attribution (15 tests)
+python3 test_advanced.py
+
+# v10.3.0: data quality, feature cache, observability, alerts, health, scenarios (14 tests)
+python3 test_part3.py
 
 # No-emoji lint (dashboard/notifier/reporting/main)
 python3 test_no_emoji.py

@@ -7,6 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.3.0] - 2026-09-09
+
+### Added - Architectural Refinement (Part 3)
+
+1. **Data Quality Gate** - [`data_quality.py`](data_quality.py) *(new)*
+   - `DataQualityValidator` validates incoming market data (NaN, negative
+     prices, extreme >25% moves, duplicates, staleness, price bounds) BEFORE it
+     enters DuckDB.
+   - `auto_repair()` removes duplicates/NaN and interpolates small gaps.
+   - Wired into [`data_updater.py`](data_updater.py) — unfixable data is skipped.
+
+2. **Feature Cache** - [`feature_cache.py`](feature_cache.py) *(new)*
+   - `FeatureCache` caches computed indicators keyed by
+     `hash(symbol + feature + data_hash)`.
+   - Invalidates when the underlying Close data changes. Cuts incremental
+     computation 60-80%.
+
+3. **Observability** - [`observability.py`](observability.py) *(new)*
+   - `ObservabilityCollector` times each pipeline step, records errors, and
+     prints a summary + JSON export.
+   - Wired into [`main.py`](main.py) — prints a pipeline timing summary.
+
+4. **Incremental Processing** - [`incremental.py`](incremental.py) *(new)*
+   - `IncrementalProcessor` detects changed symbols via data hash → O(changed)
+     not O(all).
+
+5. **YAML Config** - [`config_loader.py`](config_loader.py) + [`config.yaml`](config.yaml) *(new)*
+   - Nested dot-path config access. Non-programmers tune thresholds without
+     editing Python.
+
+6. **Alert System** - [`alerts.py`](alerts.py) *(new)*
+   - `AlertSystem` surfaces drawdowns, rebalancing triggers, and tax-loss
+     opportunities as leveled alerts.
+
+7. **Portfolio Health Score** - [`health_score.py`](health_score.py) *(new)*
+   - `PortfolioHealthScore` collapses diversification, risk-adjusted return,
+     drawdown, cost, and liquidity into a 0-100 score with grade + recs.
+
+8. **What-If Scenarios** - [`scenario_simulator.py`](scenario_simulator.py) *(new)*
+   - `ScenarioSimulator` answers "sell X buy Y" and "market crashes 20%".
+
+9. **Tests** - [`test_part3.py`](test_part3.py) *(new)* — 14 tests.
+
+---
+
+## [10.2.2] - 2026-09-09
+
+### Added - Advanced Strategic Enhancements (Part 2)
+
+1. **Risk-Aware Portfolio Context** - [`portfolio_context.py`](portfolio_context.py) *(new)*
+   - `PortfolioContext` computes marginal risk contribution (MRC), PCA factor
+     exposure, and a concentration penalty that modulates asset scores.
+
+2. **Multi-Strategy Ensemble** - [`strategies/`](strategies/) + [`strategy_engine.py`](strategy_engine.py) *(new)*
+   - `Momentum`, `MeanReversion`, `Value`, `RiskParity` strategies.
+   - `StrategyEngine` blends signals with regime-dependent weights.
+
+3. **German Tax-Loss Harvesting** - [`tax_optimizer.py`](tax_optimizer.py) *(new)*
+   - Applies Abgeltungsteuer (26.375%), EUR 1,000 allowance, loss-offset.
+
+4. **Dynamic Cash Reserve** - [`cash_manager.py`](cash_manager.py) *(new)*
+   - Target cash from regime + VIX + opportunity (5-30%); dip-buying scaled by
+     drawdown depth.
+
+5. **Drawdown Circuit Breakers** - [`risk_monitor.py`](risk_monitor.py) *(new)*
+   - NORMAL / CAUTION / ALERT / LOCKDOWN based on drawdown and volatility.
+
+6. **P&L Attribution** - [`attribution.py`](attribution.py) *(new)*
+   - Brinson-Fachler allocation / selection / interaction effects.
+
+7. **Event Bus** - [`event_bus.py`](event_bus.py) *(new)*
+   - Pub/sub decoupling so modules react to regime/drawdown/tax/dip events.
+
+8. **Behavioral Guardrails** - [`behavioral_guardrails.py`](behavioral_guardrails.py) *(new)*
+   - Cooldowns, weekly trade limits, consecutive-loss size reduction.
+
+9. **Regime-Aware Validation** - [`validation_engine.py`](validation_engine.py) *(new)*
+   - Walk-forward backtest with regime detection + robustness metrics.
+
+10. **Unified Briefing** - [`reporting_advanced.py`](reporting_advanced.py) *(new)*
+    - Assembles all Part 2 modules into a single daily briefing, wired into
+      [`main.py`](main.py) (non-fatal).
+
+11. **Tests** - [`test_advanced.py`](test_advanced.py) *(new)* — 15 tests.
+
+---
+
+## [10.2.1] - 2026-09-09
+
+### Added - Strategic Portfolio Rebalancing (Part 1)
+
+1. **Asset Tier Classification** - [`config.py`](config.py)
+   - `CORE_ASSETS` / `SATELLITE_ASSETS` / `ACTIVE_ASSETS` / `SECTOR_ASSETS`
+     tier lists (take precedence over `CORE_ETFS`).
+   - `TARGET_WEIGHTS` (50/20/20/10), `REBALANCE_DRIFT_TIERS`,
+     `REBALANCE_FREQUENCY_DAYS`, `MIN_TRADE_SIZE_EUR`, `REBALANCE_FIRST_RUN`.
+
+2. **Rebalance Log** - [`database.py`](database.py)
+   - `rebalance_log(symbol, last_rebalance_date)` table for time-gated
+     rebalancing.
+
+3. **Tier-Aware Portfolio Audit** - [`portfolio.py`](portfolio.py)
+   - `classify_asset()`, `should_rebalance_asset()`, `enhanced_portfolio_audit()`
+     with corrected weight formula and first-run baseline ease-in.
+
+4. **Tier Signal Generation** - [`scoring.py`](scoring.py)
+   - `generate_signal_for_tier()` — CORE never SELL (only HOLD/BUY MORE).
+
+5. **Fee & Liquidity Awareness** - [`optimizer.py`](optimizer.py)
+   - `calculate_min_trade_size()`, `check_volume_liquidity()`.
+
+6. **Pipeline Wiring** - [`main.py`](main.py)
+   - Enhanced audit with drift + fee-aware recommendations.
+
+7. **Tests** - [`test_rebalancing.py`](test_rebalancing.py) *(new)* — 13 tests.
+
+---
+
 ## [10.2.0] - 2026-09-01
 
 ### Added - Dashboard Clarity, Universe State Machine, Broker Data

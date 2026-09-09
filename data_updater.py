@@ -77,6 +77,22 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol', 'Sector', 'Instrument_Class']
         df = df[[c for c in cols_to_keep if c in df.columns]]
         df = df.dropna(subset=['Close'])
+
+        # ── Part 3 (Gap #1): Data Quality Gate ──────────────────────────────
+        # Validate before the data enters DuckDB. Auto-repair common issues;
+        # skip the symbol entirely if issues are unfixable.
+        from data_quality import DataQualityValidator
+        validator = DataQualityValidator()
+        is_valid, issues = validator.validate_batch(df, sym)
+        if not is_valid:
+            print(f" [!] [{sym}] Data quality issues: {issues}")
+            repaired = validator.auto_repair(df, sym)
+            is_valid, issues = validator.validate_batch(repaired, sym)
+            if not is_valid:
+                print(f" [!] [{sym}] Skipping append — unfixable issues: {issues}")
+                return None
+            df = repaired
+
         return df
     except Exception as e:
         print(f" [!] Error {sym}: {e}")

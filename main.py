@@ -21,7 +21,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from database import get_connection, init_db
 from currency import apply_fx_conversion, get_eur_rate
-from portfolio import load_portfolio, audit_portfolio, account_effectiveness, print_effectiveness_report
+from portfolio import load_portfolio, audit_portfolio, enhanced_portfolio_audit, account_effectiveness, print_effectiveness_report
 from indicators import add_all_indicators, fast_volatility
 from sentiment import NLPScorer
 from risk import calculate_risk_penalty
@@ -186,12 +186,129 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
         return None
 
 
+# ── Part 2: Advanced Portfolio Manager Briefing ───────────────────────────────
+
+def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None:
+    """Assemble and print the unified Part 2 briefing.
+
+    Intent: wire all Part 2 modules (risk monitor, portfolio context, strategy
+    engine, cash manager, tax optimizer, attribution, guardrails) into a single
+    coherent report. Non-fatal — wrapped in try/except by the caller.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from portfolio_context import PortfolioContext
+    from risk_monitor import RiskMonitor
+    from strategy_engine import StrategyEngine
+    from cash_manager import CashManager
+    from tax_optimizer import TaxOptimizer
+    from behavioral_guardrails import BehavioralGuardrails
+    from reporting_advanced import build_briefing
+
+    # Build a returns matrix from grouped_data (Close pct_change per symbol).
+    closes = {}
+    for sym, df in grouped_data.items():
+        if "Close" in df.columns and not df["Close"].dropna().empty:
+            closes[sym] = df["Close"]
+    if not closes:
+        return
+    returns_matrix = pd.DataFrame(closes).pct_change().dropna(how="all")
+
+    # Portfolio context: risk contribution + concentration penalties.
+    ctx = PortfolioContext(port_df, returns_matrix)
+    risk_contrib = ctx.compute_risk_contribution().to_dict()
+    penalties = {s: ctx.concentration_penalty(s) for s in port_df["Symbol"]}
+
+    # Risk monitor: circuit breakers on portfolio value series.
+    port_value = port_df["Amount_EUR"].sum()
+    # Use a synthetic portfolio value series from the first asset as proxy.
+    first_sym = next(iter(closes))
+    value_series = closes[first_sym]
+    risk_mon = RiskMonitor(value_series)
+    risk_status = risk_mon.check_circuit_breakers()
+
+    # Strategy engine: ensemble scores per portfolio symbol.
+    engine = StrategyEngine()
+    regime = "bull_low_vol" if risk_status.get("drawdown", 0) > -0.05 else "bear"
+    strategy_weights = engine.regime_weights(regime)
+    ensemble_scores = {}
+    for sym in port_df["Symbol"]:
+        if sym in returns_matrix.columns:
+            ret = returns_matrix[sym].dropna()
+            data = {
+                "returns_6m": float(ret.tail(126).sum()) if len(ret) else 0.0,
+                "volatility_60d": float(ret.tail(60).std()) if len(ret) else 0.0,
+                "rsi_14": 50.0,
+                "pe_ratio": 0.0,
+                "dividend_yield": 0.0,
+            }
+            ensemble_scores[sym] = engine.compute_ensemble_signal(sym, data, regime)
+
+    # Cash manager: target cash + dip alerts.
+    cash_mgr = CashManager()
+    cash_target = cash_mgr.target_cash_allocation(regime, vix=18.0, opportunity_score=0.5)
+    cash_eur = port_value * 0.10  # placeholder cash
+    dip_alerts = []
+    for sym in port_df["Symbol"]:
+        if sym in closes:
+            s = closes[sym]
+            dd = float((s.iloc[-1] - s.max()) / s.max()) if s.max() > 0 else 0.0
+            amt = cash_mgr.dip_buying_algorithm(sym, dd, cash_eur)
+            if amt > 0:
+                dip_alerts.append((sym, amt))
+
+    # Tax optimizer.
+    tax_df = audit_res.copy()
+    if "PnL_EUR" not in tax_df.columns:
+        tax_df["PnL_EUR"] = 0.0
+    if "Tier" not in tax_df.columns:
+        tax_df["Tier"] = "ACTIVE"
+    tax_opt = TaxOptimizer(tax_df)
+    tax_position = tax_opt.compute_tax_position()
+    harvest = tax_opt.harvest_opportunities()
+
+    # Guardrails: block signals on cooldown.
+    guardrails = BehavioralGuardrails()
+    guardrail_blocks = []
+    for sym in port_df["Symbol"]:
+        ok, reason = guardrails.check_cooldown(sym)
+        if not ok:
+            guardrail_blocks.append(f"{sym}: {reason}")
+
+    briefing = build_briefing(
+        date_str="2026-09-09",
+        portfolio_value=port_value,
+        pnl_eur=float(audit_res["PnL_EUR"].sum()) if "PnL_EUR" in audit_res else 0.0,
+        pnl_pct=0.0,
+        cash_eur=cash_eur,
+        cash_pct=cash_eur / port_value if port_value else 0.0,
+        risk_status=risk_status,
+        risk_contrib=risk_contrib,
+        concentration_penalties=penalties,
+        regime=regime,
+        strategy_weights=strategy_weights,
+        ensemble_scores=ensemble_scores,
+        cash_target=cash_target,
+        dip_alerts=dip_alerts,
+        tax_position=tax_position,
+        harvest_opportunities=harvest,
+        attribution_df=None,
+        guardrail_blocks=guardrail_blocks,
+    )
+    print(briefing)
+
+
 # ── Main Orchestration ─────────────────────────────────────────────────────────
 
 def main() -> None:
+    from observability import ObservabilityCollector
+    obs = ObservabilityCollector()
+
     logger.info("Loading localized database...")
-    conn = get_connection()
-    init_db()
+    with obs.step("load_database"):
+        conn = get_connection()
+        init_db()
 
     try:
         # Pillar 4: read DuckDB -> Polars natively (Rust, multi-core, no GIL).
@@ -465,20 +582,34 @@ def main() -> None:
                     'Stewardship', 'Horizon', 'Signal', 'Active_Score', 'NLP_Reasoning']
     print(final_df[display_cols].to_string(index=False))
 
-    # --- PORTFOLIO AUDIT ---
+    # --- PORTFOLIO AUDIT (tier-aware, drift + fee-aware) ---
     if not port_df.empty:
-        audit_res = audit_portfolio(port_df, final_df)
+        # Build market_data dict for liquidity checks from the scan universe.
+        market_data = {s: df for s, df in grouped_data.items() if s in set(port_df["Symbol"])}
+        audit_res = enhanced_portfolio_audit(
+            port_df, final_df, current_date="2026-09-09", market_data=market_data,
+        )
         audit_res.to_csv("outputs/portfolio_audit.csv", index=False)
 
         print("\n" + "=" * 120)
-        print("FULL PORTFOLIO AUDIT")
+        print("FULL PORTFOLIO AUDIT (Tier-Aware)")
         print("=" * 120)
-        cols = ['Symbol', 'PnL_pct', 'PnL_EUR', 'Audit_Decision', 'Active_Score', 'Signal']
+        cols = ['Symbol', 'Tier', 'Current_Weight', 'Target_Weight', 'Drift',
+                'Signal', 'Horizon', 'Recommendation', 'PnL_pct']
         print(audit_res[cols].to_string(index=False))
         print("\n")
 
         eff = account_effectiveness(audit_res, port_df)
         print_effectiveness_report(eff)
+
+        # ── Part 2: Advanced Portfolio Manager Briefing ──────────────────────
+        # Assemble risk monitor, portfolio context, strategy engine, cash
+        # manager, tax optimizer, attribution, and guardrails into one report.
+        # Wrapped in try/except so a failure never breaks the main pipeline.
+        try:
+            _print_advanced_briefing(port_df, audit_res, final_df, grouped_data)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Advanced briefing failed (non-fatal): %s", e)
 
     # ── Phase 4: Signal Routing + Daily Push Notification ────────────────────
     # Route each scored asset to SPARPLAN/ACTIVE/CASH and build execution
@@ -523,6 +654,9 @@ def main() -> None:
         instructions=instructions,
         risk_warnings=risk_warnings,
     )
+
+    # ── Part 3 (Gap #3): Observability summary ──────────────────────────────
+    print("\n" + obs.summary())
 
 
 if __name__ == "__main__":

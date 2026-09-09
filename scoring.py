@@ -240,6 +240,65 @@ def allocate_capital_regime(structural_grade: float, tactical_grade: float, stew
     return {"Horizon": horizon, "Signal": signal, "Active_Score": round(active_score, 1)}
 
 
+def generate_signal_for_tier(
+    symbol: str,
+    structural_grade: float,
+    tactical_grade: float,
+    stewardship: float,
+    tier: str,
+    current_weight: float,
+    target_weight: float,
+) -> tuple[str, str]:
+    """Generate differentiated signals based on asset tier.
+
+    Intent: override the generic allocate_capital_regime output for portfolio
+    holdings. CORE assets NEVER get a SELL signal — only HOLD or BUY MORE
+    (DCA OK). SATELLITE trims only on >10% overweight. ACTIVE keeps the full
+    tactical spectrum. SECTOR rotates cyclically.
+    Invariants: returns (horizon, signal); CORE signal never in {SELL, TRIM}.
+    Pure function (no I/O).
+    """
+    drift = current_weight - target_weight
+
+    if tier == "CORE":
+        horizon = "CORE (12-Month)"
+        if drift < -0.05:  # underweight by >5% -> accumulate
+            signal = "BUY MORE (DCA OK)"
+        else:
+            signal = "HOLD"
+        return horizon, signal
+
+    if tier == "SATELLITE":
+        horizon = "SATELLITE (6-Month)"
+        if drift > 0.10:  # overweight by >10% -> trim
+            signal = "TRIM POSITION"
+        elif drift < -0.075:
+            signal = "BUY MORE (DCA OK)"
+        else:
+            signal = "HOLD"
+        return horizon, signal
+
+    if tier == "SECTOR":
+        horizon = "SECTOR (Cyclical)"
+        if tactical_grade >= 75 and drift < 0:
+            signal = "BUY"
+        elif tactical_grade < 50 or drift > 0.08:
+            signal = "SELL"
+        else:
+            signal = "HOLD"
+        return horizon, signal
+
+    # ACTIVE (default): full tactical trading allowed.
+    horizon = "ACTIVE (Tactical)"
+    if stewardship < 15 or structural_grade < 50:
+        # Speculative category.
+        signal = "BUY" if tactical_grade >= 70 else "SELL"
+    else:
+        # Core active.
+        signal = "BUY" if (structural_grade >= 75 and tactical_grade >= 60) else "HOLD"
+    return horizon, signal
+
+
 # ── Position Sizing ───────────────────────────────────────────────────────────
 
 def kelly_position_size(win_rate: float, avg_win: float, avg_loss: float) -> float:

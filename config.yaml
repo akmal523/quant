@@ -1,0 +1,48 @@
+# config.yaml — Tunable parameters (Part 3, Simplification #2).
+# Loaded by config_loader.py. Non-programmers can adjust thresholds here
+# without editing Python code.
+
+scoring:
+  factor_weights:
+    momentum: 0.30
+    value: 0.20
+    quality: 0.25
+    low_vol: 0.15
+    sentiment: 0.10
+  thresholds:
+    min_structural_grade_for_buy: 75
+    min_tactical_grade_for_buy: 70
+    speculative_structural_cutoff: 50
+
+rebalancing:
+  drift_threshold: 0.05
+  min_trade_size_eur: 50
+  core_rebalance_days: 90
+  satellite_rebalance_days: 30
+  active_rebalance_days: 1
+  sector_rebalance_days: 14
+
+fees:
+  round_trip_eur: 2.0
+  broker_cash_apy: 0.0225
+
+risk:
+  max_position_pct: 0.10
+  target_volatility: 0.15
+  var_confidence: 0.95
+
+assets:
+  core:
+    - EUNL.DE
+    - IWDA.AS
+    - VOO
+    - CSPX.L
+  satellite:
+    - SXRV.DE
+    - QQQ
+  active:
+    - AMZN
+    - AAPL
+  sector:
+    - 5J50.DE
+    - URA

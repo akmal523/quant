@@ -179,3 +179,15 @@ def init_db() -> None:
             value DOUBLE
         )
     """)
+
+    # ── Phase 5 (v11): Rebalance log ─────────────────────────────────────────
+    # Tracks the last rebalance date per symbol for time-gated rebalancing.
+    # Intent: CORE assets rebalance quarterly, SATELLITE monthly, SECTOR
+    # bi-weekly. Absence of a row = first run -> baseline ease-in (no forced
+    # rebalance). portfolio.py reads/writes this table.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rebalance_log (
+            symbol VARCHAR PRIMARY KEY,
+            last_rebalance_date DATE
+        )
+    """)

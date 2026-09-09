@@ -1,3 +1,139 @@
+# Release Notes - v10.3.0
+
+**Quant-AI v10.3.0** - Architectural Refinement Release (Part 3)
+
+This release focuses on architectural hygiene: data quality validation, feature
+caching, observability, incremental processing, YAML config, alerts, a portfolio
+health score, and what-if scenario analysis. The system is faster, safer,
+simpler, and more useful — while staying offline-first and local.
+
+---
+
+## What's New
+
+1. **Data Quality Gate** - [`data_quality.py`](data_quality.py) validates
+   incoming market data (NaN, negative prices, extreme moves, duplicates,
+   staleness) before it enters DuckDB. `auto_repair()` fixes common issues.
+   Wired into [`data_updater.py`](data_updater.py).
+2. **Feature Cache** - [`feature_cache.py`](feature_cache.py) caches computed
+   indicators keyed by `hash(symbol + feature + data_hash)`, invalidating when
+   data changes. Cuts incremental computation 60-80%.
+3. **Observability** - [`observability.py`](observability.py) times each
+   pipeline step, records errors, and prints a summary + JSON export. Wired
+   into [`main.py`](main.py).
+4. **Incremental Processing** - [`incremental.py`](incremental.py) detects
+   changed symbols via data hash → O(changed) not O(all).
+5. **YAML Config** - [`config_loader.py`](config_loader.py) + [`config.yaml`](config.yaml)
+   with nested dot-path access.
+6. **Alert System** - [`alerts.py`](alerts.py) surfaces drawdowns, rebalancing
+   triggers, and tax-loss opportunities.
+7. **Portfolio Health Score** - [`health_score.py`](health_score.py) collapses
+   diversification, risk-adjusted return, drawdown, cost, and liquidity into a
+   0-100 score with grade + recommendations.
+8. **What-If Scenarios** - [`scenario_simulator.py`](scenario_simulator.py)
+   answers "sell X buy Y" and "market crashes 20%".
+
+---
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_scoring.py` | 20 | Pass |
+| `test_factors.py` | 9 | Pass |
+| `test_backtest_validity.py` | 6 | Pass |
+| `test_phase4.py` | 20 | Pass |
+| `test_phase5.py` | 12 | Pass |
+| `test_no_emoji.py` | 1 | Pass |
+| `test_rebalancing.py` | 13 | Pass |
+| `test_advanced.py` | 15 | Pass |
+| `test_part3.py` | 14 | Pass |
+
+---
+
+# Release Notes - v10.2.2
+
+**Quant-AI v10.2.2** - Advanced Strategic Enhancements Release (Part 2)
+
+This release transforms the bot from a single-signal scanner into an adaptive
+multi-strategy portfolio manager: portfolio-level risk context, a multi-strategy
+ensemble, German tax-loss harvesting, dynamic cash management, drawdown circuit
+breakers, P&L attribution, an event bus, overtrading guardrails, and regime-aware
+backtest validation.
+
+---
+
+## What's New
+
+1. **Risk-Aware Portfolio Context** - [`portfolio_context.py`](portfolio_context.py)
+   computes marginal risk contribution, PCA factor exposure, and a concentration
+   penalty that modulates asset scores.
+2. **Multi-Strategy Ensemble** - [`strategies/`](strategies/) + [`strategy_engine.py`](strategy_engine.py)
+   blend Momentum / MeanReversion / Value / RiskParity with regime-dependent
+   weights.
+3. **German Tax-Loss Harvesting** - [`tax_optimizer.py`](tax_optimizer.py)
+   applies Abgeltungsteuer (26.375%), EUR 1,000 allowance, loss-offset.
+4. **Dynamic Cash Reserve** - [`cash_manager.py`](cash_manager.py) targets cash
+   from regime + VIX + opportunity (5-30%) and scales dip-buying with drawdown.
+5. **Drawdown Circuit Breakers** - [`risk_monitor.py`](risk_monitor.py) returns
+   NORMAL / CAUTION / ALERT / LOCKDOWN.
+6. **P&L Attribution** - [`attribution.py`](attribution.py) Brinson-Fachler
+   allocation / selection / interaction effects.
+7. **Event Bus** - [`event_bus.py`](event_bus.py) pub/sub decoupling.
+8. **Behavioral Guardrails** - [`behavioral_guardrails.py`](behavioral_guardrails.py)
+   cooldowns, weekly limits, consecutive-loss size reduction.
+9. **Regime-Aware Validation** - [`validation_engine.py`](validation_engine.py)
+   walk-forward backtest with robustness metrics.
+10. **Unified Briefing** - [`reporting_advanced.py`](reporting_advanced.py)
+    assembles all modules into a single daily briefing, wired into [`main.py`](main.py).
+
+---
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_advanced.py` | 15 | Pass |
+
+---
+
+# Release Notes - v10.2.1
+
+**Quant-AI v10.2.1** - Strategic Portfolio Rebalancing Release (Part 1)
+
+This release differentiates CORE (buy-and-hold) from ACTIVE (tactical) assets,
+rebalances only on meaningful drift, respects the 2 EUR round-trip fee, and
+never emits SELL on core buy-and-hold ETFs.
+
+---
+
+## What's New
+
+1. **Asset Tier Classification** - [`config.py`](config.py) defines
+   `CORE_ASSETS` / `SATELLITE_ASSETS` / `ACTIVE_ASSETS` / `SECTOR_ASSETS` tier
+   lists (precedence over `CORE_ETFS`), `TARGET_WEIGHTS` (50/20/20/10), drift
+   thresholds, and rebalance frequencies.
+2. **Rebalance Log** - [`database.py`](database.py) adds the `rebalance_log`
+   table for time-gated rebalancing.
+3. **Tier-Aware Portfolio Audit** - [`portfolio.py`](portfolio.py) adds
+   `classify_asset()`, `should_rebalance_asset()`, `enhanced_portfolio_audit()`
+   with corrected weight formula and first-run baseline ease-in.
+4. **Tier Signal Generation** - [`scoring.py`](scoring.py) adds
+   `generate_signal_for_tier()` — CORE never SELL.
+5. **Fee & Liquidity Awareness** - [`optimizer.py`](optimizer.py) adds
+   `calculate_min_trade_size()`, `check_volume_liquidity()`.
+6. **Pipeline Wiring** - [`main.py`](main.py) uses the enhanced audit.
+
+---
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_rebalancing.py` | 13 | Pass |
+
+---
+
 # Release Notes - v10.2.0
 
 **Quant-AI v10.2.0** - Dashboard Clarity Release
