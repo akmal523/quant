@@ -29,8 +29,15 @@ class DataQualityValidator:
         "min_history_days": 60,     # need at least 60 days for scoring
     }
 
-    def validate_batch(self, df: pd.DataFrame, symbol: str) -> tuple[bool, list[str]]:
-        """Validate a batch of market data. Returns (is_valid, issues)."""
+    def validate_batch(self, df: pd.DataFrame, symbol: str,
+                       check_min_history: bool = True) -> tuple[bool, list[str]]:
+        """Validate a batch of market data. Returns (is_valid, issues).
+
+        Intent: check_min_history=False for incremental slices (only ~5 days
+        fetched). The 60-day minimum is a FULL-history scoring invariant, not a
+        data-integrity check for the append slice; the full history already
+        lives in market_history and was validated on the initial 5y fetch.
+        """
         issues = []
         if df is None or df.empty:
             return False, ["Empty dataframe"]
@@ -67,7 +74,7 @@ class DataQualityValidator:
             if days_stale > self.THRESHOLDS["max_stale_days"]:
                 issues.append(f"Data is {days_stale} days stale")
 
-        if len(close) < self.THRESHOLDS["min_history_days"]:
+        if check_min_history and len(close) < self.THRESHOLDS["min_history_days"]:
             issues.append(
                 f"Only {len(close)} days history (< {self.THRESHOLDS['min_history_days']})"
             )

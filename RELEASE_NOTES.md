@@ -1,3 +1,28 @@
+# Release Notes - v10.3.1
+
+**Quant-AI v10.3.1** - Incremental Data Acquisition Bugfix
+
+## Fixed
+
+1. **Incremental append no longer rejected by the 60-day minimum** -
+   [`data_quality.py`](data_quality.py) + [`data_updater.py`](data_updater.py)
+   - **Root cause:** incremental mode fetches only `INCREMENTAL_OVERLAP_DAYS = 5`
+     days of history, but the data quality gate enforced `min_history_days = 60`
+     on that 5-day slice. Every symbol failed the "Only 5 days history (< 60)"
+     check, `auto_repair` could not fix it, so all appends were skipped →
+     `Fatal: No data acquired.`
+   - **Fix:** added `check_min_history: bool = True` to
+     `DataQualityValidator.validate_batch()`. The 60-day minimum is a
+     *full-history* scoring invariant, not a data-integrity check for the append
+     slice. [`data_updater.py`](data_updater.py) passes
+     `check_min_history=not last_date`, so incremental slices skip the minimum
+     while full 5y fetches still enforce it.
+   - **Result:** `28/28` tickers fetched, `152` rows appended/updated on the
+     incremental run. All other quality checks (NaN, negative, extreme moves,
+     staleness) still run on the slice.
+
+---
+
 # Release Notes - v10.3.0
 
 **Quant-AI v10.3.0** - Architectural Refinement Release (Part 3)

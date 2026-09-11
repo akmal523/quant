@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.3.1] - 2026-09-11
+
+### Fixed - Incremental Data Acquisition (Bugfix)
+
+1. **Incremental append no longer rejected by 60-day minimum** -
+   [`data_quality.py`](data_quality.py) + [`data_updater.py`](data_updater.py)
+   - **Root cause:** incremental mode fetches only `INCREMENTAL_OVERLAP_DAYS = 5`
+     days of history, but the data quality gate enforced `min_history_days = 60`
+     on that 5-day slice. Every symbol failed the "Only 5 days history (< 60)"
+     check, `auto_repair` could not fix it, so all appends were skipped →
+     `Fatal: No data acquired.`
+   - **Fix:** added `check_min_history: bool = True` param to
+     `DataQualityValidator.validate_batch()`. The 60-day minimum is a
+     *full-history* scoring invariant, not a data-integrity check for the append
+     slice. [`data_updater.py`](data_updater.py) passes
+     `check_min_history=not last_date`, so incremental slices skip the minimum
+     while full 5y fetches still enforce it.
+   - **Result:** `28/28` tickers fetched, `152` rows appended/updated on the
+     incremental run. All other quality checks (NaN, negative, extreme moves,
+     staleness) still run on the slice.
+
+---
+
 ## [10.3.0] - 2026-09-09
 
 ### Added - Architectural Refinement (Part 3)

@@ -83,11 +83,14 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         # skip the symbol entirely if issues are unfixable.
         from data_quality import DataQualityValidator
         validator = DataQualityValidator()
-        is_valid, issues = validator.validate_batch(df, sym)
+        # Incremental slices are only ~5 days; the 60-day minimum is a
+        # full-history invariant, so skip it when appending to existing data.
+        check_min_history = not last_date
+        is_valid, issues = validator.validate_batch(df, sym, check_min_history=check_min_history)
         if not is_valid:
             print(f" [!] [{sym}] Data quality issues: {issues}")
             repaired = validator.auto_repair(df, sym)
-            is_valid, issues = validator.validate_batch(repaired, sym)
+            is_valid, issues = validator.validate_batch(repaired, sym, check_min_history=check_min_history)
             if not is_valid:
                 print(f" [!] [{sym}] Skipping append — unfixable issues: {issues}")
                 return None
