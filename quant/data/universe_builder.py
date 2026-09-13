@@ -252,7 +252,7 @@ def build_universe_master() -> int:
     try:
         from quant.data.names import backfill_display_names
 
-        summary = backfill_display_names(conn)
+        summary = backfill_display_names(conn, fill_currency=True)
         print(f"  [NAMES] display {summary['display_filled']}, "
               f"name {summary['name_filled']}, currency {summary['currency_filled']}")
     except Exception as e:  # noqa: BLE001

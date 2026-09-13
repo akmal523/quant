@@ -150,7 +150,7 @@ def ensure_display_names() -> dict:
             return {"skipped_reason": "lock"}
     try:
         migrate_registry_display_name(conn)
-        summary = backfill_display_names(conn)
+        summary = backfill_display_names(conn, fill_currency=False)
         try:
             rows_total = conn.execute("SELECT COUNT(*) FROM asset_registry").fetchone()[0]
             still_missing = conn.execute(
@@ -189,7 +189,8 @@ def _yahoo_identity(symbol: str) -> tuple[str, str]:
         return "", ""
 
 
-def backfill_display_names(conn, metadata_source=None, curated_path: str | None = None) -> dict:
+def backfill_display_names(conn, metadata_source=None, curated_path: str | None = None,
+                           fill_currency: bool = False) -> dict:
     """Fill MISSING display_name / name / currency cells. Returns a summary.
 
     ``metadata_source`` is injectable (returns (long_name, currency)) for hermetic
@@ -231,7 +232,7 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
             conn.execute("UPDATE asset_registry SET name = ? WHERE symbol = ?",
                          [long_name, sym])
             n_fill += 1
-        if need_cur and meta_cur:
+        if need_cur and meta_cur and fill_currency:
             conn.execute("UPDATE asset_registry SET currency = ? WHERE symbol = ?",
                          [meta_cur, sym])
             c_fill += 1
