@@ -1,0 +1,6 @@
+{
+  "AMZN": {"info": {"longName": "Amazon.com, Inc.", "currency": "USD"}},
+  "AAPL": {"info": {"longName": "Apple Inc.", "currency": "USD"}},
+  "MSFT": {"info": {"longName": "Microsoft Corporation", "currency": "USD"}},
+  "EUNL.DE": {"info": {"longName": "iShares Core MSCI World UCITS ETF USD (Acc)", "currency": "EUR"}}
+}

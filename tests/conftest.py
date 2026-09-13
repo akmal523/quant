@@ -54,13 +54,25 @@ def isolated_db(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _offline_metadata(monkeypatch):
-    """Keep tests hermetic: stub network metadata (display names + ISINs)."""
-    import quant.data.names as names
-    import quant.data.news as news
-    import quant.data.registry_repair as registry_repair
+    """Keep tests hermetic by stubbing the SOURCES (yfinance, news), not our code.
 
-    monkeypatch.setattr(names, "_yahoo_identity", lambda _s: ("", ""), raising=False)
-    monkeypatch.setattr(registry_repair, "_yahoo_isin", lambda _s: None, raising=False)
+    D1: our production metadata/ISIN functions stay unmodified, so a recorded-source
+    test can replay the real path against a fixture by overriding the source only.
+    """
+    import yfinance as yf
+
+    import quant.data.news as news
+
+    class _OfflineTicker:
+        isin = None
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        def get_info(self):
+            return {}
+
+    monkeypatch.setattr(yf, "Ticker", _OfflineTicker, raising=False)
 
     def _offline_fetch(*_a, **_k):
         raise RuntimeError("offline")

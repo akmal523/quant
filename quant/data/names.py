@@ -108,6 +108,15 @@ def _blank(v) -> bool:
     return v is None or str(v).strip() == "" or str(v).strip().lower() == "nan"
 
 
+def _symbolish(value, symbol: str) -> bool:
+    """True when a cell is empty OR merely repeats the ticker (a poisoned fill).
+
+    Intent (H2): a display_name/name equal to the symbol carries no information,
+    so it must be treated as MISSING and repaired on the next backfill.
+    """
+    return _blank(value) or str(value).strip().upper() == str(symbol).strip().upper()
+
+
 def ensure_display_names() -> dict:
     """Startup backfill: migrate + fill missing names. Never raises.
 
@@ -133,7 +142,8 @@ def ensure_display_names() -> dict:
             import logging
 
             logging.getLogger("quant.ui").warning(
-                "display-name backfill skipped: database write lock busy")
+                "Display names backfill skipped: database busy.")
+            print("Display names backfill skipped: database busy.")
             _write_names_state({"ts": time.time(), "rows_total": 0, "filled": 0,
                                 "still_missing": 0, "skipped_reason": "lock",
                                 "unreachable_symbols": 0})
@@ -196,22 +206,23 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
         sym = str(sym or "")
         if not sym:
             continue
-        need_dn = _blank(dn)
-        need_nm = _blank(nm)
+        need_dn = _symbolish(dn, sym)
+        need_nm = _symbolish(nm, sym)
         need_cur = _blank(cur)
         if not (need_dn or need_nm or need_cur):
             continue
         long_name, meta_cur = "", ""
+        need_meta = (sym not in curated) and _symbolish(nm, sym)
         if need_dn or need_nm or need_cur:
             if sym in curated:
                 long_name = curated[sym]
-            elif not _blank(nm):
-                # Reuse whatever name we already have before touching the network.
+            elif not _symbolish(nm, sym):
+                # Reuse whatever real name we already have before the network.
                 long_name = str(nm)
-            else:
-                long_name, meta_cur = metadata_source(sym)
-                if not long_name:
-                    unreachable += 1
+        if need_meta:
+            long_name, meta_cur = metadata_source(sym)
+            if not long_name:
+                unreachable += 1
         if need_dn:
             conn.execute("UPDATE asset_registry SET display_name = ? WHERE symbol = ?",
                          [clean_display_name(long_name, sym), sym])
