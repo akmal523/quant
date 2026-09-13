@@ -39,7 +39,8 @@ def test_migration_adds_column_and_backfill_preserves(tmp_path):
     cur = tmp_path / "names_curated.csv"
     cur.write_text("symbol,display_name\nAMZN,Amazon\n", encoding="utf-8")
     _meta = {"AMZN": ("Amazon.com Inc", "USD"), "GLD": ("SPDR Gold Shares", "USD")}
-    backfill_display_names(conn, metadata_source=lambda s: _meta[s], curated_path=str(cur))
+    backfill_display_names(conn, metadata_source=lambda s: _meta[s],
+                           curated_path=str(cur), fill_currency=True)
 
     got = dict(conn.execute(
         "SELECT symbol, display_name FROM asset_registry").fetchall())

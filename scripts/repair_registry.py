@@ -34,7 +34,9 @@ from quant.config import CORE_ETFS
 from quant.data.database import get_connection, init_db
 # ISIN backfill lives in quant.data.registry_repair so the UI can call it
 # in-process (A6). Re-exported here for the documented script entry point.
-from quant.data.registry_repair import load_curated, repair_isins  # noqa: F401
+from quant.data.registry_repair import (  # noqa: F401
+    ensure_registry_rows, load_curated, repair_isins,
+)
 from quant.execution.taxonomy import (
     set_core, set_structure, mark_delisted, INVERSE_STRUCTURE,
     sync_broker_registry,
@@ -94,14 +96,15 @@ def repair_state_machine() -> dict:
 def repair() -> dict:
     """Run both idempotent repairs. Returns a merged summary dict."""
     state = repair_state_machine()
+    rows = ensure_registry_rows()
     isins = repair_isins()
-    return {**state, **isins}
+    return {**state, **rows, **isins}
 
 
 if __name__ == "__main__":
     summary = repair()
     print(f"Repair complete: core={summary['core_set']}, "
           f"inverse={summary['inverse_marked']}, delisted={summary['delisted']}, "
-          f"broker_synced={summary['broker_synced']}.")
+          f"broker_synced={summary['broker_synced']}, rows_added={summary.get('added', 0)}.")
     print(f"filled {summary['filled']} ISINs from market data, "
           f"{summary['not_found']} not found.")

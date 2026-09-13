@@ -125,3 +125,84 @@ def repair_isins(
     if changed:
         df.to_csv(registry_path, index=False)
     return {"filled": filled, "not_found": not_found, "curated": curated_used}
+
+def _currency(symbol: str) -> str:
+    """Currency from the exchange suffix (pure heuristic; not an identifier)."""
+    suffix = symbol.split(".")[-1].upper() if "." in symbol else ""
+    if suffix in {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}:
+        return "EUR"
+    if suffix == "L":
+        return "GBX"
+    if suffix == "SW":
+        return "CHF"
+    if suffix == "CO":
+        return "DKK"
+    if suffix == "OL":
+        return "NOK"
+    if suffix == "ST":
+        return "SEK"
+    return "USD"
+
+
+def ensure_registry_rows(registry_path: str = paths.DATA_BROKER_REGISTRY,
+                         symbols: list[str] | None = None) -> dict:
+    """Create missing broker_registry rows for symbols the product already knows.
+
+    Intent (H3.1): a HELD symbol with no registry row is unroutable — worse than a
+    missing ISIN. Before the missing-cells repair runs, add a row (empty ISIN,
+    provenance tracked) for every HELD or CORE/ACTIVE symbol (bounded).
+    Invariants: idempotent; existing rows are never modified; missing rows only.
+    """
+    from quant.execution.taxonomy import classify_instrument
+
+    columns = ["yahoo_ticker", "isin", "tr_ticker", "exchange", "currency",
+               "instrument_class"]
+    if os.path.exists(registry_path):
+        df = pd.read_csv(registry_path)
+    else:
+        df = pd.DataFrame(columns=columns)
+    for col in columns:
+        if col not in df.columns:
+            df[col] = ""
+    known = {str(v).strip().upper() for v in df["yahoo_ticker"].dropna()}
+
+    if symbols is None:
+        symbols = []
+        try:
+            from quant.portfolio.portfolio import load_portfolio
+
+            pf = load_portfolio(str(paths.DATA_PORTFOLIO))
+            if not pf.empty and "Symbol" in pf.columns:
+                symbols.extend(str(x) for x in pf["Symbol"].tolist())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            # BOUNDED: only the routable set (CORE/ACTIVE registry rows), never the
+            # whole 1000+ universe_master, which would trigger a bulk ISIN fetch.
+            from quant.data.database import read_only_connection
+
+            with read_only_connection() as conn:
+                rows = conn.execute(
+                    "SELECT symbol FROM asset_registry "
+                    "WHERE universe_status IN ('CORE', 'ACTIVE')"
+                ).fetchall()
+            symbols.extend(str(r[0]) for r in rows)
+        except Exception:  # noqa: BLE001
+            pass
+
+    added = 0
+    for sym in symbols:
+        sym = str(sym or "").strip()
+        if not sym or sym.upper() in known:
+            continue
+        df.loc[len(df)] = {
+            "yahoo_ticker": sym, "isin": "", "tr_ticker": sym,
+            "exchange": "LS Exchange", "currency": _currency(sym),
+            "instrument_class": classify_instrument(sym),
+        }
+        known.add(sym.upper())
+        added += 1
+    if added:
+        df.to_csv(registry_path, index=False)
+    return {"added": added}
+

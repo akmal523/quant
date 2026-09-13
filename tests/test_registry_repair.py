@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from quant.data.registry_repair import repair_isins
+from quant.data.registry_repair import ensure_registry_rows, repair_isins
 from quant.execution.taxonomy import resolve_broker
 
 # A checksum-valid ISIN already present in data/broker_registry.csv (repo vector).
@@ -87,3 +87,29 @@ def test_invalid_curated_row_aborts_with_plain_error(tmp_path):
         f.write("5J50.DE,BADISIN,Broker app,2026-09-13\n")
     with pytest.raises(ValueError):
         repair_isins(registry_path=reg, curated_path=cur, metadata_source=lambda _s: None)
+
+
+def test_ensure_registry_rows_then_curated_isin(tmp_path):
+    """H3.1: a held, unroutable symbol gains a row; the curated ISIN then lands."""
+    reg = tmp_path / "broker_registry.csv"
+    pd.DataFrame([{
+        "yahoo_ticker": "AMZN", "isin": "US0231351067", "tr_ticker": "AMZN",
+        "exchange": "LS Exchange", "currency": "USD", "instrument_class": "EQUITY",
+    }]).to_csv(reg, index=False)
+    cur = tmp_path / "isin_curated.csv"
+    cur.write_text("symbol,isin,verified_by,verified_at\n"
+                   "5J50.DE,IE000U9ODG19,user,2026-09-13\n", encoding="utf-8")
+
+    added = ensure_registry_rows(str(reg), symbols=["5J50.DE", "AMZN"])
+    assert added["added"] == 1  # AMZN already present
+
+    summary = repair_isins(registry_path=str(reg), curated_path=str(cur),
+                           metadata_source=lambda _s: None)
+    assert summary["filled"] == 1 and summary["curated"] == 1
+
+    out = pd.read_csv(reg)
+    row = out[out["yahoo_ticker"] == "5J50.DE"].iloc[0]
+    assert row["isin"] == "IE000U9ODG19"
+    assert resolve_broker("5J50.DE", path=str(reg)).get("isin") == "IE000U9ODG19"
+
+    assert ensure_registry_rows(str(reg), symbols=["5J50.DE"])["added"] == 0
