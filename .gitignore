@@ -10,7 +10,10 @@ __pycache__/
 outputs/
 outputs/run_*/
 *.csv
-!portfolio.csv
+# Track the curated static inputs (now under data/).
+!data/portfolio.csv
+!data/broker_registry.csv
+!data/watchlist.csv
 
 # Downloaded Data & Logs
 sec_filings/

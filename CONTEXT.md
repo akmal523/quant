@@ -28,14 +28,18 @@ consistent across code, docs, and AI agents.
 ## Module Map (Callers)
 
 ```
-universe_builder.py ─> database.py (universe_master), taxonomy.py
-funnel.py ───────────> config.py (thresholds), yfinance (snapshots/history)
-data_updater.py ─────> universe_builder.py, funnel.py, taxonomy.py, database.py
-main.py ─────────────> funnel.py, universe_builder.py, scoring.py, taxonomy.py, routing.py, notifier.py
-optimizer.py ────────> risk.py (daily rf), config.py (buckets, fees)
-discovery.py ────────> universe_builder.py, taxonomy.py, database.py (asset_registry)
-dashboard.py ────────> database.py, taxonomy.py, routing.py, risk.py
-notifier.py ─────────> config.py, risk.py
+quant.data.universe_builder ─> quant.data.database (universe_master), quant.execution.taxonomy
+quant.data.funnel ───────────> quant.config (thresholds), yfinance (snapshots/history)
+quant.data.data_updater ─────> quant.data.universe_builder, quant.data.funnel, quant.execution.taxonomy, quant.data.database
+quant.main ──────────────────> quant.data.funnel, quant.data.universe_builder, quant.analytics.scoring, quant.execution.taxonomy, quant.execution.routing, quant.reporting.notifier
+quant.portfolio.optimizer ───> quant.portfolio.risk (daily rf), quant.config (buckets, fees)
+quant.execution.discovery ───> quant.data.universe_builder, quant.execution.taxonomy, quant.data.database (asset_registry)
+quant.dashboard ─────────────> quant.data.database, quant.execution.taxonomy, quant.execution.routing, quant.portfolio.risk
+quant.reporting.notifier ────> quant.config, quant.portfolio.risk
+
+> Package layout: modules live under `quant/<subpackage>/`. Entry points are the
+> thin root wrappers `main.py` and `data_updater.py`. Filesystem paths resolve via
+> `quant/paths.py` (CWD-independent).
 ```
 
 ## Data Contract (asset_registry)

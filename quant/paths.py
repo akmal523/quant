@@ -1,0 +1,26 @@
+"""
+paths.py — Central filesystem paths, resolved relative to the project root.
+
+Intent: the app must run regardless of the current working directory. All data
+files, the DuckDB store, and generated directories are resolved from the repo
+root (the parent of this ``quant`` package), never from CWD.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+# quant/paths.py -> parents[1] == repository root
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
+
+DATA_DIR: Path = PROJECT_ROOT / "data"
+OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
+SEC_FILINGS_DIR: Path = PROJECT_ROOT / "sec_filings"
+
+# DuckDB analytical store (kept at the repo root).
+DB_FILE: str = str(PROJECT_ROOT / "quant_cache.duckdb")
+
+# Static inputs (moved into data/).
+DATA_PORTFOLIO: str = str(DATA_DIR / "portfolio.csv")
+DATA_BROKER_REGISTRY: str = str(DATA_DIR / "broker_registry.csv")
+DATA_WATCHLIST: str = str(DATA_DIR / "watchlist.csv")
+DATA_CONFIG: str = str(DATA_DIR / "config.yaml")

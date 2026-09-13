@@ -21,52 +21,71 @@ Current version: **v10.3.6** — see [`CHANGELOG.md`](CHANGELOG.md) for the hist
 
 ---
 
+## Project Layout
+
+```
+trade/
+├── main.py · data_updater.py     # thin entry points (run these)
+├── quant/                        # main package
+│   ├── config.py · config_loader.py · paths.py
+│   ├── data/       database, data_updater, data_quality, universe,
+│   │               universe_builder, funnel, yf_utils, currency,
+│   │               async_fetcher, sec_edgar, news, fundamentals, incremental
+│   ├── features/   build_features, indicators, feature_cache
+│   ├── analytics/  scoring, sentiment, validation, validation_engine, health_score
+│   ├── portfolio/  portfolio, portfolio_context, optimizer, risk, risk_monitor,
+│   │               cash_manager, tax_optimizer, attribution, behavioral_guardrails
+│   ├── strategy/   strategy_engine, backtest, strategies/
+│   ├── execution/  taxonomy, routing, discovery
+│   ├── reporting/  reporting, reporting_advanced, artifacts, notifier, mailer, alerts
+│   ├── infra/      event_bus, observability
+│   └── dashboard.py · scenario_simulator.py
+├── data/           portfolio.csv, broker_registry.csv, watchlist.csv, config.yaml
+├── tests/          test_*.py
+├── scripts/        setup_cron.sh, repair_registry.py
+├── plans/          engineering proposals
+└── outputs/        generated run artifacts
+```
+
+---
+
 ## Architecture
 
 ### Data flow (two steps)
 
 ```
-universe_builder.py ─► universe_master (1000+ symbols)
+quant.data.universe_builder ─► universe_master (1000+ symbols, DuckDB)
         │
         ▼
-data_updater.py ──► funnel.py (top ~24 survivors, cached) ──► market_history (DuckDB)
-        │                                                          ▲
-        ▼                                                          │
-main.py ──► scoring ──► portfolio audit ──► reports + notifications ─┘
+quant.data.data_updater ─► quant.data.funnel (top ~24 survivors, cached)
+        │                          └─► market_history (DuckDB)
+        ▼
+quant.main ─► analytics scoring ─► portfolio audit ─► reports + notifications
         ▲
-dashboard.py (Streamlit) ── reads DuckDB
+quant.dashboard (Streamlit) ── reads DuckDB
 ```
 
 Step 1 (`data_updater.py`) fetches market data and caches the funnel survivors.
 Step 2 (`main.py`) reads that cache, scores, audits, and reports. `main.py` does
 **not** re-fetch the universe.
 
-### Modules
+### Key modules
 
 | Module | Responsibility |
 |:--|:--|
-| [`main.py`](main.py) | Orchestration: load → filter → NLP → score → audit → report |
-| [`data_updater.py`](data_updater.py) | Incremental DuckDB market data + funnel; caches survivors |
-| [`universe_builder.py`](universe_builder.py) | Builds `universe_master` from index constituents + ETFs |
-| [`funnel.py`](funnel.py) | Two-stage filter (liquidity → momentum) + survivor cache |
-| [`scoring.py`](scoring.py) | Factor model, regime HMM, stewardship, capital allocation |
-| [`portfolio.py`](portfolio.py) | Broker-synced audit, EUR PnL, reconciliation |
-| [`optimizer.py`](optimizer.py) | cvxpy mean-variance with bucket constraints |
-| [`backtest.py`](backtest.py) | Walk-forward, cost-aware (T+1) backtest |
-| [`taxonomy.py`](taxonomy.py) | Instrument class, broker registry, universe state machine |
-| [`routing.py`](routing.py) | Sparplan vs Active Trade + dynamic fee hurdle |
-| [`discovery.py`](discovery.py) | Watchlist → ACTIVE graduation engine |
-| [`build_features.py`](build_features.py) | Vectorized cross-sectional features (Polars) |
-| [`sentiment.py`](sentiment.py) | Batched local FinBERT NLP |
-| [`indicators.py`](indicators.py) | EWMA volatility, RSI, ATR |
-| [`risk.py`](risk.py) | Empirical VaR, Sortino/Sharpe, risk penalty |
-| [`fundamentals.py`](fundamentals.py) | Fundamentals fetch + point-in-time cache |
-| [`sec_edgar.py`](sec_edgar.py), [`news.py`](news.py) | SEC 8-K and News RSS text sources |
-| [`currency.py`](currency.py) | Live FX normalisation to EUR |
-| [`database.py`](database.py) | DuckDB schema + connection management |
-| [`dashboard.py`](dashboard.py) | 3-page Streamlit UI (Briefing / Explorer / Universe) |
-| [`notifier.py`](notifier.py) | Telegram / Discord daily push |
-| [`config.py`](config.py) | All tunable settings |
+| [`quant/main.py`](quant/main.py) | Orchestration: load → filter → NLP → score → audit → report |
+| [`quant/data/data_updater.py`](quant/data/data_updater.py) | Incremental DuckDB market data + funnel; caches survivors |
+| [`quant/data/universe_builder.py`](quant/data/universe_builder.py) | Builds `universe_master` from index constituents + ETFs |
+| [`quant/data/funnel.py`](quant/data/funnel.py) | Two-stage filter (liquidity → momentum) + survivor cache |
+| [`quant/analytics/scoring.py`](quant/analytics/scoring.py) | Factor model, regime HMM, stewardship, capital allocation |
+| [`quant/portfolio/portfolio.py`](quant/portfolio/portfolio.py) | Broker-synced audit, EUR PnL, reconciliation |
+| [`quant/portfolio/optimizer.py`](quant/portfolio/optimizer.py) | cvxpy mean-variance with bucket constraints |
+| [`quant/strategy/backtest.py`](quant/strategy/backtest.py) | Walk-forward, cost-aware (T+1) backtest |
+| [`quant/execution/taxonomy.py`](quant/execution/taxonomy.py) | Instrument class, broker registry, universe state machine |
+| [`quant/execution/routing.py`](quant/execution/routing.py) | Sparplan vs Active Trade + dynamic fee hurdle |
+| [`quant/data/database.py`](quant/data/database.py) | DuckDB schema + connection management |
+| [`quant/dashboard.py`](quant/dashboard.py) | 3-page Streamlit UI (Briefing / Explorer / Universe) |
+| [`quant/paths.py`](quant/paths.py) | CWD-independent path resolver |
 
 ---
 
@@ -81,9 +100,9 @@ python -m spacy download en_core_web_sm   # optional NER
 
 ### 2. Configure
 
-- [`portfolio.csv`](portfolio.csv) — your Trade Republic holdings.
+- [`data/portfolio.csv`](data/portfolio.csv) — your Trade Republic holdings.
 - [`.env.example`](.env.example) — optional notifier and API keys.
-- [`config.py`](config.py) — all tunable thresholds.
+- [`quant/config.py`](quant/config.py) — all tunable thresholds.
 
 ### 3. Run (two steps)
 
@@ -95,16 +114,16 @@ python3 main.py           # step 2: score, audit, report
 ### 4. Dashboard
 
 ```bash
-streamlit run dashboard.py
+streamlit run quant/dashboard.py
 ```
 
 ### 5. Automate (optional)
 
 ```bash
-bash setup_cron.sh        # daily 18:00 CET + weekly discovery
+bash scripts/setup_cron.sh   # daily 18:00 CET + weekly discovery
 ```
 
-### Portfolio file
+### Portfolio file (`data/portfolio.csv`)
 
 ```csv
 Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR
@@ -135,32 +154,34 @@ is broker truth, never price-guessed. Comments after `#` are stripped.
 
 ## Testing
 
-Unit tests are standalone scripts (no pytest required):
+Unit tests are standalone scripts (they add the repo root to `sys.path`):
 
 ```bash
-for t in test_*.py; do echo "== $t =="; python3 "$t" || exit 1; done
+for t in tests/test_*.py; do echo "== $t =="; python3 "$t" || exit 1; done
+# or, with pytest:
+python3 -m pytest tests/ -q
 ```
 
 | Suite | Coverage |
 |:--|:--|
-| [`test_scoring.py`](test_scoring.py) | Factor model, regime, stewardship |
-| [`test_backtest_validity.py`](test_backtest_validity.py) | WFO validity, survivorship warning |
-| [`test_factors.py`](test_factors.py) | Factor scoring, no-lookahead, costs, liquidity |
-| [`test_phase4.py`](test_phase4.py) | Fee hurdle, cash rf, routing, taxonomy, graduation |
-| [`test_phase5.py`](test_phase5.py) | Universe state machine, ISIN, inverse routing, ETF scoring |
-| [`test_rebalancing.py`](test_rebalancing.py) | Tier classification, rebalance logic, CORE never SELL |
-| [`test_advanced.py`](test_advanced.py) | Portfolio context, ensemble, tax, cash, risk, attribution |
-| [`test_part3.py`](test_part3.py) | Data quality, feature cache, observability, alerts, scenarios |
-| [`test_funnel.py`](test_funnel.py), [`test_universe_builder.py`](test_universe_builder.py) | Funnel rules + universe parsing |
-| [`test_portfolio_fx.py`](test_portfolio_fx.py) | Portfolio FX + reconciliation |
-| [`test_no_emoji.py`](test_no_emoji.py) | No-emoji lint |
-| [`test_db.py`](test_db.py), [`test_market_data.py`](test_market_data.py), [`test_cache.py`](test_cache.py), [`test_e2e_state.py`](test_e2e_state.py), [`test_async.py`](test_async.py) | DB I/O, DuckDB↔Pandas, cache, end-to-end, concurrency |
+| [`tests/test_scoring.py`](tests/test_scoring.py) | Factor model, regime, stewardship |
+| [`tests/test_backtest_validity.py`](tests/test_backtest_validity.py) | WFO validity, survivorship warning |
+| [`tests/test_factors.py`](tests/test_factors.py) | Factor scoring, no-lookahead, costs, liquidity |
+| [`tests/test_phase4.py`](tests/test_phase4.py) | Fee hurdle, cash rf, routing, taxonomy, graduation |
+| [`tests/test_phase5.py`](tests/test_phase5.py) | Universe state machine, ISIN, inverse routing, ETF scoring |
+| [`tests/test_rebalancing.py`](tests/test_rebalancing.py) | Tier classification, rebalance logic, CORE never SELL |
+| [`tests/test_advanced.py`](tests/test_advanced.py) | Portfolio context, ensemble, tax, cash, risk, attribution |
+| [`tests/test_part3.py`](tests/test_part3.py) | Data quality, feature cache, observability, alerts, scenarios |
+| [`tests/test_funnel.py`](tests/test_funnel.py), [`tests/test_universe_builder.py`](tests/test_universe_builder.py) | Funnel rules + universe parsing |
+| [`tests/test_portfolio_fx.py`](tests/test_portfolio_fx.py) | Portfolio FX + reconciliation |
+| [`tests/test_no_emoji.py`](tests/test_no_emoji.py) | No-emoji lint |
+| [`tests/test_db.py`](tests/test_db.py), [`tests/test_market_data.py`](tests/test_market_data.py), [`tests/test_cache.py`](tests/test_cache.py), [`tests/test_e2e_state.py`](tests/test_e2e_state.py), [`tests/test_async.py`](tests/test_async.py) | DB I/O, DuckDB↔Pandas, cache, end-to-end, concurrency |
 
 ---
 
 ## Configuration
 
-All tunables live in [`config.py`](config.py). Key settings:
+All tunables live in [`quant/config.py`](quant/config.py). Key settings:
 
 | Parameter | Default | Description |
 |:---|---:|:---|

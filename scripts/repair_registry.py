@@ -14,6 +14,9 @@ Dependencies: config, database, taxonomy.
 """
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import os
 import sys
 import time
@@ -21,9 +24,9 @@ import time
 # Allow running from the scripts/ dir: add the project root to sys.path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import CORE_ETFS
-from database import get_connection, init_db
-from taxonomy import (
+from quant.config import CORE_ETFS
+from quant.data.database import get_connection, init_db
+from quant.execution.taxonomy import (
     set_core, set_structure, mark_delisted, INVERSE_STRUCTURE,
     sync_broker_registry,
 )
