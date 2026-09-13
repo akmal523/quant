@@ -281,9 +281,8 @@ def page_portfolio() -> None:
         st.session_state["_extra"] = []
         st.session_state["_saved_unknown"] = len(warnings)
 
-    if st.button(C.BTN_SAVE_AND_REVIEW, type="primary", width="stretch"):
-        _save_inputs()
-        _run_with_progress(runner.SAVE_AND_REVIEW)
+    _run_operation(C.BTN_SAVE_AND_REVIEW, C.BTN_REVIEWING, runner.SAVE_AND_REVIEW,
+                   "save_review", primary=True, on_click=_save_inputs)
     # Open Today only after a successful review; advice is read from the run
     # artifact on Today, never from session state (fixes the dead-button symptom).
     if st.session_state.get("_review_ok"):
@@ -307,28 +306,56 @@ def page_portfolio() -> None:
         st.dataframe(broker, width="stretch", hide_index=True)
 
 
-def _run_with_progress(command: str) -> None:
-    """Run a pipeline command with a progress bar and one status line."""
-    bar = st.progress(0)
-    with st.spinner("Working..."):
-        res = runner.run(command)
-    bar.progress(100)
-    st.session_state["_review_ok"] = False
+def _render_outcome(res, command: str) -> None:
+    """One outcome sentence; failure = plain sentence + collapsed View log (4.2/4.3)."""
     if res.status == "busy":
         st.warning(res.message)
-    elif res.ok:
-        st.session_state["_review_ok"] = True
+        return
+    if res.ok:
         if command == runner.SAVE_AND_REVIEW:
             n = len([h for h in read_actions() if h.get("action") and not h.get("blocked")])
             st.success(C.OUTCOME_ACTIONS.format(n=n) if n else C.OUTCOME_NOTHING)
+        elif command == runner.REFRESH:
+            instruments = q("SELECT COUNT(DISTINCT Symbol) AS n FROM market_history")
+            n = int(instruments["n"].iloc[0]) if not instruments.empty else 0
+            st.success(C.OUTCOME_REFRESH.format(
+                n=n, date=C.fmt_date(latest_bar_date()), secs=f"{res.duration_s:.0f}"))
         else:
-            st.success(C.OUTCOME_REFRESH_DONE)
-    else:
-        st.error(res.message if res.message else C.ERROR_REFRESH_FAILED)
-        st.button(C.BTN_TRY_AGAIN, key="retry")
-        if res.log_path:
-            with st.expander(C.BTN_VIEW_LOG):
-                st.code(_read_log(res.log_path) or "(no output)")
+            st.success(res.message or C.OUTCOME_REFRESH_DONE)
+        return
+    st.error(res.message or C.ERROR_REFRESH_FAILED)
+    if res.log_path:
+        with st.expander(C.VIEW_LOG):
+            st.code(_read_log(res.log_path) or "(no output)")
+
+
+def _run_operation(trigger_label, running_label, command, key,
+                   primary=False, on_click=None, runner_fn=None):
+    """Verb-ing disabled button + dedicated progress container, cleared on completion.
+
+    Two-phase: the trigger press sets _running and reruns; the running rerun shows
+    the disabled verb-ing label, runs under the mutex/heartbeat, clears the
+    progress container, and renders exactly one outcome line.
+    """
+    use = runner_fn or runner.run
+    if st.session_state.get("_running"):
+        st.button(running_label, key=key, disabled=True, width="stretch",
+                  type="primary" if primary else "secondary")
+        prog = st.empty()
+        prog.progress(0)
+        res = use() if runner_fn is not None else use(command)
+        prog.empty()
+        st.session_state["_running"] = False
+        st.session_state["_review_ok"] = res.ok and command == runner.SAVE_AND_REVIEW
+        _render_outcome(res, command)
+        return res
+    if st.button(trigger_label, key=key, width="stretch",
+                 type="primary" if primary else "secondary"):
+        if on_click:
+            on_click()
+        st.session_state["_running"] = True
+        st.rerun()
+    return None
 
 
 def _read_log(path: str) -> str:
@@ -456,8 +483,7 @@ def page_settings() -> None:
         st.write(f"{m} instruments, prices through {C.fmt_date(bar)}.")
     else:
         st.info(C.EMPTY_NO_MARKET_DATA)
-    if st.button(C.BTN_REFRESH, width="stretch"):
-        _run_with_progress(runner.REFRESH)
+    _run_operation(C.BTN_REFRESH, C.BTN_REFRESHING, runner.REFRESH, "refresh")
     st.caption(C.HELP_REVIEW_CADENCE)
 
     # Reviews (last ten). The value-chart sentence belongs to Today only (A2).
@@ -478,12 +504,9 @@ def page_settings() -> None:
             st.warning(p)
     for sym in isin_missing:
         st.warning(C.ACTION_BLOCKED.format(symbol=sym))
-        if st.button(C.BTN_REPAIR_REGISTRY, key=f"health_fix_{sym}"):
-            res = runner.run_repair()
-            if res.ok:
-                st.success(res.message)
-            else:
-                st.error(res.message)
+        res = _run_operation(C.BTN_REPAIR_REGISTRY, C.BTN_REPAIRING, runner.REPAIR,
+                             f"health_fix_{sym}", runner_fn=runner.run_repair)
+        if res is not None and res.ok:
             st.rerun()
     if not problems and not isin_missing:
         st.success(C.STATUS_ALL_CURRENT)

@@ -79,6 +79,7 @@ ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open.
 ERROR_REFRESH_FAILED = "Refresh failed. Open View log for details, or try again."
 ERROR_STALE_PRICES = "Prices are {n} days old. Refresh market data."
 ERROR_ALREADY_RUNNING = "A review is already running in another tab."
+ERROR_RUNNING = "A review is already running."
 
 # ── Helper texts (spec 3.2) ───────────────────────────────────────────────────
 HELP_CASH_APY = ("Uninvested cash earns {apy} percent per year at Trade Republic "
