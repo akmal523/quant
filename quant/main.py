@@ -760,6 +760,7 @@ def main() -> None:
             "review_ts": today,
             "latest_bar": latest_bar,
             "regime": regime_block,
+            "review_status": "ok",
         }
         save_metrics(run_dir, metrics_payload)
     except Exception as e:  # noqa: BLE001

@@ -102,8 +102,9 @@ def test_s3_below_min_footnote_uses_config_value(monkeypatch):
 
 def test_s4_review_failed_card(monkeypatch):
     hist = pd.DataFrame([{"review_ts": "2026-09-12", "value_eur": 100.0}])
-    text = _all_text(_today(monkeypatch, history=hist, review={}, regime=dict(_REGIME_EST),
-                  actions=[], portfolio=_PORT))
+    text = _all_text(_today(monkeypatch, history=hist,
+                            review={"review_status": "failed"}, regime=dict(_REGIME_EST),
+                            actions=[], portfolio=_PORT))
     assert C.LAST_REVIEW_FAILED in text
 
 

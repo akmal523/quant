@@ -37,10 +37,23 @@ def _cmd_update(_args: argparse.Namespace) -> int:
 
 
 def _cmd_run(_args: argparse.Namespace) -> int:
-    """Score, audit, and report (step 2). Returns an exit code."""
+    """Score, audit, and report (step 2). Returns an exit code.
+
+    H3.3: a failed review writes review_status=failed (+ error) to the run artifact
+    so Today/Health/Reviews read ONE field; no portfolio_history row is written.
+    """
     from quant.main import main as pipeline_main
 
-    return pipeline_main()
+    try:
+        return pipeline_main()
+    except Exception as e:  # noqa: BLE001
+        try:
+            from quant.reporting.artifacts import new_run_dir, save_metrics
+
+            save_metrics(new_run_dir(), {"review_status": "failed", "error": str(e)})
+        except Exception:  # noqa: BLE001
+            pass
+        raise
 
 
 def _cmd_publish(_args: argparse.Namespace) -> int:
@@ -114,6 +127,38 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
             print("news cache: none")
     except Exception as e:  # noqa: BLE001
         print(f"news cache: unreadable ({e})")
+
+    try:
+        from quant.ui.search import load_index, search
+
+        idx = load_index()
+        for q in ("apple", "amazon", "gold", "space", "samsung"):
+            res = search(idx, q, 5)
+            if res:
+                print(f"search {q}: " + ", ".join(r["label"] for r in res))
+            else:
+                print(f"search {q}: no match")
+    except Exception as e:  # noqa: BLE001
+        print(f"search probes: unreadable ({e})")
+
+    try:
+        with read_only_connection() as conn:
+            for sym in ("AMZN", "AAPL", "EUNL.DE"):
+                n = conn.execute(
+                    "SELECT COUNT(*) FROM market_history WHERE Symbol = ?", [sym]
+                ).fetchone()[0]
+                print(f"probe {sym} history: {n} bars")
+    except Exception as e:  # noqa: BLE001
+        print(f"history probes: unreadable ({e})")
+
+    try:
+        import importlib.util
+
+        avail = (importlib.util.find_spec("transformers") is not None
+                 and importlib.util.find_spec("torch") is not None)
+        print(f"sentiment model: {'available' if avail else 'not available'}")
+    except Exception:  # noqa: BLE001
+        print("sentiment model: not available")
 
     try:
         lock_path = os.path.join(str(paths.OUTPUTS_DIR), ".runner.lock")

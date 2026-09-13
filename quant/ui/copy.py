@@ -63,6 +63,7 @@ EMPTY_VALUE_CHART = "The value chart appears after your second review."
 
 # ── Health items (a computation that ran and failed) ──────────────────────────
 HEALTH_REGIME_FAILED = "Market trend could not be estimated. See log."
+HEALTH_REVIEW_FAILED = "The last review failed. See log."
 
 # ── Action cards (spec 3.2) ───────────────────────────────────────────────────
 ACTION_ADD = ("Add about {amount} EUR to {symbol} ({name}). It sits {pct} percent below "

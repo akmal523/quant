@@ -17,6 +17,9 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 from quant import paths
 import os
+import threading
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -111,14 +114,18 @@ def page_today() -> None:
     has_review = bool(review)
 
     # S0 (spec 2.1): no review yet -> guidance card, no header, no trend line.
-    if not has_review and history.empty:
+    review_status = review.get("review_status")
+    if review_status == "failed":
+        # S4: the review ran and failed (single source: the run artifact).
+        if not history.empty:
+            last_ts = history.iloc[-1]["review_ts"]
+            st.write(C.HEADER_REVIEW.format(date=C.fmt_date(latest_bar_date()),
+                                            prepared=C.fmt_ts(last_ts)))
+        st.warning(C.LAST_REVIEW_FAILED)
+    elif not has_review and history.empty:
         st.info(C.GUIDE_NO_REVIEW)
     elif not has_review:
-        # S4: a prior review exists but the latest run produced no metrics.
-        last_ts = history.iloc[-1]["review_ts"]
-        st.write(C.HEADER_REVIEW.format(date=C.fmt_date(latest_bar_date()),
-                                        prepared=C.fmt_ts(last_ts)))
-        st.warning(C.LAST_REVIEW_FAILED)
+        st.info(C.GUIDE_NO_REVIEW)
     else:
         prepared = C.fmt_ts(review.get("review_ts"))
         bar = C.fmt_date(review.get("latest_bar") or latest_bar_date())
@@ -336,7 +343,21 @@ def _run_operation(trigger_label, running_label, command, key,
                   type="primary" if primary else "secondary")
         prog = st.empty()
         prog.progress(0)
-        res = use() if runner_fn is not None else use(command)
+        stop = threading.Event()
+
+        def _beat() -> None:
+            while not stop.wait(_HEARTBEAT_INTERVAL):
+                try:
+                    runner._write_heartbeat()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        beat = threading.Thread(target=_beat, daemon=True)
+        beat.start()
+        try:
+            res = use() if runner_fn is not None else use(command)
+        finally:
+            stop.set()
         prog.empty()
         st.session_state["_running"] = False
         st.session_state["_review_ok"] = res.ok and command == runner.SAVE_AND_REVIEW
@@ -543,6 +564,12 @@ def _health_problems() -> list[str]:
     if read_regime().get("state") == "failed":
         problems.append(C.HEALTH_REGIME_FAILED)
     try:
+        _rev = latest_review()
+        if _rev.get("review_status") == "failed":
+            problems.append(_rev.get("error") or C.HEALTH_REVIEW_FAILED)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         from quant.data.news import outage_message
 
         msg = outage_message()
@@ -692,3 +719,6 @@ def _render_value_chart(history, holdings) -> None:
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
                                   xanchor="left", x=0))
     st.plotly_chart(fig, width="stretch")
+
+
+_HEARTBEAT_INTERVAL = 30.0
