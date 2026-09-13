@@ -24,6 +24,8 @@ import os
 
 import pandas as pd
 
+from quant.cli.output import reporter
+
 from quant.config import (
     FUNNEL_MIN_PRICE, FUNNEL_MIN_DAILY_VOLUME,
     FUNNEL_STAGE1_TARGET, FUNNEL_TOP_N, FUNNEL_MAX_WORKERS,
@@ -99,7 +101,7 @@ def stage1_liquidity(
     """
     from quant.data.yf_utils import download_batch
 
-    print(f"  [FUNNEL] Stage 1: {len(symbols)} symbols (batched snapshots)...")
+    reporter.detail(f"  [FUNNEL] Stage 1: {len(symbols)} symbols (batched snapshots)...")
     frames = download_batch(symbols, period="1d")
     ranked: list[tuple[str, float]] = []
     for sym in symbols:
@@ -117,7 +119,7 @@ def stage1_liquidity(
         ranked.sort(key=lambda kv: kv[1], reverse=True)
         ranked = ranked[:stage1_target]
     survivors = [s for s, _ in ranked]
-    print(f"  [FUNNEL] Stage 1: {len(survivors)} survivors.")
+    reporter.detail(f"  [FUNNEL] Stage 1: {len(survivors)} survivors.")
     return survivors
 
 
@@ -189,7 +191,7 @@ def stage2_momentum(
     """
     from quant.data.yf_utils import download_batch
 
-    print(f"  [FUNNEL] Stage 2: {len(symbols)} symbols (batched 1y history)...")
+    reporter.detail(f"  [FUNNEL] Stage 2: {len(symbols)} symbols (batched 1y history)...")
     frames = download_batch(symbols, period="1y")
     scores: dict[str, float] = {}
     for sym, df in frames.items():
@@ -197,7 +199,7 @@ def stage2_momentum(
             scores[sym] = momentum_score(df["Close"])
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     top = [s for s, _ in ranked[:top_n]]
-    print(f"  [FUNNEL] Stage 2: {len(scores)} scored, top {len(top)} kept.")
+    reporter.detail(f"  [FUNNEL] Stage 2: {len(scores)} scored, top {len(top)} kept.")
     return top
 
 

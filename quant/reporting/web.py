@@ -256,6 +256,7 @@ def render_html(data: dict) -> str:
 
 def publish(run_dir: str | None = None, out_dir: str | None = None) -> int:
     """Render the Published Briefing. Returns an exit code (0 success)."""
+    print(f"quant publish {__version__}")  # header is always the FIRST line
     run_dir = run_dir or latest_run()
     if not run_dir or not os.path.isdir(run_dir):
         print("error: no run artifacts found.")
@@ -268,11 +269,17 @@ def publish(run_dir: str | None = None, out_dir: str | None = None) -> int:
 
     with open(os.path.join(web_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
-    with open(os.path.join(web_dir, "index.html"), "w", encoding="utf-8") as f:
+    index_path = os.path.join(web_dir, "index.html")
+    with open(index_path, "w", encoding="utf-8") as f:
         f.write(render_html(data))
 
     _link_latest(run_dir)
-    print(f"published {os.path.join(web_dir, 'index.html')}")
+    # Truthfulness: fail plainly if the file did not land; print a path that exists.
+    if not os.path.exists(index_path):
+        print("error: publish did not write the briefing file.")
+        print("remedy: check disk permissions under outputs/, then re-run quant publish.")
+        return 1
+    print(f"published {index_path}")
     return 0
 
 

@@ -9,6 +9,7 @@ import yfinance as yf
 import urllib.request
 import json
 
+from quant.cli.output import reporter
 from quant.config import CONVERT_TO_EUR
 from quant.data.universe import CURRENCY_SYMBOLS
 
@@ -33,7 +34,7 @@ def get_eur_rate() -> float:
             rate = float(df["Close"].iloc[-1])
             if 0.8 < rate < 1.5:
                 _eur_rate_cache = rate
-                print(f"  [FX] Live Rate (Yahoo) EUR/USD = {rate:.4f}")
+                reporter.detail(f"  [FX] Live Rate (Yahoo) EUR/USD = {rate:.4f}")
                 return rate
     except Exception:
         pass
@@ -44,13 +45,13 @@ def get_eur_rate() -> float:
         data = json.loads(req.read())
         rate = float(data["rates"]["USD"])
         _eur_rate_cache = rate
-        print(f"  [FX] Live Rate (ECB API) EUR/USD = {rate:.4f}")
+        reporter.detail(f"  [FX] Live Rate (ECB API) EUR/USD = {rate:.4f}")
         return rate
     except Exception:
         pass
 
     # Graceful fallback: warn but don't crash
-    print("  [FX] WARNING: Could not fetch live EUR/USD rate. Using fallback 1.0.")
+    reporter.detail("  [FX] WARNING: could not fetch live EUR/USD rate; using fallback 1.0.")
     _eur_rate_cache = 1.0
     return _eur_rate_cache
 

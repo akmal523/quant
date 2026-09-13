@@ -120,7 +120,10 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         if os.path.exists(lock_path):
             hb = json.load(open(lock_path, encoding="utf-8"))
             age = time.time() - float(hb.get("ts", 0))
-            print(f"runner lock: present pid={hb.get('pid')} age={age:.0f}s")
+            if age > 600:
+                print(f"runner lock: stale (auto-release on next operation), age={age:.0f}s")
+            else:
+                print(f"runner lock: present pid={hb.get('pid')} age={age:.0f}s")
         else:
             print("runner lock: none")
     except Exception as e:  # noqa: BLE001

@@ -50,7 +50,8 @@ class Reporter:
 
     # ── Single rewritten progress line ────────────────────────────────────────
     def progress(self, msg: str) -> None:
-        if self.verbose:
+        # Zero progress chunks unless stdout is a TTY (pipes/CI get the aggregate).
+        if self.verbose or not sys.stdout.isatty():
             return
         sys.stdout.write("\r" + msg.ljust(60))
         sys.stdout.flush()
