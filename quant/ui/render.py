@@ -35,7 +35,7 @@ from quant.reporting.artifacts import (
 )
 from quant.ui import copy as C
 from quant.ui import runner
-from quant.ui.search import load_index, search
+from quant.ui.search import label_for, load_index, search
 
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 _COLUMN_CONFIG = {
@@ -178,7 +178,7 @@ def page_today() -> None:
     if holdings:
         for h in holdings:
             table_rows.append({
-                "Holding": h["symbol"],
+                "Holding": label_for(h.get("name") or h["symbol"], h["symbol"]),
                 "Value": C.fmt_eur(h["value_eur"]),
                 "Share vs target": f"{h['current_weight']} / {h['target_weight']}",
                 "Status": h["status"],
@@ -381,9 +381,9 @@ def page_explore() -> None:
                   if r["label"] == choice)
 
     broker = resolve_broker(symbol)
-    reg = q("SELECT name, instrument_class, currency, isin FROM asset_registry "
-            "WHERE symbol = ?", [symbol])
-    name = str(reg["name"].iloc[0]) if not reg.empty and reg["name"].iloc[0] else symbol
+    reg = q("SELECT COALESCE(display_name, name) AS nm, instrument_class, currency, "
+            "isin FROM asset_registry WHERE symbol = ?", [symbol])
+    name = str(reg["nm"].iloc[0]) if not reg.empty and reg["nm"].iloc[0] else symbol
     cls = str(reg["instrument_class"].iloc[0]) if not reg.empty else \
         classify_instrument(symbol)
 

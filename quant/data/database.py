@@ -114,6 +114,15 @@ def use_connection(conn: duckdb.DuckDBPyConnection) -> None:
     """Bind ``conn`` as this thread's connection (pipeline writers)."""
     _local.conn = conn
 
+def migrate_registry_display_name(conn) -> None:
+    """Idempotently add asset_registry.display_name (v10.5.3, R5).
+
+    Intent: existing databases predate the column. ADD COLUMN IF NOT EXISTS keeps
+    the migration safe on both old and fresh schemas.
+    """
+    conn.execute("ALTER TABLE asset_registry ADD COLUMN IF NOT EXISTS display_name VARCHAR")
+
+
 def init_db() -> None:
     """Initializes unified OLAP schemas."""
     conn = get_connection()
@@ -285,6 +294,8 @@ def init_db() -> None:
         if "fetch_failures" not in cols:
             conn.execute("ALTER TABLE asset_registry ADD COLUMN fetch_failures INTEGER")
             conn.execute("UPDATE asset_registry SET fetch_failures = 0")
+        # v10.5.3 (R5): friendly display name. Idempotent migration for existing DBs.
+        migrate_registry_display_name(conn)
     except Exception:
         # Table may not exist yet on first run; non-fatal.
         pass

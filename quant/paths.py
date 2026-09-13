@@ -30,3 +30,5 @@ DATA_ACCOUNT: str = str(DATA_DIR / "account.yaml")
 # v10.5.2 (F1): user-verified ISINs. Highest-trust source for registry repair;
 # overrides live metadata forever. Ships with a header and zero data rows.
 DATA_ISIN_CURATED: str = str(DATA_DIR / "isin_curated.csv")
+# v10.5.3: user-curated friendly display names (symbol, display_name).
+DATA_NAMES_CURATED: str = str(DATA_DIR / "names_curated.csv")

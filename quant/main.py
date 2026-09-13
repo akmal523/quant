@@ -665,6 +665,18 @@ def main() -> None:
 
     actions = build_actions(audit_res)
 
+    # v10.5.3 (R5): attach the friendly display name for tables and search.
+    try:
+        _names = conn.execute(
+            "SELECT symbol, COALESCE(display_name, name, symbol) AS nm FROM asset_registry"
+        ).df()
+        _nmap = dict(zip(_names["symbol"], _names["nm"]))
+        if not audit_res.empty:
+            audit_res["Name"] = audit_res["Symbol"].astype(str).map(lambda x: _nmap.get(x, x))
+            audit_res.to_csv(str(paths.OUTPUTS_DIR / "portfolio_audit.csv"), index=False)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Name column failed: %s", e)
+
     # v10.5.3 (spec 1.1): persist scores as a run artifact the UI reads via
     # artifacts.read_scores (single accessor; no parquet paths in the UI).
     try:

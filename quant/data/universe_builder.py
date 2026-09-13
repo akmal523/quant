@@ -248,6 +248,16 @@ def build_universe_master() -> int:
         )
         count += 1
 
+    # v10.5.3 (R5): backfill display_name/name/currency (missing cells only).
+    try:
+        from quant.data.names import backfill_display_names
+
+        summary = backfill_display_names(conn)
+        print(f"  [NAMES] display {summary['display_filled']}, "
+              f"name {summary['name_filled']}, currency {summary['currency_filled']}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [NAMES] backfill skipped: {e}")
+
     print(f"  [UNIVERSE] universe_master: {count} symbols upserted")
     return count
 

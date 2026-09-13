@@ -10,6 +10,9 @@ progress element, and one numbered outcome line.
 
 Invariants:
   - At most one run at a time per process (non-blocking lock); no nested acquire.
+  - If a session disconnects mid-run, the orphaned subprocess may finish and
+    write artifacts while the lock waits out its stale window; harmless
+    (runs are idempotent, artifacts are per-run) and bounded by 600 s.
   - The heartbeat is written on acquire, refreshed at the end, removed on release.
   - "A review is already running in another tab." only for a LIVE FOREIGN heartbeat.
   - A run on empty/absent DB never raises; returns a RunResult.
