@@ -242,6 +242,12 @@ FOOTNOTE_COOLDOWN_ONE = "1 position is outside target and in its cooldown until 
 # Charts (spec 3)
 CHART_BUILDING = "The value chart builds up after a few reviews."
 CHART_SINCE = "{sign}{pct}% since {date} ({amount} EUR)"
+LABEL_RANGE = "Range"
+LABEL_VIEW = "View"
+VALUE = "Value"
+GROWTH = "Growth"
+LABEL_BENCHMARK = "Compare to MSCI World (IWDA.AS)"
+BENCHMARK_SYMBOL = "IWDA.AS"
 CHART_NO_HISTORY = "No price history for {name} yet. Refresh market data in Settings."
 
 # Explore (spec 2.2)

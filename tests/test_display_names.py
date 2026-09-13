@@ -38,3 +38,15 @@ def test_curated_precedence_and_missing_only(tmp_path):
     got = dict(conn.execute("SELECT symbol, display_name FROM asset_registry").fetchall())
     assert got["AMZN"] == "Amazon"          # curated wins
     assert got["MSFT"] == "Microsoft"       # existing cell never overwritten
+
+
+def test_ensure_display_names_survives_write_lock(monkeypatch):
+    """App startup must not crash when the DB write lock is held."""
+    from quant.data import database, names
+
+    def _locked(*_a, **_k):
+        raise TimeoutError("database locked")
+
+    monkeypatch.setattr(database, "connect_with_retry", _locked)
+    monkeypatch.setattr(database, "get_connection", _locked)
+    assert names.ensure_display_names() == {}

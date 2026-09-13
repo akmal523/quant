@@ -29,6 +29,7 @@ from quant.execution.taxonomy import (
 )
 from quant.portfolio.account import load_account, save_account, AccountState
 from quant.portfolio.editor import validate_positions, save_portfolio
+from quant.data.news import load_news
 from quant.portfolio.cash_rate import current_cash_apy, current_rate
 from quant.reporting.artifacts import (
     latest_review, read_actions, read_history, read_regime, read_scores,
@@ -131,18 +132,11 @@ def page_today() -> None:
         else:
             st.write(C.MARKET_TREND_INSUFFICIENT)
 
-    # 2. Portfolio value chart.
+    holdings = read_actions()
+
+    # 2. Portfolio value chart (spec 3.1).
     st.subheader(C.SEC_PORTFOLIO_VALUE)
-    if len(history) >= 3:
-        import plotly.graph_objects as go
-        fig = go.Figure(go.Scatter(
-            x=history["review_ts"], y=history["value_eur"],
-            mode="lines", fill="tozeroy", line=dict(width=2)))
-        fig.update_layout(height=260, margin=dict(l=0, r=0, t=0, b=0),
-                          yaxis_title="EUR", showlegend=False)
-        st.plotly_chart(fig, width="stretch")
-    else:
-        st.info(C.CHART_BUILDING)
+    _render_value_chart(history, holdings)
 
     # 3. Where your money is (donut). Categorical blue/gray palette only;
     #    semantic colors never encode composition (A4). Percent labels only for
@@ -173,7 +167,6 @@ def page_today() -> None:
 
     # 4. Holdings table. Status comes from the audit actions so the table and the
     #    cards can never disagree (A3). S0 -> every row "Not reviewed yet".
-    holdings = read_actions()
     table_rows = []
     if holdings:
         for h in holdings:
@@ -439,18 +432,17 @@ def page_explore() -> None:
     else:
         st.info(C.SCORES_NONE.format(name=name))
 
-    # News and filings.
+    # News and filings (on-demand, 24 h cache; spinner on a cache miss).
     st.subheader(C.SEC_NEWS)
-    news = q("SELECT source, published_at, title, score FROM nlp_evidence "
-             "WHERE symbol = ? ORDER BY published_at DESC LIMIT 20", [symbol])
-    if news.empty:
+    _items = load_news(symbol)
+    if not _items:
         st.info(C.EMPTY_NO_NEWS.format(name=name))
     else:
-        for _, row in news.iterrows():
-            senti = "positive" if float(row["score"] or 0) > 0 else (
-                "negative" if float(row["score"] or 0) < 0 else "neutral")
-            st.write(f"{C.fmt_date(row['published_at'])} · {row['source']} · "
-                     f"{row['title']} · {senti}")
+        for it in _items:
+            senti = ("positive" if it.get("score", 0) > 0
+                     else "negative" if it.get("score", 0) < 0 else "neutral")
+            when = C.fmt_weekday_date(it.get("published_at")) or C.fmt_date(it.get("published_at"))
+            st.write(f"{when} · {it.get('source', '')} · {it.get('headline', '')} · {senti}")
 
     # How to buy.
     st.subheader(C.SEC_HOW_TO_BUY)
@@ -568,3 +560,109 @@ def _render_suppression_footnotes(holdings: list[dict]) -> None:
             n = sum(1 for h in cooldown if h.get("cooldown_until") == when)
             tpl = C.FOOTNOTE_COOLDOWN_ONE if n == 1 else C.FOOTNOTE_COOLDOWN
             st.caption(tpl.format(n=n, date=C.fmt_date(when)))
+
+
+# ── Value chart helpers (spec 3.1; pure where possible) ───────────────────────
+_RANGE_DAYS = {"1M": 31, "3M": 92, "1Y": 365, "Max": None}
+
+
+def _filter_range(df: "pd.DataFrame", rng: str) -> "pd.DataFrame":
+    """Return rows of df within the selected range (days back from the last)."""
+    import pandas as _pd
+
+    days = _RANGE_DAYS.get(rng or "Max")
+    if not days or df.empty:
+        return df
+    ts = _pd.to_datetime(df["review_ts"], errors="coerce")
+    cutoff = ts.max() - _pd.Timedelta(days=days)
+    return df[ts >= cutoff]
+
+
+def _rebase(values):
+    """Rebase a numeric series to 100 at its first point (Growth mode)."""
+    base = values.iloc[0] if hasattr(values, "iloc") else values[0]
+    if not base:
+        return values
+    return values / base * 100.0
+
+
+def _range_annotation(df: "pd.DataFrame") -> str:
+    """`+4.2% since 1 Jun 2026 (34.80 EUR)` from the range endpoints."""
+    if df.empty or len(df) < 2:
+        return ""
+    first, last = df.iloc[0], df.iloc[-1]
+    if not first["value_eur"]:
+        return ""
+    pct = (last["value_eur"] / first["value_eur"] - 1.0) * 100.0
+    abs_ = last["value_eur"] - first["value_eur"]
+    sign = "+" if pct >= 0 else ""
+    return C.CHART_SINCE.format(sign=sign, pct=f"{pct:.1f}",
+                                date=C.fmt_date(first["review_ts"]), amount=f"{abs_:.2f}")
+
+
+def _render_value_chart(history, holdings) -> None:
+    """Today value chart: range selector, baseline, annotation, Value|Growth."""
+    import plotly.graph_objects as go
+
+    if history is None or len(history) < 3:
+        st.info(C.CHART_BUILDING)
+        return
+    df = history.copy()
+    df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
+    df = df.dropna(subset=["review_ts"]).sort_values("review_ts")
+    rng = st.segmented_control(C.LABEL_RANGE, list(_RANGE_DAYS),
+                               default="Max", key="val_range") or "Max"
+    df = _filter_range(df, rng)
+    if len(df) < 2:
+        st.info(C.CHART_BUILDING)
+        return
+    mode = st.segmented_control(C.LABEL_VIEW, [C.VALUE, C.GROWTH],
+                                default=C.VALUE, key="val_mode") or C.VALUE
+    growth = mode == C.GROWTH
+
+    fig = go.Figure()
+    port = _rebase(df["value_eur"]) if growth else df["value_eur"]
+    fig.add_trace(go.Scatter(
+        x=df["review_ts"], y=port, mode="lines", name="Portfolio",
+        line=dict(width=2, color="#1F3B73"),
+        fill=None if growth else "tozeroy"))
+
+    palette = ["#3B5C99", "#5B83BF", "#8FA9CF"]
+    if growth:
+        shown = [h for h in (holdings or []) if not h.get("blocked")][:3]
+        for i, h in enumerate(shown):
+            mh = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
+                   "ORDER BY Date ASC", [h["symbol"]])
+            if mh.empty:
+                continue
+            mh["d"] = pd.to_datetime(mh["d"], errors="coerce")
+            mh = mh.dropna(subset=["d"])
+            mh = mh[mh["d"] >= df["review_ts"].min()]
+            if len(mh) < 2:
+                continue
+            fig.add_trace(go.Scatter(x=mh["d"], y=_rebase(mh["Close"]),
+                                     mode="lines", name=h["symbol"],
+                                     line=dict(width=1.5, color=palette[i % 3])))
+        if st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
+            bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
+                      "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
+            if not bench.empty:
+                bench["d"] = pd.to_datetime(bench["d"], errors="coerce")
+                bench = bench.dropna(subset=["d"])
+                bench = bench[bench["d"] >= df["review_ts"].min()]
+                if len(bench) >= 2:
+                    fig.add_trace(go.Scatter(x=bench["d"], y=_rebase(bench["Close"]),
+                                             mode="lines", name=C.BENCHMARK_SYMBOL,
+                                             line=dict(width=1.5, color="#8A8F99")))
+
+    base = 100.0 if growth else float(df["value_eur"].iloc[0])
+    fig.add_hline(y=base, line_dash="dot", line_color="#888")
+    ann = _range_annotation(df)
+    if ann:
+        fig.add_annotation(xref="paper", yref="paper", x=0.01, y=0.98, text=ann,
+                           showarrow=False, align="left", font=dict(size=12))
+    fig.update_layout(height=280, margin=dict(l=8, r=8, t=8, b=8),
+                      xaxis=dict(tickformat="%d %b"), showlegend=True,
+                      legend=dict(orientation="h", yanchor="bottom", y=-0.25,
+                                  xanchor="left", x=0))
+    st.plotly_chart(fig, width="stretch")

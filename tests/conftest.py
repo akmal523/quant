@@ -56,7 +56,13 @@ def isolated_db(tmp_path_factory):
 def _offline_metadata(monkeypatch):
     """Keep tests hermetic: stub network metadata (display names + ISINs)."""
     import quant.data.names as names
+    import quant.data.news as news
     import quant.data.registry_repair as registry_repair
 
     monkeypatch.setattr(names, "_yahoo_identity", lambda _s: ("", ""), raising=False)
     monkeypatch.setattr(registry_repair, "_yahoo_isin", lambda _s: None, raising=False)
+
+    def _offline_fetch(*_a, **_k):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(news, "_default_fetcher", _offline_fetch, raising=False)

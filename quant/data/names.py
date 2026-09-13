@@ -83,6 +83,12 @@ def ensure_display_names() -> dict:
         try:
             conn = get_connection()
         except Exception:  # noqa: BLE001
+            # Lock held (another app instance / update running): skip backfill for
+            # this session; the app still starts. Retried on the next start/update.
+            import logging
+
+            logging.getLogger("quant.ui").warning(
+                "display-name backfill skipped: database write lock busy")
             return {}
     try:
         migrate_registry_display_name(conn)
