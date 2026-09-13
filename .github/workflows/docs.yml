@@ -19,6 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Enables GitHub Pages (source: GitHub Actions) if not already configured.
+      # Without this the deploy job fails with HTTP 404 "Failed to create
+      # deployment" on repos where Pages was never turned on.
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
