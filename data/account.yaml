@@ -1,6 +1,3 @@
-# Account-level inputs. Edited by the workspace or by hand.
-# Single source of truth for cash (spec 2.2). The pipeline and the report read
-# this file; no widget computes its own copy.
 base_currency: EUR
-cash_eur: 83.04            # uninvested cash at the broker
-risk_profile: balanced     # conservative | balanced | aggressive
+cash_eur: 10400.0
+risk_profile: balanced

@@ -451,13 +451,21 @@ def main() -> None:
 
     # ── Pillar 2b: Fit market regime HMM ONCE on a broad index ──────────────
     # Use SPY if present in universe, else the longest-history asset as proxy.
+    # A2 (v10.5.2): a fit failure is recorded as regime_error so the UI surfaces
+    # it in Health instead of masking it as missing history.
     market_regime_prob = 0.5
+    regime_error = False
     regime_sym = "SPY" if "SPY" in grouped_data else max(grouped_data, key=lambda s: len(grouped_data[s]))
-    regime_df = grouped_data[regime_sym]
-    regime_vol = fast_volatility(regime_df["Close"])
-    regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
-    market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
-    logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
+    try:
+        regime_df = grouped_data[regime_sym]
+        regime_vol = fast_volatility(regime_df["Close"])
+        regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
+        market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
+        logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
+    except Exception as e:  # noqa: BLE001
+        regime_error = True
+        market_regime_prob = 0.5
+        logger.warning("Market regime fit failed (surfaced in Health): %s", e)
 
     # ── Phase 5 (v10.2): cross-sectional ETF quality map ────────────────────
     # Compute the ETF structural grade + momentum z in the MAIN process over the
@@ -642,12 +650,19 @@ def main() -> None:
         audit_res = enhanced_portfolio_audit(
             port_df, final_df, current_date=today, market_data=market_data,
         )
+        # A3 (v10.5.2): persist the canonical status with the audit so the
+        # holdings table and the action cards read one object.
+        status_map = {a["symbol"]: a["status"] for a in build_actions(audit_res)}
+        audit_res["Status"] = audit_res["Symbol"].astype(str).map(status_map)
         audit_res.to_csv(str(paths.OUTPUTS_DIR / "portfolio_audit.csv"), index=False)
 
     actions = build_actions(audit_res)
     blocked = [a for a in actions if a["blocked"]]
 
-    regime_label = "bull" if market_regime_prob >= 0.5 else "bear"
+    regime_label = (
+        "unavailable" if regime_error
+        else ("bull" if market_regime_prob >= 0.5 else "bear")
+    )
     reporter.line(f"quant run {__version__}")
     reporter.line(f"  regime {regime_label}, p={market_regime_prob:.2f} "
                   f"(fit {regime_sym}, as-of {today})")
@@ -686,13 +701,18 @@ def main() -> None:
             value_eur=total_value, invested_eur=invested,
             cash_eur=account.cash_eur, pnl_eur=pnl_eur, conn=conn,
         )
-        save_metrics(run_dir, {
-            "market_regime": regime_label,
-            "regime_prob": market_regime_prob,
-            "regime_source": regime_sym,
+        metrics_payload = {
             "review_ts": today,
             "latest_bar": latest_bar,
-        })
+        }
+        if regime_error:
+            # A2: computation ran and failed -> Health item, not an empty state.
+            metrics_payload["regime_error"] = True
+        else:
+            metrics_payload["market_regime"] = regime_label
+            metrics_payload["regime_prob"] = market_regime_prob
+            metrics_payload["regime_source"] = regime_sym
+        save_metrics(run_dir, metrics_payload)
     except Exception as e:  # noqa: BLE001
         logger.warning("Review history/metrics failed (non-fatal): %s", e)
 

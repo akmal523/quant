@@ -70,4 +70,6 @@ def test_settings_shows_data_status():
     at = _run_page(C.PAGE_SETTINGS)
     text = _all_text(at)
     assert C.SEC_DATA_STATUS in text
-    assert (C.STATUS_ALL_CURRENT in text) or ("days old" in text)
+    # v10.5.2 A2: an empty fixture DB shows the missing-data empty state; a
+    # populated DB shows the full sentence. A placeholder sentence is never shown.
+    assert (C.EMPTY_NO_MARKET_DATA in text) or ("instruments, prices through" in text)

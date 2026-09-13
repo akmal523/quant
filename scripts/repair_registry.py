@@ -1,16 +1,22 @@
 """
-scripts/repair_registry.py — One-off registry repair for v10.2.
+scripts/repair_registry.py — Idempotent registry repair (v10.5.2, A6).
 
-Intent: fix the contradictory registry state left by the v10.1 state machine.
-  - Set the configured CORE_ETFS list to status CORE (immutable sleeve).
-  - Move SDS, SH (and any future inverse/leveraged names) to WATCHLIST with
-    structure = INVERSE.
-  - Clear graduated_at for symbols whose status is WATCHLIST (fixes the
-    WATCHLIST-with-graduated_at contradiction).
-  - Set ZNWD.L to DELISTED (consecutive fetch failures).
+Intent: two independent, idempotent repairs.
+  1. State machine (v10.2): set CORE_ETFS to CORE, mark inverse/leveraged
+     products WATCHLIST+INVERSE, clear graduated_at for WATCHLIST, delist ZNWD.L.
+  2. ISIN backfill (v10.5.2, F1): fill MISSING ISIN cells only, from a source
+     hierarchy — data/isin_curated.csv (user-verified) > existing non-empty cells
+     (never overwritten) > live Yahoo instrument metadata. Every written value
+     passes is_valid_isin; invalid or absent metadata yields "not found", never a
+     guess. Provenance is recorded in the isin_source column (user/curated/yahoo).
 
-Run once:  python3 scripts/repair_registry.py
-Dependencies: config, database, taxonomy.
+Invariants:
+  - Idempotent: a second run changes nothing.
+  - Missing cells only; existing ISINs are never overwritten.
+  - No synthesized identifiers (F1): a value is written only if checksum-valid.
+
+Run:  python3 scripts/repair_registry.py
+Dependencies: config, database, taxonomy, quant.data.identifiers, pandas.
 """
 from __future__ import annotations
 
@@ -26,6 +32,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from quant.config import CORE_ETFS
 from quant.data.database import get_connection, init_db
+# ISIN backfill lives in quant.data.registry_repair so the UI can call it
+# in-process (A6). Re-exported here for the documented script entry point.
+from quant.data.registry_repair import load_curated, repair_isins  # noqa: F401
 from quant.execution.taxonomy import (
     set_core, set_structure, mark_delisted, INVERSE_STRUCTURE,
     sync_broker_registry,
@@ -41,8 +50,8 @@ INVERSE_LEVERAGED = {
 DELISTED = {"ZNWD.L"}
 
 
-def repair() -> dict:
-    """Run the one-off registry repair. Returns a summary dict."""
+def repair_state_machine() -> dict:
+    """Idempotent v10.2 state-machine repair. Returns a summary dict."""
     init_db()
     conn = get_connection()
 
@@ -82,8 +91,17 @@ def repair() -> dict:
     }
 
 
+def repair() -> dict:
+    """Run both idempotent repairs. Returns a merged summary dict."""
+    state = repair_state_machine()
+    isins = repair_isins()
+    return {**state, **isins}
+
+
 if __name__ == "__main__":
     summary = repair()
     print(f"Repair complete: core={summary['core_set']}, "
           f"inverse={summary['inverse_marked']}, delisted={summary['delisted']}, "
           f"broker_synced={summary['broker_synced']}.")
+    print(f"filled {summary['filled']} ISINs from market data, "
+          f"{summary['not_found']} not found.")

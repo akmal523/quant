@@ -27,3 +27,6 @@ DATA_CONFIG: str = str(DATA_DIR / "config.yaml")
 # v10.5.0: account-level inputs (cash, risk profile, base currency). Single
 # source of truth for cash; replaces the account_state DuckDB table.
 DATA_ACCOUNT: str = str(DATA_DIR / "account.yaml")
+# v10.5.2 (F1): user-verified ISINs. Highest-trust source for registry repair;
+# overrides live metadata forever. Ships with a header and zero data rows.
+DATA_ISIN_CURATED: str = str(DATA_DIR / "isin_curated.csv")

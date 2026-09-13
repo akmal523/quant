@@ -22,6 +22,7 @@ import pandas as pd
 
 from quant.config import REBALANCE_DRIFT_TIERS
 from quant.execution.taxonomy import resolve_broker
+from quant.ui import copy as ui_copy
 
 # Audit Recommendation format: "BUY 150 EUR (CORE drift -16.1% exceeds 10.0% threshold)"
 _AMT_RE = re.compile(r"(BUY|SELL)\s+(\d+)\s+EUR")
@@ -53,22 +54,24 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
 
         broker = resolve_broker(sym)
         isin = broker.get("isin", "") if broker else ""
+        # A3: the ONE status word, shared by the holdings table and the cards.
+        cooldown_until = r.get("Cooldown_Until")
+        if isinstance(cooldown_until, float) and cooldown_until != cooldown_until:
+            cooldown_until = None  # NaN: no cooldown, not an invalid date
 
         if not isin:
             actions.append({
                 "symbol": sym,
                 "action": "BLOCKED",
                 "amount_eur": None,
-                "reason": "ISIN missing; add to data/broker_registry.csv",
+                "reason": "ISIN missing",
                 "threshold": threshold,
                 "tier": tier,
                 "target": target,
                 "drift": drift,
                 "blocked": True,
-                "remedy": (
-                    f"Blocked: ISIN missing for {sym}. Add it in Portfolio, "
-                    f"or resolve in the broker app."
-                ),
+                "status": ui_copy.status_for(rec, blocked=True),
+                "remedy": ui_copy.ACTION_BLOCKED_MANUAL.format(symbol=sym),
             })
             continue
 
@@ -84,6 +87,7 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
             "target": target,
             "drift": drift,
             "blocked": False,
+            "status": ui_copy.status_for(rec, cooldown_until=cooldown_until),
             "remedy": None,
         })
 

@@ -30,6 +30,7 @@ _LOCK = threading.Lock()
 REFRESH = "update"
 REVIEW = "run"
 SAVE_AND_REVIEW = "all"
+REPAIR = "repair"
 
 
 @dataclass
@@ -59,6 +60,28 @@ def _latest_log_path() -> str | None:
         return None
     log = os.path.join(run_dir, "pipeline.log")
     return log if os.path.exists(log) else None
+
+
+def run_repair() -> RunResult:
+    """Run the ISIN registry repair in-process under the mutex. Never raises.
+
+    Intent (A6): the blocker card's Repair registry button re-checks after the
+    repair, so the repair must run in this process (not a subprocess) and share
+    the orchestrator lock. Writes only data/broker_registry.csv, never the DB.
+    """
+    if not _LOCK.acquire(blocking=False):
+        return RunResult("busy", ui_copy.ERROR_ALREADY_RUNNING, None, -1)
+    try:
+        from quant.data.registry_repair import repair_isins
+
+        summary = repair_isins()
+        message = (f"filled {summary['filled']} ISINs from market data, "
+                   f"{summary['not_found']} not found.")
+        return RunResult("ok", message, None, 0)
+    except Exception:  # noqa: BLE001
+        return RunResult("error", ui_copy.ERROR_REFRESH_FAILED, None, -1)
+    finally:
+        _LOCK.release()
 
 
 def run(command: str = REFRESH) -> RunResult:

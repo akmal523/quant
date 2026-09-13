@@ -50,12 +50,21 @@ def _cmd_publish(_args: argparse.Namespace) -> int:
     return publish()
 
 
-def _cmd_dash(_args: argparse.Namespace) -> int:
-    """Launch the local interactive workspace (Streamlit)."""
+def _cmd_dash(args: argparse.Namespace) -> int:
+    """Launch the local interactive workspace (Streamlit).
+
+    A1 (v10.5.2): bind localhost by default; ``--lan`` binds 0.0.0.0 so a phone
+    on the same Wi-Fi can reach it. Never expose to the internet without an
+    authenticating reverse proxy.
+    """
     from quant import paths
 
     dash = os.path.join(str(paths.PROJECT_ROOT), "quant", "dashboard.py")
-    return subprocess.call([sys.executable, "-m", "streamlit", "run", dash])
+    address = "0.0.0.0" if getattr(args, "lan", False) else "127.0.0.1"
+    return subprocess.call(
+        [sys.executable, "-m", "streamlit", "run", dash,
+         "--server.address", address]
+    )
 
 
 def _cmd_reconcile(args: argparse.Namespace) -> int:

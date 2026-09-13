@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.5.2] - 2026-09-13
+
+### Changed - Quant-AI Polish Punch List v3 (pre-launch)
+
+Fixes only. No new features, pages, or config.
+
+**A1 - Network exposure and deprecation noise**
+
+1. `quant dash` binds `127.0.0.1` by default; `quant dash --lan` binds `0.0.0.0`
+   ([`quant/cli/__init__.py`](quant/cli/__init__.py)). The README Advanced section
+   states the reverse-proxy rule.
+2. Every `use_container_width` call is replaced with `width="stretch"`
+   ([`quant/dashboard.py`](quant/dashboard.py)); zero Streamlit deprecation
+   warnings on a cold start.
+
+**A2 - Empty states and impossible sentences**
+
+3. Settings data status shows "No market data yet. Press Refresh market data to
+   start." when facts are missing; the placeholder sentence is deleted.
+4. The stale rule fires only when data exists and age >= threshold; no data never
+   produces "Prices are 0 days old."
+5. Reviews empty state: "No reviews yet. Save and review from Portfolio, or wait
+   for the daily run." The value-chart sentence belongs to Today only.
+6. P4: an empty state describes a missing-data condition only. A failed regime
+   computation is a Health item (`regime_error`); Today shows "Market trend:
+   unavailable (see Health)." Closes the masking hole (history exists, UI claimed
+   it does not).
+
+**A3 - Status words from the audit**
+
+7. One status mapper, [`quant.ui.copy.status_for()`](quant/ui/copy.py): On track /
+   Waiting until {date} / Add / Trim / Blocked. The holdings table and the action
+   cards read the same audit object
+   ([`quant/reporting/actions.py`](quant/reporting/actions.py)).
+
+**A4 - Visual semantics**
+
+8. [`.streamlit/config.toml`](.streamlit/config.toml) sets the primary accent
+   (deep blue); red is reserved for blockers.
+9. Donut uses a categorical blue/gray palette, percent labels only for slices
+   >= 5 percent, a legend with name and percent, and a "Cash" slice.
+10. "Share vs target" renders with units ("17.5% / 10.0%").
+11. Risk-profile helpers drop the repeated prefix word; the cash APY helper
+    renders the live schedule value and its effective date.
+
+**A5 - Autocomplete affordance**
+
+12. Portfolio input placeholder "Type a name, symbol or ISIN to add a holding";
+    selecting a match appends an empty-value row and shows "Now fill value and
+    profit or loss from your broker."
+
+**A6 - ISIN blocker: true remedy plus auto-fix**
+
+13. [`quant/data/identifiers.py`](quant/data/identifiers.py) *(new)*:
+    `is_valid_isin` (ISO 6166 shape + mod-36 Luhn).
+14. [`quant/data/registry_repair.py`](quant/data/registry_repair.py) *(new)* +
+    idempotent [`scripts/repair_registry.py`](scripts/repair_registry.py): fill
+    missing ISIN cells only, source hierarchy curated > existing > live Yahoo,
+    provenance in `isin_source`, checksum gate, plain summary.
+15. [`data/isin_curated.csv`](data/isin_curated.csv) *(new)*: user-verified ISINs;
+    ships with a header and zero rows (F1).
+16. The blocker card reads "ISIN missing for {symbol}." with a `Repair registry`
+    button that runs the repair in-process under the orchestrator mutex
+    ([`quant/ui/runner.py`](quant/ui/runner.py)); the old "Fix in Portfolio"
+    remedy is deleted.
+
+**Doctrine**
+
+17. F1 (no synthesized identifiers) and the P4 empty-state rule are recorded in
+    [`CONTEXT.md`](CONTEXT.md).
+
+### Tests
+
+- New contract tests: `test_regime_masking.py`, `test_status_equality.py`,
+  `test_registry_repair.py`, `test_identifiers.py`; `test_cash_rate.py` and
+  `test_ui_copy.py` updated.
+
+---
+
 ## [10.5.1] - 2026-09-13
 
 ### Changed - Product Polish v2 (Daily Portfolio Manager)

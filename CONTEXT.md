@@ -236,3 +236,47 @@ quant.dashboard ──────────────> quant.ui.copy, quant
 quant.portfolio.history ──────> quant.data.database
 quant.portfolio.cash_rate ────> (pure; urllib for the optional live fetch)
 ```
+
+---
+
+## v10.5.2 Domain Additions
+
+### Doctrine
+
+- **F1 — No synthesized identifiers.** The codebase never invents, guesses, or
+  hardcodes financial identifiers (ISIN, CUSIP, SEDOL). Identifiers enter only
+  through (a) files the user owns, (b) validated live metadata from a named
+  source, or (c) a curated file with an audit trail. Every identifier carries
+  provenance. `quant.data.identifiers.is_valid_isin` is the mechanical gate.
+- **P4 — Empty states describe missing data only.** A computation that ran and
+  failed is a Health item, never an empty state. Today shows "unavailable (see
+  Health)"; Settings Health names the failure. Never mask a failure as missing
+  history.
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **isin_source** | Provenance of a registry ISIN: `user` (pre-existing), `curated` (`data/isin_curated.csv`), `yahoo` (live metadata). Internal; drives the confirm-in-broker caveat. |
+| **Curated ISIN map** | `data/isin_curated.csv` (`symbol,isin,verified_by,verified_at`): user-verified values that override live metadata forever. Ships with a header and zero rows. |
+| **regime_error** | `metrics.json` flag: the regime HMM fit ran and failed. Today shows "unavailable"; Health shows the failure sentence. Distinct from missing history. |
+| **Canonical status** | One of `On track` / `Waiting until {date}` / `Add` / `Trim` / `Blocked`, produced by `quant.ui.copy.status_for` and persisted with the audit. Table and action cards read the same object. |
+
+### Source-of-truth additions (v10.5.2)
+
+| Fact | Writer | Reader(s) |
+|------|--------|-----------|
+| ISIN provenance | `scripts/repair_registry.py` (via `quant.data.registry_repair`) | Explore caveat, tests |
+| Regime failure flag | `quant run` (`metrics.json`) | Today, Settings Health |
+| Canonical status | `quant run` (portfolio audit) | Today table + action cards |
+
+### Module dependencies (v10.5.2)
+
+```
+quant.data.identifiers ───────> (pure)
+quant.data.registry_repair ───> quant.paths, quant.data.identifiers, yfinance (optional)
+scripts.repair_registry ──────> quant.data.registry_repair, quant.execution.taxonomy
+quant.ui.runner.run_repair ───> quant.data.registry_repair (in-process, under the mutex)
+quant.reporting.actions ──────> quant.ui.copy (status_for)
+quant.dashboard ──────────────> quant.portfolio.cash_rate (current_rate), quant.ui.runner (run_repair)
+```

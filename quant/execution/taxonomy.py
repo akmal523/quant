@@ -152,15 +152,24 @@ def resolve_broker(symbol: str, path: str = BROKER_REGISTRY_PATH) -> dict:
         return {
             "yahoo_ticker": symbol,
             "isin": "",
+            "isin_source": "",
             "tr_ticker": symbol,
             "exchange": "LS Exchange",
             "currency": "",
             "instrument_class": classify_instrument(symbol),
         }
     r = row.iloc[0]
+    isin = str(r.get("isin", "") or "")
+    if isin == "nan":
+        isin = ""
+    # v10.5.2 (A6): provenance drives the confirm-in-broker caveat in the UI.
+    isin_source = str(r.get("isin_source", "") or "")
+    if isin_source == "nan":
+        isin_source = ""
     return {
         "yahoo_ticker": symbol,
-        "isin": str(r.get("isin", "")),
+        "isin": isin,
+        "isin_source": isin_source,
         "tr_ticker": str(r.get("tr_ticker", symbol)),
         "exchange": str(r.get("exchange", "LS Exchange")),
         "currency": str(r.get("currency", "")),

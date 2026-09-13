@@ -54,5 +54,12 @@ def test_update_cash_rate_appends():
 
 
 def test_copy_text_shows_current_rate():
-    text = C.HELP_CASH_APY.format(apy="2.50")
-    assert "2.50 percent" in text
+    text = C.HELP_CASH_APY.format(apy="2.5", date="16 Sep 2026")
+    assert "2.5 percent" in text
+    assert "16 Sep 2026" in text
+
+
+def test_current_rate_exposes_effective_date():
+    row = cash_rate.current_rate(date(2026, 9, 16))
+    assert row.apy == 0.025
+    assert row.effective_date == date(2026, 9, 16)

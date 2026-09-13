@@ -67,6 +67,21 @@ def schedule_apy(as_of: date | datetime | str | None = None) -> float:
     return max(applicable, key=lambda r: r.effective_date).apy
 
 
+def current_rate(as_of: date | datetime | str | None = None) -> CashRate:
+    """Return the applicable schedule row (apy + effective_date) for ``as_of``.
+
+    Intent (v10.5.2, A4): the UI helper text must render the live schedule value
+    AND its effective date, not a bare constant. Pure lookup; never raises.
+    """
+    when = _as_date(as_of)
+    applicable = [r for r in CASH_RATE_SCHEDULE if r.effective_date <= when]
+    if not applicable:
+        if CASH_RATE_SCHEDULE:
+            return CASH_RATE_SCHEDULE[0]
+        return CashRate(when, FALLBACK_APY, SOURCE_URL)
+    return max(applicable, key=lambda r: r.effective_date)
+
+
 def _default_fetcher(url: str) -> str:
     """Fetch a URL's HTML with a browser User-Agent."""
     import urllib.request

@@ -3,3 +3,8 @@ gatherUsageStats = false
 
 [server]
 headless = true
+
+# A4 (v10.5.2): the primary action color is the theme accent (deep blue), not
+# red. Red is reserved for blockers, amber for warnings, green for satisfied.
+[theme]
+primaryColor = "#1F3B73"

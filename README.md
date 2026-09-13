@@ -28,7 +28,7 @@ Live briefing: https://akmal523.github.io/quant/
   Shortfall (Rockafellar-Uryasev), not variance.
 - **Broker-synced PnL reconciliation** - portfolio PnL is copied from the broker
   and diffed against the system estimate; never price-guessed.
-- **NLP-driven sentiment scoring** - 8-K / news text scored with FinBERT.
+- **NLP-driven sentiment scoring** - 8-K / news text scored with FinBERT; there is no dictionary fallback, and text with no evidence yields a neutral score with a confidence penalty.
 - **Hard data-quality assertions** - duplicate timestamps, unexplained >50%
   drops, and bad D/E abort the pipeline (fail closed).
 - **Golden-file CI** - deterministic backtest snapshots fail on > 0.01% drift.
@@ -65,6 +65,12 @@ The terminal is optional. Three commands cover the daily cycle:
 
 Add `--verbose` for per-symbol detail. Logs live under `outputs/run_*/`.
 
+The External URL Streamlit prints is your public IP only if your router forwards
+the port; by default it does not. Never expose Quant-AI to the internet without
+putting it behind an authenticating reverse proxy. `quant dash` binds localhost
+only; to serve on your local network (phone on the same Wi-Fi), run
+`quant dash --lan`.
+
 ### Portfolio file (`data/portfolio.csv`)
 
 ```csv
@@ -75,6 +81,18 @@ AMZN,220.55,150.41,5.20
 
 `Invested_EUR = Current_Value_EUR - Broker_PnL_EUR` is derived; `Broker_PnL_EUR`
 is broker truth, never price-guessed. Comments after `#` are stripped.
+
+### Account file (`data/account.yaml`)
+
+```yaml
+base_currency: EUR
+cash_eur: 10400.0
+risk_profile: balanced
+```
+
+`risk_profile` is one of `conservative` / `balanced` / `aggressive`. The selected
+profile in `data/account.yaml` overrides the bucket defaults in
+[`quant/config.py`](quant/config.py).
 
 ---
 
@@ -123,7 +141,7 @@ All tunables live in [`quant/config.py`](quant/config.py). Key settings:
 |:---|---:|:---|
 | `WEIGHT_FUNDAMENTALS` / `_STEWARDSHIP` / `_TECHNICAL` / `_SENTIMENT` | 30 / 30 / 15 / 25 | Scoring weights |
 | `MIN_STRUCT_GRADE_FOR_BUY` | 75 | Structural floor for CORE classification |
-| `BROKER_CASH_APY` | 0.0225 | TR cash yield (risk-free rate) |
+| Cash rate | dated schedule in `quant/portfolio/cash_rate.py` | Trade Republic yield used as the risk-free rate (2.5 percent from 16 Sep 2026) |
 | `ROUND_TRIP_FEE_EUR` | 2.0 | Active-trade round-trip fee |
 | `SAFETY_BUCKET_MIN` / `CORE_BUCKET_MIN` / `ALPHA_BUCKET_MAX` | 0.10 / 0.40 / 0.50 | Bucket constraints |
 | `FUNNEL_STAGE1_TARGET` / `FUNNEL_TOP_N` | 300 / 24 | Funnel caps |
@@ -155,8 +173,10 @@ and golden-file regeneration process.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, style (ruff, line length
-100), type checking (pyright), and the conventional-commit convention. By
+All user-facing language lives in [`quant/ui/copy.py`](quant/ui/copy.py), guarded
+by [`tests/test_ui_copy.py`](tests/test_ui_copy.py); change copy there, never
+inline. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, style (ruff, line
+length 100), type checking (pyright), and the conventional-commit convention. By
 participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---

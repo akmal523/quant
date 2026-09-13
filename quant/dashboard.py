@@ -41,7 +41,7 @@ from quant.execution.taxonomy import (
 from quant.portfolio.account import load_account, save_account, AccountState
 from quant.portfolio.editor import validate_positions, save_portfolio
 from quant.portfolio.history import load_history
-from quant.portfolio.cash_rate import current_cash_apy
+from quant.portfolio.cash_rate import current_cash_apy, current_rate
 from quant.reporting.actions import build_actions
 from quant.reporting.artifacts import latest_run
 from quant.ui import copy as C
@@ -146,13 +146,21 @@ def render_action_cards(actions: list[dict]) -> None:
                 pct=f"{pct:.0f}", target=target))
 
 
-def status_word_for(recommendation: str) -> str:
-    rec = str(recommendation or "")
-    if rec.startswith("BUY"):
-        return "Add"
-    if rec.startswith("SELL"):
-        return "Trim"
-    return "On track"
+def _render_isin_blocker(symbol: str, key: str) -> None:
+    """Blocker card with an in-process Repair registry action (A6).
+
+    After the repair, re-check the registry: clear the card when the ISIN is
+    present, otherwise show the manual curated-file remedy.
+    """
+    st.warning(C.ACTION_BLOCKED.format(symbol=symbol))
+    if st.button(C.BTN_REPAIR_REGISTRY, key=key):
+        res = runner.run_repair()
+        if res.status == "busy":
+            st.warning(res.message)
+        elif res.ok and resolve_broker(symbol).get("isin"):
+            st.rerun()
+        else:
+            st.warning(C.ACTION_BLOCKED_MANUAL.format(symbol=symbol))
 
 
 # ── Page: Today (P4) ──────────────────────────────────────────────────────────
@@ -175,7 +183,13 @@ def page_today() -> None:
         st.write(f"Review of {bar} close, prepared {prepared}.")
     metrics = load_metrics()
     regime = metrics.get("market_regime")
-    st.write(f"Market trend: {C.regime_word(regime)}." if regime else C.EMPTY_REGIME)
+    if regime:
+        st.write(f"Market trend: {C.regime_word(regime)}.")
+    elif metrics.get("regime_error"):
+        # A2: a computation that ran and failed is not a missing-data state.
+        st.write(C.EMPTY_REGIME_ERROR)
+    else:
+        st.write(C.EMPTY_REGIME)
 
     # 2. Portfolio value chart.
     st.subheader(C.SEC_PORTFOLIO_VALUE)
@@ -186,11 +200,13 @@ def page_today() -> None:
             mode="lines", fill="tozeroy", line=dict(width=2)))
         fig.update_layout(height=260, margin=dict(l=0, r=0, t=0, b=0),
                           yaxis_title="EUR", showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info(C.EMPTY_VALUE_CHART)
 
-    # 3. Where your money is (donut).
+    # 3. Where your money is (donut). Categorical blue/gray palette only;
+    #    semantic colors never encode composition (A4). Percent labels only for
+    #    slices >= 5 percent; every slice appears in the legend with name+percent.
     st.subheader(C.SEC_WHERE_MONEY)
     account = load_account()
     if not portfolio.empty:
@@ -200,28 +216,41 @@ def page_today() -> None:
         if account.cash_is_set and account.cash_eur:
             values.append(account.cash_eur)
             labels.append("Cash")
-        fig = go.Figure(go.Pie(labels=labels, values=values, hole=0.55,
-                               textinfo="label+percent"))
-        fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        total = sum(values) or 1.0
+        pcts = [v / total * 100 for v in values]
+        legend_labels = [f"{lbl} {p:.0f}%" for lbl, p in zip(labels, pcts)]
+        slice_text = [f"{p:.0f}%" if p >= 5 else "" for p in pcts]
+        palette = ["#1F3B73", "#3B5C99", "#5B83BF", "#8FA9CF", "#B8C4D9",
+                   "#6B7280", "#8A8F99", "#A7ADB8"]
+        colors = [palette[i % len(palette)] for i in range(len(values))]
+        fig = go.Figure(go.Pie(
+            labels=legend_labels, values=values, hole=0.55,
+            text=slice_text, textinfo="text", sort=False,
+            marker=dict(colors=colors)))
+        fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0),
+                          showlegend=True, legend=dict(orientation="h"))
+        st.plotly_chart(fig, width="stretch")
 
-    # 4. Holdings table (four columns).
+    # 4. Holdings table (four columns). Status comes from the audit actions so
+    #    the table and the cards can never disagree (A3).
     audit = load_audit()
+    actions = build_actions(audit)
+    status_map = {a["symbol"]: a["status"] for a in actions}
     if not audit.empty:
         rows = []
         for _, r in audit.iterrows():
+            sym = str(r.get("Symbol", ""))
             rows.append({
-                "Holding": r.get("Symbol", ""),
+                "Holding": sym,
                 "Value": C.fmt_eur(float(r.get("Value_EUR", 0) or 0)),
-                "Share vs target": f"{str(r.get('Current_Weight', '')).rstrip('%')} / "
-                                   f"{str(r.get('Target_Weight', '')).rstrip('%')}",
-                "Status": status_word_for(r.get("Recommendation", "")),
+                "Share vs target": f"{r.get('Current_Weight', '')} / "
+                                   f"{r.get('Target_Weight', '')}",
+                "Status": status_map.get(sym, C.STATUS_ON_TRACK),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     # 5. What to do today.
     st.subheader(C.SEC_WHAT_TO_DO)
-    actions = build_actions(audit)
     render_action_cards(actions)
 
     # 6. Needs attention first (blockers only, hidden when empty).
@@ -229,8 +258,7 @@ def page_today() -> None:
     if blockers:
         st.subheader(C.SEC_NEEDS_ATTENTION)
         for b in blockers:
-            st.warning(C.ACTION_BLOCKED.format(symbol=b["symbol"]))
-            st.button(C.BTN_FIX_IN_PORTFOLIO, key=f"fix_{b['symbol']}")
+            _render_isin_blocker(b["symbol"], key=f"fix_{b['symbol']}")
 
 
 # ── Page: Portfolio (P5) ──────────────────────────────────────────────────────
@@ -239,21 +267,33 @@ def page_portfolio() -> None:
     st.title(C.PAGE_PORTFOLIO)
     st.write(C.HELP_BROKER_VALUES)
 
-    # Autocomplete add-row.
-    query = st.text_input("Type a name, symbol or ISIN", key="add_q")
+    # Autocomplete add-row (A5): the input says what it does; selecting a match
+    # appends an empty-value row and shows one helper line. No silent add.
+    query = st.text_input(
+        C.PLACEHOLDER_ADD_HOLDING, key="add_q",
+        placeholder=C.PLACEHOLDER_ADD_HOLDING, label_visibility="collapsed",
+    )
     if query:
         results = search(load_index(), query, 10)
         if results:
             labels = [r["label"] for r in results]
-            choice = st.selectbox("Matches", labels, key="add_choice")
-            if st.button("Add to holdings", key="add_btn"):
-                sym = next(r["symbol"] for r in results if r["label"] == choice)
+            sym_by_label = {r["label"]: r["symbol"] for r in results}
+
+            def _add_selected() -> None:
+                sym = sym_by_label.get(st.session_state.get("add_choice"))
+                if not sym:
+                    return
                 st.session_state.setdefault("_extra", []).append({
                     "Symbol": sym, "Avg_Entry_Price": 0.0,
                     "Current_Value_EUR": 0.0, "Broker_PnL_EUR": 0.0,
                 })
+                st.session_state["_just_added"] = True
+
+            st.selectbox("Matches", labels, key="add_choice", on_change=_add_selected)
+            if st.session_state.get("_just_added"):
+                st.caption(C.HELP_ADD_ROW)
         else:
-            st.caption(C.EMPTY_NO_NEWS.format(name=query))
+            st.caption(C.EMPTY_NO_MATCHES.format(query=query))
 
     # Holdings editor.
     portfolio = load_portfolio()
@@ -279,7 +319,9 @@ def page_portfolio() -> None:
                   C.HELP_PROFILE_AGGRESSIVE],
         format_func=lambda p: p.capitalize(),
     )
-    st.caption(C.HELP_CASH_APY.format(apy=f"{current_cash_apy()*100:.2f}"))
+    rate = current_rate()
+    st.caption(C.HELP_CASH_APY.format(
+        apy=f"{rate.apy * 100:g}", date=C.fmt_date(rate.effective_date)))
 
     # Buttons.
     registry = q("SELECT symbol FROM asset_registry")
@@ -307,9 +349,11 @@ def page_portfolio() -> None:
 
     # Broker registry (read-only, collapsed).
     with st.expander("Broker registry"):
-        st.caption(C.HELP_ISIN_SCRIPTED)
         broker = pd.read_csv(paths.DATA_BROKER_REGISTRY) if os.path.exists(
             paths.DATA_BROKER_REGISTRY) else pd.DataFrame()
+        # isin_source is internal provenance; never shown (decision memo 1.4).
+        if "isin_source" in broker.columns:
+            broker = broker.drop(columns=["isin_source"])
         st.dataframe(broker, width="stretch", hide_index=True)
 
 
@@ -386,7 +430,7 @@ def page_explore() -> None:
         fig.add_trace(go.Scatter(x=market["Date"], y=close - band, name="Lower band",
                                  fill="tonexty", line=dict(color="rgba(0,0,0,0)")))
         fig.update_layout(height=320, margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Why these scores.
     st.subheader(C.SEC_WHY_SCORES)
@@ -425,10 +469,11 @@ def page_explore() -> None:
     st.subheader(C.SEC_HOW_TO_BUY)
     if broker.get("isin"):
         st.write(f"ISIN {broker['isin']}")
+        if broker.get("isin_source") == "yahoo":
+            st.caption(C.HELP_ISIN_YAHOO_CAVEAT)
         st.write(f"Route: {'savings plan' if cls in ('ETF', 'CASH') else 'one-off order'}")
     else:
-        st.warning(C.ACTION_BLOCKED.format(symbol=symbol))
-        st.button(C.BTN_FIX_IN_PORTFOLIO, key=f"ex_fix_{symbol}")
+        _render_isin_blocker(symbol, key=f"ex_fix_{symbol}")
 
 
 # ── Page: Settings (P7) ───────────────────────────────────────────────────────
@@ -436,22 +481,29 @@ def page_explore() -> None:
 def page_settings() -> None:
     st.title(C.PAGE_SETTINGS)
 
-    # Data status.
+    # Data status (A2): no placeholder sentence. The full sentence renders only
+    # when all three facts exist; otherwise a genuine missing-data empty state.
     st.subheader(C.SEC_DATA_STATUS)
     instruments = q("SELECT COUNT(DISTINCT Symbol) AS n FROM market_history")
     m = int(instruments["n"].iloc[0]) if not instruments.empty else 0
-    bar = C.fmt_date(latest_bar_date())
+    bar = latest_bar_date()
     history = load_history()
-    refreshed = C.fmt_ts(history.iloc[-1]["review_ts"]) if not history.empty else "not yet"
-    st.write(f"{m} instruments, prices through {bar or 'no data'}, refreshed {refreshed}.")
+    if m > 0 and bar and not history.empty:
+        refreshed = C.fmt_ts(history.iloc[-1]["review_ts"])
+        st.write(f"{m} instruments, prices through {C.fmt_date(bar)}, "
+                 f"refreshed {refreshed}.")
+    elif m > 0 and bar:
+        st.write(f"{m} instruments, prices through {C.fmt_date(bar)}.")
+    else:
+        st.info(C.EMPTY_NO_MARKET_DATA)
     if st.button(C.BTN_REFRESH, width="stretch"):
         _run_with_progress(runner.REFRESH)
     st.caption(C.HELP_REVIEW_CADENCE)
 
-    # Reviews (last ten).
+    # Reviews (last ten). The value-chart sentence belongs to Today only (A2).
     st.subheader(C.SEC_REVIEWS)
     if history.empty:
-        st.info(C.EMPTY_VALUE_CHART)
+        st.info(C.EMPTY_NO_REVIEWS)
     else:
         for _, r in history.tail(10)[::-1].iterrows():
             st.write(f"{C.fmt_ts(r['review_ts'])} - {C.fmt_eur(r['value_eur'])} - "
@@ -477,19 +529,24 @@ def page_settings() -> None:
 
 
 def _health_problems() -> list[str]:
-    """Return plain-sentence problems only (empty when clean)."""
+    """Return plain-sentence problems only (empty when clean).
+
+    A2: the stale rule fires only when data exists and its age >= threshold; no
+    data never produces "Prices are 0 days old." A failed regime computation is
+    a Health item, never masked as missing history.
+    """
     problems: list[str] = []
     bar = latest_bar_date()
     if bar:
         try:
             from datetime import date
             days = (date.today() - date.fromisoformat(bar)).days
-            if days > STALE_DATA_DAYS:
+            if days >= STALE_DATA_DAYS:
                 problems.append(C.ERROR_STALE_PRICES.format(n=days))
         except Exception:  # noqa: BLE001
             pass
-    else:
-        problems.append(C.ERROR_STALE_PRICES.format(n=0))
+    if load_metrics().get("regime_error"):
+        problems.append(C.HEALTH_REGIME_FAILED)
     # Missing ISINs among holdings.
     portfolio = load_portfolio()
     if not portfolio.empty:
