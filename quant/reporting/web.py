@@ -141,10 +141,9 @@ def render_html(data: dict) -> str:
 
     # 2. Portfolio.
     parts.append("<h2>Portfolio</h2>")
-    parts.append(f"<p>Value {p['value_eur']:.2f} EUR (source: portfolio.csv). "
-                 f"Broker PnL {p['pnl_eur']:+.2f} EUR (source: broker). "
-                 f"Cash {_esc(cash)}. Risk profile {_esc(p['risk_profile'])} "
-                 f"(source: account.yaml). Regime {_esc(data['regime'] or 'not estimated')}.</p>")
+    parts.append(f"<p>Value {p['value_eur']:.2f} EUR. "
+                 f"Total profit or loss {p['pnl_eur']:+.2f} EUR. "
+                 f"Cash {_esc(cash)}. Risk profile {_esc(p['risk_profile'])}.</p>")
 
     # 3. Actions.
     parts.append("<h2>Actions</h2>")

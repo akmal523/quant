@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.5.1] - 2026-09-13
+
+### Changed - Product Polish v2 (Daily Portfolio Manager)
+
+Quant-AI is repositioned as a daily portfolio manager, not a trading terminal.
+The local workspace, CLI messages, README, and visual system follow one doctrine:
+one snapshot per day, plain-language advice, the user acts in the broker app.
+
+**P1 - Concurrency fix (DuckDB lock)**
+
+1. **Read-only UI connections** - [`quant/data/database.py`](quant/data/database.py):
+   `read_only_connection()` opens a short-lived connection and closes it
+   immediately; the UI never holds the write lock. The dashboard drops `init_db`.
+2. **Writer retry** - `connect_with_retry()` retries the write lock up to 6 times
+   over ~15 seconds; `--verbose` prints "waiting for database lock"; a final
+   failure exits 2 with a plain remedy.
+3. **Orchestrator mutex** - [`quant/ui/runner.py`](quant/ui/runner.py) *(new)*:
+   one in-process lock serializes UI-triggered runs; a second tab gets
+   "A review is already running in another tab."
+4. **Subprocess hygiene** - UI runs use `sys.executable -m quant.cli`, inherit
+   the environment, and stream to the run log; the UI shows a progress bar.
+
+**P2 - Language layer**
+
+5. **Central copy module** - [`quant/ui/copy.py`](quant/ui/copy.py) *(new)*: the
+   internal-to-human dictionary, the exact copy catalog, and formatting helpers
+   (EUR, percent, dates, scores). Every user-facing string imports from it.
+6. **Banned-token test** - [`tests/test_ui_copy.py`](tests/test_ui_copy.py)
+   *(new)* renders all four pages and asserts no internal identifiers leak.
+
+**P3 - Honest data**
+
+7. **Portfolio history** - [`quant/portfolio/history.py`](quant/portfolio/history.py)
+   *(new)* + `portfolio_history` table: one row per review.
+8. **Friendly names** - [`quant/data/universe_builder.py`](quant/data/universe_builder.py)
+   captures name columns; `asset_registry.name` / `universe_master.name` fall
+   back to the symbol.
+9. **Search index** - [`quant/ui/search.py`](quant/ui/search.py) *(new)*: name,
+   symbol, ISIN, and keyword matches ("amazon" -> AMZN, "world" -> EUNL.DE).
+
+**P4-P8 - Workspace rebuild**
+
+10. **Four pages** - [`quant/dashboard.py`](quant/dashboard.py): Today (decides),
+    Portfolio (edits), Explore (explains), Settings (maintains). Single column,
+    no Streamlit layout columns, tables capped at five columns.
+11. **Value chart, donut, action cards** - Today reads `portfolio_history` and
+    renders catalog action cards; blockers only in "Needs attention first".
+
+**P9 - README and onboarding**
+
+12. **Browser-first quick start** - [`README.md`](README.md): `pip install -e .`
+    then `quant dash`; `--lan` documented; terminal moved to "Advanced: command
+    line"; first-run three-step guide in the app.
+
+**Cash rate**
+
+13. **Trade Republic 2.5 percent** - [`quant/portfolio/cash_rate.py`](quant/portfolio/cash_rate.py)
+    *(new)*: dated schedule (2.5 percent from 16 Sep 2026), `current_cash_apy()`,
+    `update_cash_rate()`, and an optional live fetch with schedule fallback. Wired
+    into routing, risk, cash manager, notifier, and the dashboard.
+
+### Tests
+
+- New: `test_lock_retry.py`, `test_ui_connections.py`, `test_ui_copy.py`,
+  `test_portfolio_history.py`, `test_autocomplete.py`, `test_cash_rate.py`.
+- `test_no_emoji.py` extended to the copy module and UI helpers.
+
+---
+
 ## [10.5.0] - 2026-09-13
 
 ### Changed - UI and Text Reform (Doctrine, Terse CLI, Hosted Briefing)

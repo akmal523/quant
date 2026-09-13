@@ -42,9 +42,13 @@ def test_no_silent_defaults_in_ui():
     assert "unknown" not in text
 
 
-def test_briefing_empty_state_when_no_run():
+def test_today_empty_state_when_no_reviews():
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
     text = _all_text(at)
-    # With no run artifacts the Briefing page shows the catalog empty state.
-    assert ("No run yet" in text) or ("No actions required today" in text)
+    # v10.5.1: the Today page shows the catalog empty states / first-run guide.
+    assert (
+        ("Nothing to do today" in text)
+        or ("The value chart appears after your second review" in text)
+        or ("Start here" in text)
+    )

@@ -1,5 +1,8 @@
 from quant import paths
 # db.py
+import time
+from contextlib import contextmanager
+
 import duckdb
 import threading
 
@@ -12,8 +15,8 @@ CONNECT_TIMEOUT = 15.0
 _local = threading.local()
 
 
-def _connect_with_timeout() -> duckdb.DuckDBPyConnection:
-    """Open the DB, but never block longer than CONNECT_TIMEOUT seconds.
+def _connect_with_timeout(timeout: float = CONNECT_TIMEOUT) -> duckdb.DuckDBPyConnection:
+    """Open the DB read-write, but never block longer than ``timeout`` seconds.
 
     Intent: Python's duckdb.connect() exposes no lock timeout. Run it in a
     daemon thread and join with a bounded timeout so a locked database raises a
@@ -30,11 +33,11 @@ def _connect_with_timeout() -> duckdb.DuckDBPyConnection:
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
-    t.join(CONNECT_TIMEOUT)
+    t.join(timeout)
 
     if t.is_alive():
         raise TimeoutError(
-            f"DuckDB connect timed out after {CONNECT_TIMEOUT:.0f}s "
+            f"DuckDB connect timed out after {timeout:.0f}s "
             f"(database locked by another process?). Path: {DB_PATH}"
         )
     if error[0] is not None:
@@ -42,12 +45,74 @@ def _connect_with_timeout() -> duckdb.DuckDBPyConnection:
     return result[0]
 
 
+def connect_with_retry(
+    attempts: int = 6,
+    delay: float = 0.5,
+    verbose: bool = False,
+) -> duckdb.DuckDBPyConnection:
+    """Open a read-write connection, retrying on lock contention (spec 4.2).
+
+    Intent: the UI holds short-lived read-only connections; a refresh subprocess
+    may briefly collide with one. Retry up to ``attempts`` times with exponential
+    backoff (default ~15s total) before giving up. Under ``verbose`` print the
+    plain "waiting for database lock" line.
+    Invariants: raises the last error if every attempt fails.
+    """
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return _connect_with_timeout(timeout=2.0)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if i < attempts - 1:
+                if verbose:
+                    print("waiting for database lock")
+                time.sleep(delay * (2 ** i))
+    assert last is not None
+    raise last
+
+
+@contextmanager
+def read_only_connection():
+    """Short-lived read-only DuckDB connection. Always closed on exit.
+
+    Intent (v10.5.1, spec 4.1): UI queries must NOT hold a persistent
+    read-write connection, or the refresh subprocess cannot acquire the file
+    lock. Every UI read opens ``read_only=True`` and closes immediately.
+    Invariants: the connection is closed even if the body raises.
+
+    Fallback: DuckDB forbids mixing read-only and read-write connections to the
+    same file within one process. If a writer already holds the file in this
+    process (tests, or an in-process pipeline call), open a short-lived
+    read-write connection instead. It is still opened per call and closed on
+    exit, so no persistent connection is held.
+    """
+    try:
+        conn = duckdb.connect(DB_PATH, read_only=True)
+    except Exception:  # noqa: BLE001
+        # Same config as the in-process writer, else DuckDB rejects the connect.
+        conn = duckdb.connect(DB_PATH, config={"access_mode": "READ_WRITE"})
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Provides thread-local DuckDB connection."""
+    """Provides thread-local DuckDB connection (pipeline writers only).
+
+    NOTE: UI code must use ``read_only_connection()`` instead, so it never holds
+    the write lock (spec 4.1).
+    """
     if not hasattr(_local, "conn") or _local.conn is None:
         # DuckDB allows concurrent reads, strictly one write process.
         _local.conn = _connect_with_timeout()
     return _local.conn
+
+
+def use_connection(conn: duckdb.DuckDBPyConnection) -> None:
+    """Bind ``conn`` as this thread's connection (pipeline writers)."""
+    _local.conn = conn
 
 def init_db() -> None:
     """Initializes unified OLAP schemas."""
@@ -315,5 +380,18 @@ def init_db() -> None:
             price_eur DOUBLE,
             value_eur DOUBLE,
             PRIMARY KEY (snapshot_date, symbol)
+        )
+    """)
+
+    # ── v10.5.1 (spec 5.1): portfolio value history ──────────────────────────
+    # One row per review, written by the review step. Feeds the Today value
+    # chart. Not keyed by date because several reviews can occur in one day.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_history (
+            review_ts TIMESTAMP,
+            value_eur DOUBLE,
+            invested_eur DOUBLE,
+            cash_eur DOUBLE,
+            pnl_eur DOUBLE
         )
     """)

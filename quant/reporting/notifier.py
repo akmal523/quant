@@ -26,7 +26,7 @@ import logging
 
 import requests
 
-from quant.config import BROKER_CASH_APY
+from quant.portfolio.cash_rate import current_cash_apy
 from quant.portfolio.risk import daily_risk_free_rate
 
 logger = logging.getLogger(__name__)
@@ -84,15 +84,15 @@ def build_daily_summary(
     """
     from datetime import date
     lines = [
-        "DAILY BRIEFING - Trade Republic",
+        "Daily briefing - Trade Republic",
         "=" * 40,
-        f"Run date: {date.today().isoformat()}",
-        f"Market regime: {regime}",
-        f"Cash yield (APY): {BROKER_CASH_APY*100:.2f}%  (daily {daily_risk_free_rate()*100:.4f}%)",
-        f"Total portfolio value: EUR {total_value:,.2f}",
-        f"Cash allocation: {cash_allocation*100:.1f}%",
+        f"Date: {date.today().isoformat()}",
+        f"Market trend: {regime}",
+        f"Cash rate: {current_cash_apy()*100:.2f} percent per year",
+        f"Portfolio value: {total_value:.2f} EUR",
+        f"Cash share: {cash_allocation*100:.0f} percent",
         "",
-        "EXECUTION INSTRUCTIONS:",
+        "What to do:",
     ]
 
     if instructions:

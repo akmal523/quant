@@ -1,23 +1,22 @@
 # Quant-AI
-**Institutional-grade systematic equity pipeline**
+**Daily portfolio manager for a solo family office on Trade Republic**
 
 [![CI](https://github.com/akmal523/quant/actions/workflows/ci.yml/badge.svg)](https://github.com/akmal523/quant/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/akmal523/quant/branch/main/graph/badge.svg)](https://codecov.io/gh/akmal523/quant)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-Broker-aware, EUR-native systematic equity analysis for a solo family office on
-Trade Republic. Scans a smart 1000+ ticker universe, filters it to a handful of
-survivors, and produces EUR-native buy/hold/sell guidance plus a broker-synced
-portfolio audit. Python orchestrates; the heavy lifting runs in Rust (Polars),
-SQL (DuckDB), and C++-backed libraries (cvxpy, selectolax).
+Quant-AI takes one snapshot of your portfolio per day after the market close,
+reviews your holdings against their targets, and says in plain language what to
+add, trim, or leave alone. It is built for long-horizon resource management, not
+for intraday trading: you place orders in the broker app, and Quant-AI advises
+and explains. The browser app is the product; the terminal is an optional power
+tool.
 
-Live briefing: https://akmal523.github.io/quant/ — the interactive workspace
-runs locally via `quant dash`.
+Live briefing: https://akmal523.github.io/quant/
 
 > **New here?** Read [`CONTEXT.md`](CONTEXT.md) for the domain vocabulary, data
-> contracts, and architecture map. It is the canonical reference for every term
-> used below.
+> contracts, and architecture map.
 
 ---
 
@@ -36,31 +35,35 @@ runs locally via `quant dash`.
 
 ---
 
-## Quick Start
+## Quick start (browser-first)
 
 ```bash
-# 1. Install
-pip install -e ".[dashboard]"
-python -m spacy download en_core_web_sm   # optional NER
-
-# 2. Configure
-#    data/portfolio.csv   -> your Trade Republic holdings
-#    .env.example         -> optional notifier / API keys
-#    quant/config.py      -> all tunable thresholds
-
-# 3. Run (two steps)
-quant update      # step 1: fetch data + cache funnel survivors
-quant run         # step 2: score, audit, report
+pip install -e .
+quant dash
 ```
 
-Legacy entry points still work: `python3 data_updater.py` and `python3 main.py`.
+Open the address Streamlit prints (usually http://localhost:8501). On a phone on
+the same Wi-Fi, run `quant dash --lan` and open the printed LAN address.
 
-```bash
-quant dash                         # local interactive workspace (Streamlit)
-quant publish                      # render the static Published Briefing
-quant reconcile                    # diff portfolio vs broker export
-bash scripts/setup_cron.sh         # optional daily automation
-```
+Everything else happens in the browser:
+
+1. Open Portfolio and add your holdings (type a name, symbol, or ISIN).
+2. Set cash and your risk profile.
+3. Press Save and review, then read the advice on Today.
+
+The first run walks you through these three steps.
+
+## Advanced: command line
+
+The terminal is optional. Three commands cover the daily cycle:
+
+| Command | What it does |
+|:--|:--|
+| `quant update` | Refresh market data (step 1) |
+| `quant run` | Review the portfolio and write the briefing (step 2) |
+| `quant publish` | Render the static Published Briefing for the web |
+
+Add `--verbose` for per-symbol detail. Logs live under `outputs/run_*/`.
 
 ### Portfolio file (`data/portfolio.csv`)
 

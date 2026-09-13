@@ -23,8 +23,9 @@ from __future__ import annotations
 
 from quant.config import (
     SPARPLAN_STRUCT_MIN, ACTIVE_TACT_MIN,
-    ROUND_TRIP_FEE_EUR, BROKER_CASH_APY,
+    ROUND_TRIP_FEE_EUR,
 )
+from quant.portfolio.cash_rate import current_cash_apy
 from quant.portfolio.optimizer import minimum_trade_size, minimum_trade_size_vol_aware
 from quant.execution.taxonomy import PLAIN_STRUCTURE, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE
 
@@ -112,7 +113,7 @@ def build_execution_instruction(
                 f"{symbol}: expected alpha {expected_alpha_bps:.0f} bps needs "
                 f"min {min_size:.0f} EUR to clear the 2 EUR fee; capital "
                 f"{capital_eur:.0f} EUR too small -> allocate to Cash "
-                f"({BROKER_CASH_APY*100:.2f}% APY)."
+                f"({current_cash_apy()*100:.2f}% APY)."
             )
         elif not isin:
             action = "HOLD"

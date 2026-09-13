@@ -677,8 +677,26 @@ def main() -> None:
     reporter.line(f"  evidence: {with_news} symbols with news, {without_news} without "
                   f"(sentiment neutral, confidence low)")
 
-    # Briefing document (spec 3.4).
+    # v10.5.1 (spec 5.1): record the review row + metrics for the UI.
     latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
+    try:
+        from quant.portfolio.history import record_review
+        from quant.reporting.artifacts import save_metrics
+        record_review(
+            value_eur=total_value, invested_eur=invested,
+            cash_eur=account.cash_eur, pnl_eur=pnl_eur, conn=conn,
+        )
+        save_metrics(run_dir, {
+            "market_regime": regime_label,
+            "regime_prob": market_regime_prob,
+            "regime_source": regime_sym,
+            "review_ts": today,
+            "latest_bar": latest_bar,
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Review history/metrics failed (non-fatal): %s", e)
+
+    # Briefing document (spec 3.4).
     briefing_md = build_briefing_md(
         as_of=today, version=__version__, regime_label=regime_label,
         regime_prob=market_regime_prob, regime_source=regime_sym,

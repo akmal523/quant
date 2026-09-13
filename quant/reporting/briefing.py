@@ -69,14 +69,11 @@ def build_briefing_md(
     lines.append("")
     cash = f"{account.cash_eur:.2f} EUR (cash, manual input)" if account.cash_is_set \
         else "Cash not set. Set it in Portfolio to enable cash-aware recommendations."
-    lines.append(f"- Value: {total_value:.2f} EUR (source: portfolio.csv)")
-    lines.append(f"- Broker PnL: {pnl_eur:+.2f} EUR ({pnl_pct:+.2f}%) (source: broker)")
+    lines.append(f"- Value: {total_value:.2f} EUR")
+    lines.append(f"- Total profit or loss: {pnl_eur:+.2f} EUR ({pnl_pct:+.2f}%)")
     lines.append(f"- Cash: {cash}")
-    lines.append(f"- Risk profile: {account.risk_profile} (source: account.yaml)")
-    lines.append(
-        f"- Regime: {regime_label}, p={regime_prob:.2f} "
-        f"(fit {regime_source}, as-of {as_of})"
-    )
+    lines.append(f"- Risk profile: {account.risk_profile}")
+    lines.append(f"- Market trend: {regime_label}, confidence {regime_prob:.2f}")
     lines.append("")
 
     # ── Holdings ─────────────────────────────────────────────────────────────

@@ -189,3 +189,50 @@ quant.portfolio.account ──────> quant.config (RISK_PROFILES), quant.
 | Prices, history | pipeline (`quant update`) | everything |
 | Scores, grades, actions, regime | pipeline (`quant run`) | everything |
 | Version | `quant/__init__.py` | CLI, sidebar, report footer |
+
+---
+
+## v10.5.1 Domain Additions
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Copy module** | `quant/ui/copy.py`: the single source of every user-facing string and number formatter. Pages import from it so vocabulary is consistent and the banned-token test scans one file. |
+| **Banned token** | An internal identifier (run ids, paths, column names, enum values, `n/a`) that must never render in the UI. Enforced by `tests/test_ui_copy.py`. |
+| **Portfolio history** | `portfolio_history` table: one row per review (`review_ts, value_eur, invested_eur, cash_eur, pnl_eur`). Feeds the Today value chart. |
+| **Orchestrator mutex** | `quant/ui/runner.py`: one in-process lock serializing UI-triggered refresh/review runs. A second tab gets "A review is already running in another tab." |
+| **Read-only connection** | `quant.data.database.read_only_connection()`: a short-lived, always-closed connection the UI uses so a refresh subprocess can take the write lock. |
+| **Cash rate schedule** | `quant/portfolio/cash_rate.py`: dated `(effective_date, apy, source_url)` rows. 2.5 percent from 16 Sep 2026; 2.25 percent before. |
+
+### Cash rate
+
+- Trade Republic raised its cash APY to 2.5 percent on 16 Sep 2026.
+- `current_cash_apy(as_of, live=False)` returns the scheduled rate; `live=True`
+  attempts a documented public fetch and falls back to the schedule, never raising.
+- `update_cash_rate(apy, effective_date, source_url)` records a new dated fact.
+- Consumers (`routing`, `risk`, `cash_manager`, `notifier`, dashboard) call
+  `current_cash_apy()` instead of a constant; `config.BROKER_CASH_APY` is the fallback.
+
+### Concurrency contract (spec 4)
+
+1. UI reads use `read_only_connection()` and close immediately; the UI holds no
+   persistent read-write connection.
+2. `connect_with_retry(attempts=6, delay=0.5)` retries the write lock over ~15s.
+3. `quant.ui.runner` serializes UI-triggered runs with a non-blocking mutex.
+4. UI runs spawn `sys.executable -m quant.cli` and inherit the environment;
+   output streams to the run log, not the UI.
+
+### Module dependencies (v10.5.1)
+
+```
+quant.ui.copy ────────────────> (pure; datetime only)
+quant.ui.runner ──────────────> quant.cli (subprocess), quant.ui.copy
+quant.ui.search ──────────────> quant.data.database (read path), universe_builder
+quant.dashboard ──────────────> quant.ui.copy, quant.ui.runner, quant.ui.search,
+                                quant.data.database (read_only_connection),
+                                quant.portfolio.{account,editor,history,cash_rate},
+                                quant.reporting.actions
+quant.portfolio.history ──────> quant.data.database
+quant.portfolio.cash_rate ────> (pure; urllib for the optional live fetch)
+```

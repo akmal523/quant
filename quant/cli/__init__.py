@@ -146,7 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("all", help="run update then run (full daily cycle)")
     sub.add_parser("publish", help="render the static Published Briefing")
-    sub.add_parser("dash", help="launch the local interactive workspace")
+    dash = sub.add_parser("dash", help="launch the local interactive workspace")
+    dash.add_argument(
+        "--lan", action="store_true",
+        help="also serve on the local network (phone on the same Wi-Fi)",
+    )
     return parser
 
 

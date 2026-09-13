@@ -232,6 +232,8 @@ def main() -> int:
     """Fetch market data + run the funnel. Returns an exit code (spec 3.1)."""
     from quant import __version__
     from quant.reporting.artifacts import new_run_dir
+    from quant.data.database import connect_with_retry, use_connection
+    from quant.ui import copy as ui_copy
 
     _t0 = time.time()
     run_dir = new_run_dir()
@@ -241,7 +243,14 @@ def main() -> int:
     total = len(tickers)
     all_data = []
 
-    conn = get_connection()
+    # Retry the write lock (spec 4.2): the UI may briefly hold a read-only
+    # connection. Final failure is a config error (exit 2) with a plain remedy.
+    try:
+        conn = connect_with_retry(verbose=reporter.verbose)
+    except Exception:
+        reporter.line(ui_copy.ERROR_DB_BUSY)
+        return 2
+    use_connection(conn)
     init_db()
     last_dates = get_last_dates(conn)
     incremental = bool(last_dates)

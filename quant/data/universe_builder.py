@@ -97,6 +97,8 @@ INDEX_SOURCES: dict[str, str] = {
 
 # Column names (case-insensitive) that identify a ticker column in a table.
 _SYMBOL_COL_HINTS = ("ticker symbol", "ticker", "symbol", "ticker_symbol")
+# Column names (case-insensitive) that identify a company/security name column.
+_NAME_COL_HINTS = ("company", "security", "company name", "name")
 
 
 def _normalize(symbol) -> str:
@@ -111,29 +113,48 @@ def _normalize(symbol) -> str:
     return str(symbol).strip().upper()
 
 
+def _find_col(df: pd.DataFrame, hints: tuple[str, ...]):
+    """Return the first column whose lowercased name contains a hint."""
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    for hint in hints:
+        if hint in cols:
+            return cols[hint]
+    return None
+
+
+def _extract_rows_from_table(df: pd.DataFrame) -> list[tuple[str, str]]:
+    """Return (symbol, name) pairs from a constituent table.
+
+    Intent: constituent tables carry both a ticker and a company/security name.
+    Find both columns; fall back to the symbol when no name column exists.
+    Share-class dots (BRK.B) become dashes (BRK-B) for Yahoo.
+    Invariants: symbols normalized/non-empty; name defaults to the symbol.
+    """
+    sym_col = _find_col(df, _SYMBOL_COL_HINTS)
+    if sym_col is None:
+        return []
+    name_col = _find_col(df, _NAME_COL_HINTS)
+    out: list[tuple[str, str]] = []
+    for _, row in df.iterrows():
+        s = _normalize(row[sym_col])
+        if not s:
+            continue
+        sym = s.replace(".", "-")
+        name = ""
+        if name_col is not None:
+            name = str(row[name_col]).strip()
+        out.append((sym, name or sym))
+    return out
+
+
 def _extract_symbols_from_table(df: pd.DataFrame) -> list[str]:
     """Pull ticker symbols from a single parsed HTML table.
 
-    Intent: Wikipedia constituent tables vary in column naming. Find the first
-    column whose name contains a ticker/symbol hint and return its values.
-    Share-class tickers are written with a dot (BRK.B, BF.A, HEI.A, LEN.B,
-    UHAL.B) while Yahoo uses a dash (BRK-B, ...), so dots are converted here.
-    These tables are US-only (S&P 500 / Nasdaq 100 / Russell 1000); European
-    exchange suffixes (.L / .DE / .AS) come from the curated BROAD_ETFS list,
-    not from here, so converting every dot is safe.
+    Thin wrapper over ``_extract_rows_from_table`` (kept for callers/tests that
+    only need the symbols).
     Invariants: returns a list of normalized, non-empty Yahoo-style symbols.
     """
-    cols = {str(c).strip().lower(): c for c in df.columns}
-    for hint in _SYMBOL_COL_HINTS:
-        if hint in cols:
-            col = cols[hint]
-            out: list[str] = []
-            for v in df[col].tolist():
-                s = _normalize(v)
-                if s:
-                    out.append(s.replace(".", "-"))
-            return out
-    return []
+    return [sym for sym, _ in _extract_rows_from_table(df)]
 
 
 def _fetch_html(url: str) -> str:
@@ -151,14 +172,14 @@ def _fetch_html(url: str) -> str:
         return resp.read().decode("utf-8", errors="ignore")
 
 
-def load_index_constituents() -> dict[str, str]:
+def load_index_constituents() -> dict[str, tuple[str, str]]:
     """Fetch index constituents across all sources, deduplicated.
 
-    Intent: build {symbol: source} from Wikipedia tables. A failed source is
-    logged and skipped; the rest still load. Invariants: returns a dict keyed
-    by normalized symbol; first source wins on conflict.
+    Intent: build {symbol: (name, source)} from Wikipedia tables. A failed
+    source is logged and skipped; the rest still load.
+    Invariants: returns a dict keyed by normalized symbol; first source wins.
     """
-    result: dict[str, str] = {}
+    result: dict[str, tuple[str, str]] = {}
     for source, url in INDEX_SOURCES.items():
         try:
             html = _fetch_html(url)
@@ -166,15 +187,15 @@ def load_index_constituents() -> dict[str, str]:
         except Exception as e:  # noqa: BLE001
             print(f"  [UNIVERSE] {source}: failed to load ({e})")
             continue
-        symbols: list[str] = []
+        rows: list[tuple[str, str]] = []
         for t in tables:
-            symbols.extend(_extract_symbols_from_table(t))
+            rows.extend(_extract_rows_from_table(t))
         # Dedupe within source, keep first occurrence.
         seen: set[str] = set()
-        for sym in symbols:
+        for sym, name in rows:
             if sym not in seen:
                 seen.add(sym)
-                result.setdefault(sym, source)
+                result.setdefault(sym, (name, source))
         print(f"  [UNIVERSE] {source}: {len(seen)} constituents")
     return result
 
@@ -205,11 +226,12 @@ def build_universe_master() -> int:
 
     constituents = load_index_constituents()
     # Merge broad ETFs (source "ETF") — ETFs take precedence over index dupes.
+    # The BROAD_ETFS key IS the friendly name ("MSCI World", "Gold Shares (GLD)").
     for name, sym in BROAD_ETFS.items():
-        constituents.setdefault(sym, "ETF")
+        constituents.setdefault(sym, (name, "ETF"))
 
     count = 0
-    for sym, source in constituents.items():
+    for sym, (name, source) in constituents.items():
         if sym in NONEXISTENT_SYMBOLS:
             continue
         cls = classify_instrument(sym, "")
@@ -222,7 +244,7 @@ def build_universe_master() -> int:
                  source = excluded.source,
                  instrument_class = excluded.instrument_class,
                  updated_at = excluded.updated_at""",
-            [sym, sym, source, cls, time.time()],
+            [sym, name or sym, source, cls, time.time()],
         )
         count += 1
 

@@ -27,6 +27,10 @@ FILES = [
     "quant/cli/__init__.py",
     "quant/cli/output.py",
     "quant/main.py",
+    # v10.5.1: central copy module + UI helpers.
+    "quant/ui/copy.py",
+    "quant/ui/runner.py",
+    "quant/ui/search.py",
 ]
 
 

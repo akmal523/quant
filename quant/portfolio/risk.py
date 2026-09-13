@@ -2,26 +2,29 @@
 risk.py — Asymmetric downside risk quantification.
 Replaces linear correlation with empirical tail risk (VaR) and lower partial moments (Sortino).
 
-Phase 4 (2.1): The risk-free rate is now the Trade Republic cash APY (2.25%),
-converted to a daily yield. This is the REAL opportunity cost of capital, not
-the theoretical US Treasury yield. Sortino/Sharpe use this exact daily rate.
+Phase 4 (2.1): The risk-free rate is now the Trade Republic cash APY (2.5% from
+16 Sep 2026; 2.25% before), converted to a daily yield. This is the REAL
+opportunity cost of capital, not the theoretical US Treasury yield.
+v10.5.1: the rate comes from quant/portfolio/cash_rate.py (dated schedule).
 """
 import numpy as np
 import pandas as pd
 import warnings
 
-from quant.config import BROKER_CASH_APY
+from quant.portfolio.cash_rate import current_cash_apy
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
-def daily_risk_free_rate(apy: float = BROKER_CASH_APY) -> float:
+def daily_risk_free_rate(apy: float | None = None) -> float:
     """Convert broker cash APY to a daily risk-free rate.
 
     Intent: the daily hurdle an active trade must beat after fees & volatility.
     Formula: daily_rf = (1 + APY)^(1/365) - 1.
     Invariants: returns float in [0, 1); pure function (no I/O).
     """
+    if apy is None:
+        apy = current_cash_apy()
     if apy <= 0:
         return 0.0
     return float((1.0 + apy) ** (1.0 / 365.0) - 1.0)

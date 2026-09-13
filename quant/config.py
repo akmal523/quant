@@ -57,9 +57,11 @@ SPARPLAN_BUY_FEE_EUR = 0.0
 SPARPLAN_SELL_FEE_EUR = 1.0
 
 # ── Cash as Risk-Free Baseline (Phase 4) ──────────────────────────────────────
-# TR pays 2.25% APY on uninvested cash. This is the REAL risk-free rate (R_f),
-# not the theoretical US Treasury yield. Converted to daily in risk.py.
-BROKER_CASH_APY = 0.0225
+# TR pays 2.5% APY on uninvested cash (from 16 Sep 2026; 2.25% before). This is
+# the REAL risk-free rate (R_f), not the theoretical US Treasury yield.
+# v10.5.1: the dated schedule lives in quant/portfolio/cash_rate.py; this
+# constant is the fallback. Consumers should call current_cash_apy().
+BROKER_CASH_APY = 0.025
 
 # ── Smart Balance Risk Buckets (Phase 4) ──────────────────────────────────────
 # Hard inequality constraints for the cvxpy optimizer. Prevents 100% allocation
