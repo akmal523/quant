@@ -15,6 +15,7 @@ from quant import paths
 import hashlib
 import logging
 import multiprocessing
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -39,13 +40,9 @@ from quant.analytics.scoring import (
 )
 from quant.data.fundamentals import get_fundamentals
 from quant.data.universe import is_etf
-from quant.execution.taxonomy import (
-    get_instrument_class, resolve_broker, get_structure,
-)
-from quant.execution.routing import (
-    route_signal, build_execution_instruction, alpha_bps_from_active_score,
-)
+from quant.execution.taxonomy import get_instrument_class
 from quant.reporting.notifier import notify_daily
+from quant.cli.output import reporter
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -626,123 +623,136 @@ def main() -> None:
     except Exception as e:
         logger.warning("ETF factor scores artifact failed: %s", e)
 
-    print(f"\n CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
+    # ── v10.5.0: terse default output (spec 3.3, max 20 lines) ──────────────
+    import datetime as _dt
+    from quant import __version__
+    from quant.reporting.artifacts import new_run_dir
+    from quant.reporting.actions import build_actions, format_action_line
+    from quant.reporting.briefing import build_briefing_md
+    from quant.portfolio.account import load_account
 
-    # --- TOP 3 BUY OPPORTUNITIES (Inc. ETFs) ---
-    print("\n" + "=" * 40)
-    print("TOP 3 BUY OPPORTUNITIES")
-    print("=" * 40)
-    buys_with_price = final_df[(final_df['Signal'] == 'BUY') & (final_df['Current_Price'].notna())]
-    top_buys = buys_with_price.sort_values(by='Active_Score', ascending=False).head(3)
-    if not top_buys.empty:
-        print(top_buys[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
-    else:
-        print("No high-conviction BUY signals found.")
+    run_dir = new_run_dir()
+    today = _dt.date.today().isoformat()
+    account = load_account()
 
-    # --- TOP 3 STOCKS (Non-ETF) ---
-    print("\n" + "=" * 40)
-    print("TOP 3 STOCKS (Non-ETF)")
-    print("=" * 40)
-    stock_buys = final_df[(final_df['Signal'] == 'BUY') & (final_df['Is_ETF'] == False) & (final_df['Current_Price'].notna())]
-    top_stocks = stock_buys.sort_values(by='Active_Score', ascending=False).head(3)
-    if not top_stocks.empty:
-        print(top_stocks[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
-    else:
-        print("No stock BUY signals found (only ETFs).")
-
-    # --- FULL MARKET SCAN ---
-    print("\n" + "=" * 145)
-    print("FULL MARKET SCAN")
-    print("=" * 145)
-    display_cols = ['Symbol', 'Is_ETF', 'Current_Price', 'Structural_Grade', 'Tactical_Grade',
-                    'Stewardship', 'Horizon', 'Signal', 'Active_Score', 'NLP_Reasoning']
-    print(final_df[display_cols].to_string(index=False))
-
-    # --- PORTFOLIO AUDIT (tier-aware, drift + fee-aware) ---
+    # Portfolio audit is the single source of actions (T3).
+    audit_res = pd.DataFrame()
     if not port_df.empty:
-        # Build market_data dict for liquidity checks from the scan universe.
         market_data = {s: df for s, df in grouped_data.items() if s in set(port_df["Symbol"])}
         audit_res = enhanced_portfolio_audit(
-            port_df, final_df, current_date="2026-09-09", market_data=market_data,
+            port_df, final_df, current_date=today, market_data=market_data,
         )
         audit_res.to_csv(str(paths.OUTPUTS_DIR / "portfolio_audit.csv"), index=False)
 
-        print("\n" + "=" * 120)
-        print("FULL PORTFOLIO AUDIT (Tier-Aware)")
-        print("=" * 120)
-        cols = ['Symbol', 'Tier', 'Current_Weight', 'Target_Weight', 'Drift',
-                'Invested_EUR', 'Value_EUR', 'Real_PnL_EUR', 'Real_PnL_Pct',
-                'FX_Impact_EUR', 'Recon_Deviation', 'Recon_Flag',
-                'Current_Price_Native', 'Current_Price_EUR',
-                'Signal', 'Horizon', 'Recommendation']
-        print(audit_res[cols].to_string(index=False))
-        print("\n")
+    actions = build_actions(audit_res)
+    blocked = [a for a in actions if a["blocked"]]
 
-        eff = account_effectiveness(audit_res, port_df)
-        print_effectiveness_report(eff)
-
-        # ── Part 2: Advanced Portfolio Manager Briefing ──────────────────────
-        # Assemble risk monitor, portfolio context, strategy engine, cash
-        # manager, tax optimizer, attribution, and guardrails into one report.
-        # Wrapped in try/except so a failure never breaks the main pipeline.
-        try:
-            _print_advanced_briefing(port_df, audit_res, final_df, grouped_data)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Advanced briefing failed (non-fatal): %s", e)
-
-    # ── Phase 4: Signal Routing + Daily Push Notification ────────────────────
-    # Route each scored asset to SPARPLAN/ACTIVE/CASH and build execution
-    # instructions, then push a daily summary to Telegram/Discord.
-    instructions = []
-    risk_warnings = []
-    for _, row in final_df.iterrows():
-        sym = row["Symbol"]
-        cls = get_instrument_class(sym)
-        structure = get_structure(sym)
-        route = route_signal(
-            structural_grade=float(row.get("Structural_Grade", 0) or 0),
-            tactical_grade=float(row.get("Tactical_Grade", 0) or 0),
-            instrument_class=cls,
-            structure=structure,
-        )
-        broker = resolve_broker(sym)
-        # Dynamic fee hurdle: alpha scales with active score, not a constant.
-        active_score = float(row.get("Active_Score", 0) or 0)
-        alpha_bps = alpha_bps_from_active_score(active_score)
-        inst = build_execution_instruction(
-            symbol=sym,
-            route=route,
-            current_price=float(row.get("Current_Price", 0) or 0),
-            capital_eur=100.0,  # placeholder; wire to real allocation in Step 2
-            expected_alpha_bps=alpha_bps,
-            isin=broker["isin"],
-            tr_ticker=broker["tr_ticker"],
-        )
-        if inst["action"] in ("BUY", "SPARPLAN"):
-            instructions.append(inst)
-
-    # Risk warning: Alpha bucket constraint check (placeholder for real weights).
-    alpha_pct = final_df[final_df["Is_ETF"] == False]["Active_Score"].mean() if not final_df.empty else 0
-    if alpha_pct > 50:
-        risk_warnings.append("Alpha Bucket exceeds 50% constraint, rebalancing required.")
+    regime_label = "bull" if market_regime_prob >= 0.5 else "bear"
+    reporter.line(f"quant run {__version__}")
+    reporter.line(f"  regime {regime_label}, p={market_regime_prob:.2f} "
+                  f"(fit {regime_sym}, as-of {today})")
+    reporter.line(f"  scanned {len(final_df)} symbols; {len(actions)} actions, "
+                  f"{len(blocked)} blocked")
+    if actions:
+        reporter.line("  actions")
+        for a in actions:
+            reporter.line(format_action_line(a))
+    else:
+        reporter.line("  No actions required today.")
 
     total_value = port_df["Amount_EUR"].sum() if not port_df.empty else 0.0
+    pnl_eur = float(audit_res["Real_PnL_EUR"].sum()) if (
+        not audit_res.empty and "Real_PnL_EUR" in audit_res) else 0.0
+    invested = float(audit_res["Invested_EUR"].sum()) if (
+        not audit_res.empty and "Invested_EUR" in audit_res) else 0.0
+    pnl_pct = (pnl_eur / invested * 100) if invested > 0 else 0.0
+    cash_str = f"{account.cash_eur:.2f} EUR" if account.cash_is_set else "not set"
+    reporter.line(f"  portfolio {total_value:.2f} EUR; PnL {pnl_eur:+.2f} EUR "
+                  f"({pnl_pct:+.2f}%); cash {cash_str}; risk {account.risk_profile}")
+
+    with_news = sum(
+        1 for s in survivors if nlp_data_map.get(s, {}).get("data_confidence", 0.0) > 0
+    )
+    without_news = len(survivors) - with_news
+    reporter.line(f"  evidence: {with_news} symbols with news, {without_news} without "
+                  f"(sentiment neutral, confidence low)")
+
+    # Briefing document (spec 3.4).
+    latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
+    briefing_md = build_briefing_md(
+        as_of=today, version=__version__, regime_label=regime_label,
+        regime_prob=market_regime_prob, regime_source=regime_sym,
+        audit_df=audit_res, account=account, total_value=total_value,
+        pnl_eur=pnl_eur, pnl_pct=pnl_pct, with_news=with_news,
+        without_news=without_news, latest_bar=latest_bar,
+    )
+    briefing_path = os.path.join(run_dir, "briefing.md")
+    with open(briefing_path, "w", encoding="utf-8") as f:
+        f.write(briefing_md)
+    reporter.line(f"  report {briefing_path}")
+
+    # ── Verbose-only detail (R4: diagnostics go to --verbose + the run log) ──
+    if reporter.verbose:
+        reporter.detail(f" CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
+        reporter.detail("\n" + "=" * 40)
+        reporter.detail("TOP 3 BUY OPPORTUNITIES")
+        reporter.detail("=" * 40)
+        buys_with_price = final_df[(final_df['Signal'] == 'BUY') & (final_df['Current_Price'].notna())]
+        top_buys = buys_with_price.sort_values(by='Active_Score', ascending=False).head(3)
+        if not top_buys.empty:
+            reporter.detail(top_buys[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
+        else:
+            reporter.detail("No high-conviction BUY signals found.")
+
+        reporter.detail("\n" + "=" * 145)
+        reporter.detail("FULL MARKET SCAN")
+        reporter.detail("=" * 145)
+        display_cols = ['Symbol', 'Is_ETF', 'Current_Price', 'Structural_Grade', 'Tactical_Grade',
+                        'Stewardship', 'Horizon', 'Signal', 'Active_Score', 'NLP_Reasoning']
+        reporter.detail(final_df[display_cols].to_string(index=False))
+
+        if not audit_res.empty:
+            reporter.detail("\n" + "=" * 120)
+            reporter.detail("FULL PORTFOLIO AUDIT (Tier-Aware)")
+            reporter.detail("=" * 120)
+            cols = ['Symbol', 'Tier', 'Current_Weight', 'Target_Weight', 'Drift',
+                    'Invested_EUR', 'Value_EUR', 'Real_PnL_EUR', 'Real_PnL_Pct',
+                    'FX_Impact_EUR', 'Recon_Deviation', 'Recon_Flag',
+                    'Current_Price_Native', 'Current_Price_EUR',
+                    'Signal', 'Horizon', 'Recommendation']
+            reporter.detail(audit_res[cols].to_string(index=False))
+            eff = account_effectiveness(audit_res, port_df)
+            reporter.detail(print_effectiveness_report.__doc__ or "")
+            reporter.detail(str(eff))
+            try:
+                _print_advanced_briefing(port_df, audit_res, final_df, grouped_data)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Advanced briefing failed (non-fatal): %s", e)
+
+        reporter.detail("\n" + obs.summary())
+
+    # ── Phase 4: Daily Push Notification (canonical actions) ─────────────────
+    notify_instructions = [
+        {
+            "route": a["action"],
+            "symbol": a["symbol"],
+            "isin": "",
+            "min_trade_size_eur": a["amount_eur"] or 0.0,
+        }
+        for a in actions
+    ]
+    cash_alloc = (account.cash_eur / total_value) if (
+        account.cash_is_set and total_value > 0) else 0.0
     notify_daily(
         total_value=total_value,
-        cash_allocation=0.10,  # placeholder; wire to optimizer output
-        instructions=instructions,
-        risk_warnings=risk_warnings,
+        cash_allocation=cash_alloc,
+        instructions=notify_instructions,
+        risk_warnings=[],
     )
-
-    # ── Part 3 (Gap #3): Observability summary ──────────────────────────────
-    print("\n" + obs.summary())
 
     # ── v10.4.0 (Phase 4): persist telemetry + publish scoring_complete ─────
     try:
         import json
-        import os
-        from quant.reporting.artifacts import new_run_dir
-        run_dir = new_run_dir()
         with open(os.path.join(run_dir, "telemetry.json"), "w") as f:
             json.dump(obs.to_json(), f, indent=2, default=str)
     except Exception as e:  # noqa: BLE001
@@ -752,6 +762,8 @@ def main() -> None:
         EventBus().publish(EVENTS["SCORING_COMPLETE"], {"symbols": len(final_df)})
     except Exception:
         pass
+
+    return 0
 
 
 if __name__ == "__main__":

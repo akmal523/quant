@@ -1,0 +1,32 @@
+name: publish-briefing
+
+on:
+  schedule:
+    - cron: "0 17 * * 1-5"     # weekdays 17:00 UTC, after European close
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache market data
+        uses: actions/cache@v4
+        with:
+          path: quant_cache.duckdb
+          key: duckdb-${{ github.run_id }}
+          restore-keys: duckdb-
+      - run: pip install -e .
+      - run: quant update && quant run && quant publish
+      - uses: actions/configure-pages@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: outputs/run_latest/web
+      - uses: actions/deploy-pages@v4

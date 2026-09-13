@@ -12,6 +12,9 @@ survivors, and produces EUR-native buy/hold/sell guidance plus a broker-synced
 portfolio audit. Python orchestrates; the heavy lifting runs in Rust (Polars),
 SQL (DuckDB), and C++-backed libraries (cvxpy, selectolax).
 
+Live briefing: https://akmal523.github.io/quant/ — the interactive workspace
+runs locally via `quant dash`.
+
 > **New here?** Read [`CONTEXT.md`](CONTEXT.md) for the domain vocabulary, data
 > contracts, and architecture map. It is the canonical reference for every term
 > used below.
@@ -53,7 +56,8 @@ quant run         # step 2: score, audit, report
 Legacy entry points still work: `python3 data_updater.py` and `python3 main.py`.
 
 ```bash
-streamlit run quant/dashboard.py   # dashboard
+quant dash                         # local interactive workspace (Streamlit)
+quant publish                      # render the static Published Briefing
 quant reconcile                    # diff portfolio vs broker export
 bash scripts/setup_cron.sh         # optional daily automation
 ```

@@ -20,24 +20,42 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
+import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from quant.cli import output
+
 
 def _cmd_update(_args: argparse.Namespace) -> int:
-    """Fetch market data + run the funnel (step 1)."""
+    """Fetch market data + run the funnel (step 1). Returns an exit code."""
     from quant.data.data_updater import main as updater_main
 
-    updater_main()
-    return 0
+    return updater_main()
 
 
 def _cmd_run(_args: argparse.Namespace) -> int:
-    """Score, audit, and report (step 2)."""
+    """Score, audit, and report (step 2). Returns an exit code."""
     from quant.main import main as pipeline_main
 
-    pipeline_main()
-    return 0
+    return pipeline_main()
+
+
+def _cmd_publish(_args: argparse.Namespace) -> int:
+    """Render the static Published Briefing from the latest run artifacts."""
+    from quant.reporting.web import publish
+
+    return publish()
+
+
+def _cmd_dash(_args: argparse.Namespace) -> int:
+    """Launch the local interactive workspace (Streamlit)."""
+    from quant import paths
+
+    dash = os.path.join(str(paths.PROJECT_ROOT), "quant", "dashboard.py")
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", dash])
 
 
 def _cmd_reconcile(args: argparse.Namespace) -> int:
@@ -103,11 +121,19 @@ def _cmd_all(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``quant`` argument parser."""
+    from quant import __version__
+
     parser = argparse.ArgumentParser(
         prog="quant",
         description="Quant-AI systematic equity pipeline.",
     )
-    parser.add_argument("--version", action="version", version="quant-ai 10.4.2")
+    parser.add_argument("--version", action="version", version=f"quant-ai {__version__}")
+    # Global flag: default output is terse (R4). Detail goes to the run log.
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="show per-symbol and per-step detail on stdout",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("update", help="fetch market data + run the funnel")
@@ -119,11 +145,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Broker CSV export (Symbol, Value_EUR). Defaults to data/portfolio.csv.",
     )
     sub.add_parser("all", help="run update then run (full daily cycle)")
+    sub.add_parser("publish", help="render the static Published Briefing")
+    sub.add_parser("dash", help="launch the local interactive workspace")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Console-script entry point."""
+    """Console-script entry point.
+
+    Exit codes (spec 3.1): 0 success, 1 data-quality gate failure, 2 config error.
+    """
     from quant import paths
 
     parser = build_parser()
@@ -131,13 +162,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     if getattr(args, "broker", None) is None:
         args.broker = str(paths.DATA_PORTFOLIO)
 
+    # Only commands that produce a run create a run dir + pipeline.log. publish,
+    # reconcile, and dash must NOT mint a new (empty) run dir, or latest_run()
+    # would point at it instead of the last real run.
+    log_path = (
+        output.default_log_path()
+        if args.command in ("update", "run", "all")
+        else None
+    )
+    output.configure(verbose=getattr(args, "verbose", False), log_path=log_path)
+
     dispatch = {
         "update": _cmd_update,
         "run": _cmd_run,
         "reconcile": _cmd_reconcile,
         "all": _cmd_all,
+        "publish": _cmd_publish,
+        "dash": _cmd_dash,
     }
-    return dispatch[args.command](args)
+    try:
+        return dispatch[args.command](args)
+    except Exception as e:  # noqa: BLE001
+        # Configuration / unexpected error: one error line + one remedy line.
+        output.reporter.line(f"error: {e}")
+        output.reporter.line("remedy: check the run log and configuration, then retry.")
+        return 2
+    finally:
+        output.reporter.close()
 
 
 __all__ = ["main", "build_parser"]

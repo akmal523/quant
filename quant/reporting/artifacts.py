@@ -20,12 +20,39 @@ import pandas as pd
 OUTPUTS_DIR = str(paths.OUTPUTS_DIR)
 
 
+_RUN_DIR: str | None = None
+
+
 def new_run_dir() -> str:
-    """Create and return outputs/run_<YYYY-MM-DD_HHMMSS>/."""
+    """Create and return outputs/run_<YYYY-MM-DD_HHMMSS>/.
+
+    Invariant (v10.5.0): idempotent per process. The first call creates the
+    directory; later calls return the same path so one run writes all artifacts
+    (factor scores, telemetry, pipeline.log, web/) into a single dir. Before
+    v10.5.0 each call minted a new timestamped dir, scattering one run's output.
+    """
+    global _RUN_DIR
+    if _RUN_DIR is not None:
+        return _RUN_DIR
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     path = os.path.join(OUTPUTS_DIR, f"run_{ts}")
     os.makedirs(path, exist_ok=True)
+    _RUN_DIR = path
     return path
+
+
+def current_run_dir() -> str | None:
+    """Return the run dir created in this process, or None if none yet."""
+    return _RUN_DIR
+
+
+def latest_run() -> str | None:
+    """Return the most recent run dir (spec 4.3 single artifact accessor).
+
+    Intent: the dashboard Explorer must read scores through ONE helper so it can
+    never point at a stale or wrong artifact path. Alias of latest_run_dir().
+    """
+    return latest_run_dir()
 
 
 def latest_run_dir() -> str | None:

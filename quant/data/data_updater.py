@@ -8,6 +8,7 @@ from quant.data.database import get_connection, init_db
 from quant.execution.taxonomy import resolve_broker, get_instrument_class
 from quant.data.yf_utils import history_with_timeout, rate_limited
 from quant.data.assertions import DataAssertionError
+from quant.cli.output import reporter
 
 OUTPUT_FILE = "market_data.parquet"
 # Spacing between the (batched-friendly) per-symbol fetches. yfinance 1.x rate
@@ -59,21 +60,21 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
 
         if df is None:
             reason = "rate-limited" if rate_limited() else "timeout/failed"
-            print(f" [!] {reason.capitalize()} history for {sym} (via {fetch_ticker})")
+            reporter.detail(f" [!] {reason.capitalize()} history for {sym} (via {fetch_ticker})")
             return None
         if df.empty:
-            print(f" [!] Empty history for {sym} (via {fetch_ticker})")
+            reporter.detail(f" [!] Empty history for {sym} (via {fetch_ticker})")
             return None
 
         # Drop rows with NaN Close (future dates, non-trading days, etc.)
         valid = df.dropna(subset=['Close'])
         if valid.empty:
-            print(f" [!] No valid Close data for {sym}")
+            reporter.detail(f" [!] No valid Close data for {sym}")
             return None
 
         latest_px = valid['Close'].iloc[-1]
         latest_dt = valid.index[-1].strftime('%Y-%m-%d')
-        print(f" [OK] {sym} (via {fetch_ticker}): Latest {latest_dt} | Price: {latest_px:.2f}")
+        reporter.detail(f" [OK] {sym} (via {fetch_ticker}): Latest {latest_dt} | Price: {latest_px:.2f}")
 
         df['Symbol'] = sym
         df['Sector'] = sector
@@ -104,8 +105,8 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         df, split_events = apply_corporate_actions(df)
         split_dates = {pd.Timestamp(e.date) for e in split_events}
         if split_events:
-            print(f" [CA] {sym}: adjusted {len(split_events)} split(s): "
-                  f"{', '.join(f'{e.date.date()} x{e.ratio:g}' for e in split_events)}")
+            reporter.detail(f" [CA] {sym}: adjusted {len(split_events)} split(s): "
+                            f"{', '.join(f'{e.date.date()} x{e.ratio:g}' for e in split_events)}")
 
         # ── Part 3 (Gap #1): Data Quality Gate ──────────────────────────────
         # Validate before the data enters DuckDB. Auto-repair common issues;
@@ -124,14 +125,14 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
             df, sym, check_min_history=check_min_history, check_extreme_moves=False,
         )
         if not is_valid:
-            print(f" [!] [{sym}] Data quality issues: {issues}")
+            reporter.detail(f" [!] [{sym}] Data quality issues: {issues}")
             repaired = validator.auto_repair(df, sym)
             is_valid, issues = validator.validate_batch(
                 repaired, sym, check_min_history=check_min_history,
                 check_extreme_moves=False,
             )
             if not is_valid:
-                print(f" [!] [{sym}] Skipping append — unfixable issues: {issues}")
+                reporter.detail(f" [!] [{sym}] Skipping append — unfixable issues: {issues}")
                 return None
             df = repaired
 
@@ -146,19 +147,22 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         # Hard gate: propagate so main() aborts the whole run.
         raise
     except Exception as e:
-        print(f" [!] Error {sym}: {e}")
+        reporter.detail(f" [!] Error {sym}: {e}")
         return None
 
 
-def build_fetch_list() -> list[tuple[str, str, str]]:
+def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
     """Build the ticker fetch list: CORE ETFs + ACTIVE + portfolio + funnel.
 
     Intent (Plan 3, Phase 1): the broad 1000+ universe is filtered by funnel.py
     to the top survivors. data_updater fetches FULL 5y history only for those
     survivors plus always-tracked CORE ETFs, ACTIVE registry, and portfolio.
     Phase 5 (v10.2): DELISTED symbols are excluded (stop retrying forever).
+    v10.5.0: returns (tickers, meta) where meta carries universe/survivor counts
+    for the terse aggregate line.
     Invariants: returns list of (symbol, name, sector); deduplicated by symbol.
     """
+    meta = {"universe": 0, "survivors": 0}
     from quant.data.database import init_db
     init_db()
 
@@ -202,34 +206,38 @@ def build_fetch_list() -> list[tuple[str, str, str]]:
         from quant.data.funnel import run_funnel, save_survivors
         pool = load_universe_master()
         if not pool:
-            print("  [UNIVERSE] universe_master empty - building broad 1000+ pool...")
+            reporter.detail("  [UNIVERSE] universe_master empty - building broad 1000+ pool...")
             build_universe_master()
             pool = load_universe_master()
-        print(f"  [FUNNEL] input pool: {len(pool)} symbols")
+        meta["universe"] = len(pool)
+        reporter.detail(f"  [FUNNEL] input pool: {len(pool)} symbols")
         if pool:
             result = run_funnel(pool)
             # Persist survivors so main.py reuses them instead of re-running the
             # 1000+ symbol funnel (keeps the 2-step flow: data_updater -> main).
             save_survivors(result["survivors"])
-            print(f"  [FUNNEL] {result['input']} -> {result['stage1']} -> "
-                  f"{result['stage2']} survivors")
+            meta["survivors"] = len(result["survivors"])
+            reporter.detail(f"  [FUNNEL] {result['input']} -> {result['stage1']} -> "
+                            f"{result['stage2']} survivors")
             for sym in result["survivors"]:
                 if sym not in tickers:
                     tickers[sym] = (sym, "Funnel")
     except Exception as e:
-        print(f"  [!] Funnel failed (non-fatal): {e}")
+        reporter.detail(f"  [!] Funnel failed (non-fatal): {e}")
 
-    return [(sym, name, sector) for sym, (name, sector) in tickers.items()]
+    return [(sym, name, sector) for sym, (name, sector) in tickers.items()], meta
 
 
-def main() -> None:
+def main() -> int:
+    """Fetch market data + run the funnel. Returns an exit code (spec 3.1)."""
+    from quant import __version__
+    from quant.reporting.artifacts import new_run_dir
+
     _t0 = time.time()
-    # Progress output BEFORE the (potentially slow) funnel phase so the run is
-    # never silent while build_fetch_list() fetches the broad universe.
-    print("Building fetch list (CORE + ACTIVE + Portfolio + funnel)...")
-    tickers = build_fetch_list()
-    print(f"Fetch list ready: {len(tickers)} tickers.")
+    run_dir = new_run_dir()
+    reporter.line(f"quant update {__version__}")
 
+    tickers, meta = build_fetch_list()
     total = len(tickers)
     all_data = []
 
@@ -237,9 +245,8 @@ def main() -> None:
     init_db()
     last_dates = get_last_dates(conn)
     incremental = bool(last_dates)
-    print(f"Fetching {total} tickers (CORE + ACTIVE + Portfolio) with "
-          f"{MAX_WORKERS} parallel workers... "
-          f"({'INCREMENTAL' if incremental else 'FULL 5y'} mode)")
+    reporter.detail(f"Fetching {total} tickers with {MAX_WORKERS} workers "
+                    f"({'INCREMENTAL' if incremental else 'FULL 5y'} mode)")
 
     # Safety net: each fetch is already bounded by history_with_timeout, but cap
     # the overall wait so a pathological stall cannot hang the run forever.
@@ -257,72 +264,82 @@ def main() -> None:
                     result = future.result()
                 except DataAssertionError as e:
                     # Hard data-quality gate failed: abort the entire run rather
-                    # than ingesting corrupt data.
-                    print(f"\n [FATAL] Data assertion failed: {e}")
-                    print(" Pipeline aborted. Fix the data source before re-running.")
-                    return
+                    # than ingesting corrupt data. Exit code 1 (spec 3.1).
+                    reporter.end_progress()
+                    reporter.line(f"error: data assertion failed: {e}")
+                    reporter.line("remedy: fix the data source, then re-run quant update.")
+                    return 1
                 if result is not None:
                     all_data.append(result)
-                print(f"  [{i}/{total}] Completed: {futures[future]}")
+                reporter.progress(f"  fetched {i}/{total}")
         except TimeoutError:
-            print(f" [!] Overall fetch timeout ({overall_timeout:.0f}s) reached; "
-                  f"proceeding with {len(all_data)} tickers fetched so far.")
+            reporter.end_progress()
+            reporter.detail(f" [!] Overall fetch timeout ({overall_timeout:.0f}s) reached; "
+                            f"proceeding with {len(all_data)} tickers fetched so far.")
+    reporter.end_progress()
 
-    if all_data:
-        final_df = pd.concat(all_data)
-        final_df = final_df.reset_index()
+    if not all_data:
+        reporter.line("error: no data acquired.")
+        reporter.line("remedy: check network access and the ticker list, then re-run quant update.")
+        return 1
 
-        if 'Date' in final_df.columns:
-            final_df['Date'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d')
+    final_df = pd.concat(all_data)
+    final_df = final_df.reset_index()
 
-        # Ensure only known columns (matches market_history PK schema).
-        cols_to_keep = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume',
-                        'Symbol', 'Sector', 'Instrument_Class']
-        final_df = final_df[[c for c in cols_to_keep if c in final_df.columns]]
+    if 'Date' in final_df.columns:
+        final_df['Date'] = pd.to_datetime(final_df['Date']).dt.strftime('%Y-%m-%d')
 
-        # Explicit column list: market_history carries an extra ingested_at
-        # column (v10.4.0 bitemporal audit) that final_df does not, so a bare
-        # `SELECT *` supplies 9 values for 10 columns (BinderException).
-        final_df["ingested_at"] = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        insert_cols = ("Date, Open, High, Low, Close, Volume, Symbol, Sector, "
-                       "Instrument_Class, ingested_at")
-        insert_select = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, "
-                         "Sector, Instrument_Class, ingested_at FROM final_df")
-        if incremental:
-            # INSERT OR REPLACE dedups on PRIMARY KEY (Symbol, Date).
-            conn.execute(
-                f"INSERT OR REPLACE INTO market_history ({insert_cols}) {insert_select}"
-            )
-            print(f"\nIncremental update: {len(final_df)} rows appended/updated "
-                  f"({len(all_data)}/{total} tickers fetched).")
-        else:
-            conn.execute("DELETE FROM market_history")
-            conn.execute(
-                f"INSERT INTO market_history ({insert_cols}) {insert_select}"
-            )
-            print(f"\nWrite complete: {len(final_df)} rows saved to DuckDB "
-                  f"({len(all_data)}/{total} tickers fetched).")
+    # Ensure only known columns (matches market_history PK schema).
+    cols_to_keep = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume',
+                    'Symbol', 'Sector', 'Instrument_Class']
+    final_df = final_df[[c for c in cols_to_keep if c in final_df.columns]]
 
-        # ── v10.4.0 (Phase 4): structured telemetry + EDA event ─────────────
-        # Publish market_close_data_ready so subscribers (scoring) can react
-        # without a hard call chain. A Yahoo outage cannot cascade.
-        try:
-            from quant.infra.observability import ObservabilityCollector
-            from quant.infra.event_bus import EventBus, EVENTS
-            obs = ObservabilityCollector()
-            obs.record_metric("fetch_latency_s", time.time() - _t0)
-            obs.record_metric("tickers_fetched", len(all_data))
-            if rate_limited():
-                obs.increment("api_rate_limit_hits")
-            EventBus().publish(EVENTS["MARKET_CLOSE_DATA_READY"], {
-                "rows": len(final_df),
-                "tickers": len(all_data),
-                "telemetry": obs.to_json(),
-            })
-        except Exception:
-            pass
+    # Explicit column list: market_history carries an extra ingested_at
+    # column (v10.4.0 bitemporal audit) that final_df does not, so a bare
+    # `SELECT *` supplies 9 values for 10 columns (BinderException).
+    final_df["ingested_at"] = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    insert_cols = ("Date, Open, High, Low, Close, Volume, Symbol, Sector, "
+                   "Instrument_Class, ingested_at")
+    insert_select = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, "
+                     "Sector, Instrument_Class, ingested_at FROM final_df")
+    if incremental:
+        # INSERT OR REPLACE dedups on PRIMARY KEY (Symbol, Date).
+        conn.execute(
+            f"INSERT OR REPLACE INTO market_history ({insert_cols}) {insert_select}"
+        )
     else:
-        print("\nFatal: No data acquired.")
+        conn.execute("DELETE FROM market_history")
+        conn.execute(
+            f"INSERT INTO market_history ({insert_cols}) {insert_select}"
+        )
+
+    # ── v10.4.0 (Phase 4): structured telemetry + EDA event ─────────────
+    # Publish market_close_data_ready so subscribers (scoring) can react
+    # without a hard call chain. A Yahoo outage cannot cascade.
+    try:
+        from quant.infra.observability import ObservabilityCollector
+        from quant.infra.event_bus import EventBus, EVENTS
+        obs = ObservabilityCollector()
+        obs.record_metric("fetch_latency_s", time.time() - _t0)
+        obs.record_metric("tickers_fetched", len(all_data))
+        if rate_limited():
+            obs.increment("api_rate_limit_hits")
+        EventBus().publish(EVENTS["MARKET_CLOSE_DATA_READY"], {
+            "rows": len(final_df),
+            "tickers": len(all_data),
+            "telemetry": obs.to_json(),
+        })
+    except Exception:
+        pass
+
+    # ── Terse aggregate summary (spec 3.2, max 20 lines) ────────────────────
+    latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
+    reporter.line(f"  universe {meta['universe']} symbols; funnel survivors {meta['survivors']}")
+    reporter.line(f"  fetched {len(all_data)}/{total} symbols, +{len(final_df)} rows, "
+                  f"latest bar {latest_bar}")
+    reporter.line(f"  done in {time.time() - _t0:.0f} s -> {run_dir}/")
+    return 0
+
 
 if __name__ == "__main__":
     main()

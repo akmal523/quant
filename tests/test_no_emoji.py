@@ -20,6 +20,12 @@ FILES = [
     "quant/dashboard.py",
     "quant/reporting/notifier.py",
     "quant/reporting/reporting.py",
+    "quant/reporting/reporting_advanced.py",
+    "quant/reporting/web.py",
+    "quant/reporting/briefing.py",
+    "quant/reporting/actions.py",
+    "quant/cli/__init__.py",
+    "quant/cli/output.py",
     "quant/main.py",
 ]
 

@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.5.0] - 2026-09-13
+
+### Changed - UI and Text Reform (Doctrine, Terse CLI, Hosted Briefing)
+
+Every visible element now passes the action test or the trust test. Silent
+defaults, duplicated facts, and decoration are removed. No trading-logic
+changes; the golden snapshot is stable.
+
+**T1 - Terse CLI + run log**
+
+1. **Global `--verbose`** - [`quant/cli/__init__.py`](quant/cli/__init__.py).
+   Default output is terse; per-symbol and per-step detail goes to
+   `outputs/run_<ts>/pipeline.log` and to stdout only under `--verbose`.
+2. **Terse reporter** - [`quant/cli/output.py`](quant/cli/output.py) *(new)*.
+   Aggregate lines to stdout; detail to the log; a single rewritten progress
+   line (`fetched N/M`) instead of interleaved worker prints.
+3. **Exit codes** - 0 success, 1 data-quality gate failure, 2 configuration
+   error; one error line plus one remedy line on failure.
+4. **Default output <= 20 lines** - `quant update` and `quant run` emit the
+   exact target formats from the spec.
+
+**T2 - account.yaml single-sourced cash**
+
+5. **`data/account.yaml`** - [`quant/portfolio/account.py`](quant/portfolio/account.py) *(new)*,
+   [`quant/paths.py`](quant/paths.py). Cash, risk profile, and base currency
+   have one writer and one reader path. The `account_state` DuckDB table and the
+   cash widget are removed.
+6. **Risk profiles** - [`quant/config.py`](quant/config.py) `RISK_PROFILES`
+   maps `conservative` / `balanced` / `aggressive` to bucket, position, and cash
+   limits.
+
+**T3 - Single-sourced actions + briefing**
+
+7. **Canonical actions** - [`quant/reporting/actions.py`](quant/reporting/actions.py) *(new)*.
+   Actions derive from the portfolio audit + broker registry; every line cites
+   the threshold from `quant/config.py` that triggered it. The generic Sparplan
+   list and placeholder `capital_eur=100.0` paths are deleted.
+8. **Briefing document** - [`quant/reporting/briefing.py`](quant/reporting/briefing.py) *(new)*.
+   Sections: Actions, Portfolio, Holdings, Risk, Evidence summary, Data health
+   (blockers only), Methodology.
+
+**T4-T6 - Local workspace redesign**
+
+9. **Four pages** - [`quant/dashboard.py`](quant/dashboard.py): Briefing,
+   Portfolio, Explorer, Data and Runs. Universe Manager is deleted; its registry
+   table moves to Data and Runs.
+10. **Explorer fixes** - scores read through the single
+    [`quant.reporting.artifacts.latest_run()`](quant/reporting/artifacts.py)
+    accessor; evidence list from `nlp_evidence`; empty fields hidden (R1).
+11. **Portfolio editor** - [`quant/portfolio/editor.py`](quant/portfolio/editor.py) *(new)*:
+    validation + atomic save (temp file + rename) for `data/portfolio.csv`.
+
+**T7-T8 - Hosted Published Briefing**
+
+12. **`quant publish`** - [`quant/reporting/web.py`](quant/reporting/web.py) *(new)*
+    renders `outputs/run_<ts>/web/index.html` + `data.json` and links
+    `outputs/run_latest`.
+13. **Pages workflow** - [`.github/workflows/publish-briefing.yml`](.github/workflows/publish-briefing.yml) *(new)*
+    builds and deploys on a weekday schedule. README gains the live-briefing
+    link and the local `quant dash` line.
+
+**T9-T10 - Tone, tests, docs, release**
+
+14. **No-emoji lint extended** - [`tests/test_no_emoji.py`](tests/test_no_emoji.py)
+    now scans the dashboard, report templates, web, and CLI strings.
+15. **New tests** - [`tests/test_cli_output.py`](tests/test_cli_output.py),
+    [`tests/test_dashboard_contract.py`](tests/test_dashboard_contract.py),
+    [`tests/test_portfolio_editor.py`](tests/test_portfolio_editor.py),
+    [`tests/test_publish.py`](tests/test_publish.py),
+    [`tests/test_account_config.py`](tests/test_account_config.py).
+16. **Docs** - [`CONTEXT.md`](CONTEXT.md) gains account.yaml, risk profiles,
+    publish, evidence transparency, and the v10.5.0 source-of-truth contract.
+
+---
+
 ## [10.4.2] - 2026-09-13
 
 ### Changed - Professional Transformation (Packaging, Testing, DX, Community)

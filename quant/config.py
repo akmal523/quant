@@ -68,6 +68,18 @@ SAFETY_BUCKET_MIN = 0.10   # Cash & short-term bonds (2.25% risk-free)
 CORE_BUCKET_MIN   = 0.40   # Broad ETFs via Sparplan (free execution)
 ALPHA_BUCKET_MAX  = 0.50   # Active equities (1 EUR fee, high conviction)
 
+# ── v10.5.0: Risk Profiles (spec 2.3) ─────────────────────────────────────────
+# The user picks one profile in data/account.yaml; it maps to the optimizer and
+# limit parameters below. Tuple order:
+#   (safety_min, core_min, alpha_max, max_position, cash_floor)
+# Documented in CONTEXT.md, one plain sentence per profile.
+RISK_PROFILES = {
+    "conservative": (0.20, 0.40, 0.40, 0.25, 0.15),
+    "balanced":     (0.10, 0.40, 0.50, 0.35, 0.10),
+    "aggressive":   (0.05, 0.30, 0.65, 0.45, 0.05),
+}
+DEFAULT_RISK_PROFILE = "balanced"
+
 # ── Signal Routing (Phase 4) ──────────────────────────────────────────────────
 # Structural grade threshold for long-term hold -> route to Sparplan.
 # Tactical grade threshold for immediate breakout -> route to Active Trade.

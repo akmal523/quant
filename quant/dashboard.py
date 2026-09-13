@@ -1,20 +1,22 @@
 """
-dashboard.py — Local Streamlit Dashboard (Phase 4, Module 4.1).
+dashboard.py — Local Streamlit workspace (v10.5.0, spec 4).
 
-Intent: lightweight local UI reading directly from DuckDB. No web server or
-cloud dependencies. Three pages:
-  1. Daily Briefing — cash yield, total value, exact execution instructions.
-  2. Asset Explorer — search by ISIN/ticker, Plotly price chart + volatility
-     bands, cross-sectional z-scores, FinBERT NLP reasoning.
-  3. Universe Manager — CORE/ACTIVE/WATCHLIST/DELISTED status, event log,
-     manual pin/remove.
+Intent: the interactive workspace runs locally (DuckDB, caches, input files
+live here). It is the ONLY place with write access, and it writes ONLY input
+files (portfolio.csv, account.yaml), never derived artifacts. Four pages:
+  1. Briefing   — actions, portfolio, data health, evidence footnote.
+  2. Portfolio  — positions editor, account form, broker registry (read-only).
+  3. Explorer   — chart, metrics, evidence list, execution card.
+  4. Data and Runs — run buttons, run history, universe registry, data health.
 
-Phase 5 (v10.2): zero emoji characters, `width="stretch"` instead of
-`use_container_width`, all reads cached via `@st.cache_data(ttl=300)`, and a
-sidebar with version / last run / market regime / cash APY.
+Doctrine (spec 1): every visible element passes the action test or the trust
+test. No silent defaults (R1), one source of truth (R2), every number carries
+metadata (R3), terse (R4), no emoji (R5), recommendations cite their rule (R6).
 
 Run:  streamlit run quant/dashboard.py   (from the repo root)
-Dependencies: streamlit, plotly, pandas, quant.data.database, quant.execution.taxonomy, quant.execution.routing, quant.portfolio.risk.
+Dependencies: streamlit, plotly, pandas, quant.data.database,
+quant.execution.taxonomy, quant.execution.routing, quant.portfolio.account,
+quant.portfolio.editor, quant.reporting.actions, quant.reporting.artifacts.
 """
 from __future__ import annotations
 
@@ -23,25 +25,36 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 from quant import paths
 import os
+import subprocess
 import pandas as pd
 import streamlit as st
 
-from quant.config import BROKER_CASH_APY, STALE_DATA_DAYS
+from quant import __version__
+from quant.config import BROKER_CASH_APY, STALE_DATA_DAYS, RISK_PROFILES
 from quant.data.database import get_connection, init_db
-from quant.portfolio.risk import daily_risk_free_rate
-from quant.execution.taxonomy import (
-    resolve_broker, classify_instrument, get_structure,
-    log_universe_event, set_core, add_to_watchlist, mark_delisted,
-    ALL_STATUSES, ALL_STRUCTURES,
-)
-from quant.execution.routing import (
-    route_signal, build_execution_instruction, alpha_bps_from_active_score,
-)
-from quant.reporting.artifacts import latest_run_dir
+from quant.execution.taxonomy import resolve_broker, classify_instrument, get_structure
+from quant.execution.routing import route_signal, alpha_bps_from_active_score
+from quant.portfolio.account import load_account, save_account, AccountState
+from quant.portfolio.editor import validate_positions, save_portfolio
+from quant.reporting.actions import build_actions
+from quant.reporting.artifacts import latest_run
 
 st.set_page_config(page_title="Quant-AI Family Office", layout="wide")
 
-VERSION = "v10.2.0"
+# ── Empty-state catalog (spec 4.6, exact strings) ─────────────────────────────
+EMPTY_NO_RUN = "No run yet. Run quant run, or use Data and Runs."
+EMPTY_REGIME = "Regime: not estimated (needs 250 bars of IWDA.AS)."
+EMPTY_NEWS = "No news evidence for {symbol}. Sentiment scored neutral, confidence low."
+EMPTY_BLOCKED = ("Blocked: ISIN missing for {symbol}. Add it in Portfolio, "
+                 "or resolve in the broker app.")
+EMPTY_ACTIONS = "No actions required today."
+EMPTY_CASH = "Cash not set. Set it in Portfolio to enable cash-aware recommendations."
+
+RISK_PROFILE_SENTENCES = {
+    "conservative": "conservative keeps at least 20 percent in safety assets and at least 15 percent in cash",
+    "balanced": "balanced keeps at least 10 percent in safety assets and at least 10 percent in cash",
+    "aggressive": "aggressive keeps at least 5 percent in safety assets and at least 5 percent in cash",
+}
 
 
 # ── Cached Reads ──────────────────────────────────────────────────────────────
@@ -69,32 +82,31 @@ def load_registry() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_events() -> pd.DataFrame:
-    """Load the last 50 universe_events rows (audit trail)."""
-    conn = get_connection()
-    try:
-        return conn.execute(
-            "SELECT ts, symbol, event, reason FROM universe_events "
-            "ORDER BY ts DESC LIMIT 50"
-        ).df()
-    except Exception:
-        return pd.DataFrame(columns=["ts", "symbol", "event", "reason"])
-
-
-@st.cache_data(ttl=300)
 def load_portfolio() -> pd.DataFrame:
     """Load portfolio.csv holdings."""
     try:
-        from quant.portfolio.portfolio import load_portfolio
-        return load_portfolio(paths.DATA_PORTFOLIO)
+        from quant.portfolio.portfolio import load_portfolio as _lp
+        return _lp(paths.DATA_PORTFOLIO)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def load_audit() -> pd.DataFrame:
+    """Load the latest portfolio audit CSV (single source of actions)."""
+    path = os.path.join(str(paths.OUTPUTS_DIR), "portfolio_audit.csv")
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=300)
 def load_factor_scores() -> pd.DataFrame:
-    """Load the latest factor_scores.parquet from the newest run artifact."""
-    run_dir = latest_run_dir()
+    """Load factor_scores.parquet via the single latest_run() accessor (T4a)."""
+    run_dir = latest_run()
     if not run_dir:
         return pd.DataFrame()
     path = os.path.join(run_dir, "factor_scores.parquet")
@@ -107,250 +119,187 @@ def load_factor_scores() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_account_state() -> float:
-    """Load the persisted cash input from account_state."""
+def load_evidence(symbol: str) -> pd.DataFrame:
+    """Load NLP evidence rows for a symbol (spec 6)."""
     conn = get_connection()
     try:
-        row = conn.execute(
-            "SELECT value FROM account_state WHERE key = 'cash_eur'"
-        ).fetchone()
-        return float(row[0]) if row else 0.0
+        return conn.execute(
+            "SELECT source, title, published_at, score, confidence "
+            "FROM nlp_evidence WHERE symbol = ? ORDER BY published_at DESC",
+            [symbol],
+        ).df()
     except Exception:
-        return 0.0
+        return pd.DataFrame()
 
 
-def save_account_state(cash_eur: float) -> None:
-    """Persist the cash input to account_state (only write in the UI)."""
-    conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO account_state (key, value) VALUES ('cash_eur', ?)",
-        [cash_eur],
-    )
+@st.cache_data(ttl=300)
+def load_broker_registry() -> pd.DataFrame:
+    """Load data/broker_registry.csv (read-only)."""
+    try:
+        return pd.read_csv(paths.DATA_BROKER_REGISTRY)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _run_timestamp() -> str:
+    run_dir = latest_run()
+    return os.path.basename(run_dir) if run_dir else "none"
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
-def render_sidebar() -> None:
-    """Render the sidebar: version, last run, market regime, cash APY."""
+def render_sidebar() -> str:
+    """Render the sidebar: app name, version, run timestamp, page nav."""
     st.sidebar.title("Quant-AI")
-    st.sidebar.caption(f"Version {VERSION}")
+    st.sidebar.caption(f"Version {__version__}")
+    st.sidebar.caption(f"Run {_run_timestamp()}")
+    return st.sidebar.radio(
+        "Navigate", ["Briefing", "Portfolio", "Explorer", "Data and Runs"]
+    )
 
-    run_dir = latest_run_dir()
-    if run_dir:
-        st.sidebar.metric("Last run", os.path.basename(run_dir))
+
+# ── Page 1: Briefing ──────────────────────────────────────────────────────────
+
+def page_briefing() -> None:
+    st.header("Briefing")
+
+    run_dir = latest_run()
+    if not run_dir:
+        st.info(EMPTY_NO_RUN)
+        return
+
+    audit = load_audit()
+    account = load_account()
+    actions = build_actions(audit)
+
+    # 1. Actions.
+    st.subheader("Actions")
+    if actions:
+        rows = []
+        for a in actions:
+            rows.append({
+                "Symbol": a["symbol"],
+                "Action": a["action"],
+                "Amount EUR": "" if a["blocked"] else f"{a['amount_eur']:.0f}",
+                "Reason": a["reason"],
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch")
+        for a in actions:
+            if a["blocked"]:
+                st.warning(a["remedy"])
     else:
-        st.sidebar.metric("Last run", "none")
+        st.info(EMPTY_ACTIONS)
 
-    # Market regime: read from the latest run metrics if present.
-    regime = "unknown"
-    if run_dir:
-        metrics_path = os.path.join(run_dir, "metrics.json")
-        if os.path.exists(metrics_path):
-            try:
-                import json
-                with open(metrics_path) as f:
-                    metrics = json.load(f)
-                regime = metrics.get("market_regime", "unknown")
-            except Exception:
-                pass
-    st.sidebar.metric("Market regime", regime)
-    st.sidebar.metric("Cash APY", f"{BROKER_CASH_APY*100:.2f}%")
-
-
-# ── Page 1: Daily Briefing ────────────────────────────────────────────────────
-
-def page_daily_briefing() -> None:
-    st.header("Daily Briefing")
-
-    registry = load_registry()
+    # 2. Portfolio (one line per R3).
+    st.subheader("Portfolio")
     port = load_portfolio()
     total_value = port["Amount_EUR"].sum() if not port.empty else 0.0
+    pnl = float(audit["Real_PnL_EUR"].sum()) if (
+        not audit.empty and "Real_PnL_EUR" in audit) else 0.0
+    cash = (f"{account.cash_eur:.2f} EUR (cash, manual input)"
+            if account.cash_is_set else EMPTY_CASH)
+    st.write(f"Value {total_value:.2f} EUR (source: portfolio.csv)")
+    st.write(f"Broker PnL {pnl:+.2f} EUR (source: broker)")
+    st.write(f"Cash {cash}")
+    st.write(f"Risk profile {account.risk_profile} (source: account.yaml)")
+    st.write(f"Regime {EMPTY_REGIME}")
 
-    # Top metric row.
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Portfolio value EUR", f"{total_value:,.2f}")
-    c2.metric("Daily PnL EUR", "0.00")  # placeholder; wire to audit in Step 2
-    c3.metric("Cash at 2.25% EUR", f"{load_account_state():,.2f}")
-    c4.metric("Regime bull prob", "0.50")
-    c5.metric("Last run time", os.path.basename(latest_run_dir() or "none"))
-
-    # Build execution instructions from registry + routing.
-    instructions = []
-    for _, row in registry.iterrows():
-        sym = row["symbol"]
-        cls = row.get("instrument_class", "EQUITY")
-        structure = get_structure(sym)
-        route = route_signal(
-            structural_grade=float(row.get("structural_grade", 0) or 0),
-            tactical_grade=float(row.get("tactical_grade", 0) or 0),
-            instrument_class=cls,
-            structure=structure,
-        )
-        broker = resolve_broker(sym)
-        active_score = float(row.get("active_score", 0) or 0)
-        alpha_bps = alpha_bps_from_active_score(active_score)
-        inst = build_execution_instruction(
-            symbol=sym,
-            route=route,
-            current_price=float(row.get("current_price", 0) or 0),
-            capital_eur=100.0,  # placeholder; replace with real allocation
-            expected_alpha_bps=alpha_bps,
-            isin=broker["isin"],
-            tr_ticker=broker["tr_ticker"],
-        )
-        instructions.append(inst)
-
-    st.subheader("Actions required today")
-    sparplan = [i for i in instructions if i["route"] == "SPARPLAN"]
-    active = [i for i in instructions if i["route"] == "ACTIVE"]
-
-    if not sparplan and not active:
-        st.info("No actions required.")
-    else:
-        if sparplan:
-            st.markdown("**SPARPLAN**")
-            rows = []
-            for i in sparplan:
-                rows.append({
-                    "Symbol": i["symbol"],
-                    "ISIN": i["isin"],
-                    "Amount EUR": 100.0,
-                    "Instruction": i["instruction"],
-                })
-            st.dataframe(pd.DataFrame(rows), width="stretch")
-        if active:
-            st.markdown("**ACTIVE TRADE**")
-            rows = []
-            for i in active:
-                rows.append({
-                    "Symbol": i["symbol"],
-                    "ISIN": i["isin"],
-                    "Side": i["action"],
-                    "Size EUR": 100.0,
-                    "Fee note": "1 EUR",
-                    "Fee hurdle pass": i["fee_hurdle_ok"],
-                })
-            st.dataframe(pd.DataFrame(rows), width="stretch")
-
-    # Bucket check.
-    st.subheader("Bucket check")
-    safety_pct = 0.10
-    core_pct = 0.40
-    alpha_pct = 0.50
-    violations = []
-    if safety_pct < 0.10:
-        violations.append("Safety below 10% constraint")
-    if core_pct < 0.40:
-        violations.append("Core below 40% constraint")
-    if alpha_pct > 0.50:
-        violations.append("Alpha above 50% constraint")
-    st.write(f"Safety {safety_pct*100:.0f}% / Core {core_pct*100:.0f}% / "
-             f"Alpha {alpha_pct*100:.0f}%")
-    if violations:
-        for v in violations:
-            st.error(v)
-    else:
-        st.success("All bucket constraints satisfied.")
-
-    cash_eur = st.number_input(
-        "Cash input (EUR)", min_value=0.0, value=load_account_state(), step=100.0
-    )
-    if st.button("Save cash input"):
-        save_account_state(cash_eur)
-        st.success("Cash input saved.")
-
-    # Data health.
+    # 3. Data health (blockers only).
     st.subheader("Data health")
-    health = []
-    # Stale prices: last date older than STALE_DATA_DAYS.
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT Symbol, MAX(Date) AS last_date FROM market_history GROUP BY Symbol"
-        ).fetchall()
-        from datetime import date, timedelta
-        cutoff = (date.today() - timedelta(days=STALE_DATA_DAYS)).isoformat()
-        for sym, last_date in rows:
-            if last_date and last_date < cutoff:
-                health.append(f"Stale price: {sym} last {last_date}")
-    except Exception:
-        pass
-    # Missing ISINs.
-    for _, row in registry.iterrows():
-        if not row.get("isin"):
-            health.append(f"Missing ISIN: {row['symbol']}")
-    # Delisted symbols.
-    delisted = registry[registry["universe_status"] == "DELISTED"]
-    for _, row in delisted.iterrows():
-        health.append(f"Delisted: {row['symbol']}")
-    # Notifier configured.
-    from quant.reporting.notifier import is_configured
-    health.append(f"Notifier configured: {'yes' if is_configured() else 'no'}")
-    if health:
-        for h in health:
-            st.warning(h)
+    blockers = [a for a in actions if a["blocked"]]
+    if blockers:
+        for a in blockers:
+            st.warning(a["remedy"])
     else:
-        st.success("All data healthy.")
+        st.write("No blockers.")
 
-    # Backtest expander.
-    with st.expander("Backtest"):
-        st.write("Latest cost-aware backtest equity curve, net vs gross, cost drag.")
-        st.write("Run main.py to populate the backtest artifact.")
+    # 4. Evidence footnote.
+    st.caption("Evidence: see Explorer for per-symbol news detail.")
 
 
-# ── Page 2: Asset Explorer ────────────────────────────────────────────────────
+# ── Page 2: Portfolio ─────────────────────────────────────────────────────────
 
-def page_asset_explorer() -> None:
-    st.header("Asset Explorer")
+def page_portfolio() -> None:
+    st.header("Portfolio")
+
+    registry = load_registry()
+    universe = set(registry["symbol"].astype(str)) if not registry.empty else set()
+
+    # Positions editor.
+    st.subheader("Positions")
+    port = load_portfolio()
+    edit_cols = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
+    base = port[edit_cols] if not port.empty and set(edit_cols).issubset(port.columns) \
+        else pd.DataFrame(columns=edit_cols)
+    edited = st.data_editor(base, num_rows="dynamic", width="stretch", key="positions")
+
+    if st.button("Save positions"):
+        cleaned, warnings, errors = validate_positions(edited, universe)
+        for w in warnings:
+            st.warning(w)
+        if errors:
+            for e in errors:
+                st.error(e)
+        else:
+            save_portfolio(cleaned, paths.DATA_PORTFOLIO)
+            st.success("saved; takes effect on next quant run")
+
+    # Account form.
+    st.subheader("Account")
+    account = load_account()
+    cash_val = account.cash_eur if account.cash_is_set else 0.0
+    cash = st.number_input("Cash EUR", min_value=0.0, value=float(cash_val), step=10.0)
+    profile = st.radio(
+        "Risk profile",
+        list(RISK_PROFILES.keys()),
+        index=list(RISK_PROFILES.keys()).index(account.risk_profile),
+        captions=[RISK_PROFILE_SENTENCES[p] for p in RISK_PROFILES],
+    )
+    st.text_input("Base currency", value=account.base_currency, disabled=True)
+    if st.button("Save account"):
+        save_account(AccountState(account.base_currency, float(cash), profile, True))
+        st.success("saved; takes effect on next quant run")
+
+    # Broker registry (read-only).
+    with st.expander("Broker registry (read-only)"):
+        st.caption("Fix ISINs with scripts/repair_registry.py; editing stays scripted.")
+        st.dataframe(load_broker_registry(), width="stretch")
+
+
+# ── Page 3: Explorer ──────────────────────────────────────────────────────────
+
+def page_explorer() -> None:
+    st.header("Explorer")
 
     port = load_portfolio()
     registry = load_registry()
     holdings = list(port["Symbol"].unique()) if not port.empty else []
     all_syms = list(registry["symbol"].unique()) if not registry.empty else []
-
-    # Selectbox (portfolio holdings first) plus free-text search.
     options = list(dict.fromkeys(holdings + all_syms))
     selected = st.selectbox("Select asset", options) if options else ""
     query = st.text_input("Search by symbol or ISIN", "").strip().upper()
-
     symbol = query or selected
     if not symbol:
         st.info("Select an asset or type a symbol/ISIN to explore.")
         return
 
-    # Resolve ISIN query to a yahoo ticker via broker registry.
     broker = resolve_broker(symbol)
     if broker["yahoo_ticker"] != symbol:
         symbol = broker["yahoo_ticker"]
 
     df = load_market(symbol)
     if df.empty:
-        st.warning(f"No market data for {symbol}. Run data_updater.py.")
+        st.warning(f"No market data for {symbol}. Run quant update.")
         return
 
-    # Identity card.
     st.subheader(f"{symbol} — {classify_instrument(symbol)}")
-    reg_row = registry[registry["symbol"] == symbol]
-    status = reg_row["universe_status"].iloc[0] if not reg_row.empty else "unknown"
-    structure = get_structure(symbol)
-    sector = reg_row["sector"].iloc[0] if not reg_row.empty and "sector" in reg_row else "unknown"
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Class", classify_instrument(symbol))
-    c1.metric("Status", status)
-    c2.metric("Structure", structure)
-    c2.metric("Sector", sector)
-    c3.metric("ISIN", broker["isin"] or "n/a")
-    c3.metric("TR ticker", broker["tr_ticker"])
-    c4.metric("Exchange", broker["exchange"])
-    c4.metric("Currency", broker["currency"] or "n/a")
 
-    # Price chart with bands actually drawn.
+    # Chart (kept: the one widget already earning its place).
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
     close = df["Close"]
     sma200 = close.rolling(200).mean()
-    # Daily EWMA vol x close -> band at close +/- 2 x vol x close.
     ret = close.pct_change()
     ewma_vol = ret.ewm(span=20).std()
     band = 2.0 * ewma_vol * close
@@ -372,137 +321,124 @@ def page_asset_explorer() -> None:
     fig.update_layout(title=f"{symbol} Price + Volatility Bands", height=600)
     st.plotly_chart(fig, width="stretch")
 
-    # Factor profile.
-    st.subheader("Factor profile")
+    # Metrics row: each labelled with the run timestamp it comes from (T4b).
+    st.subheader("Metrics")
+    run_ts = _run_timestamp()
     factors = load_factor_scores()
-    if not factors.empty and symbol in factors["Symbol"].values:
-        row = factors[factors["Symbol"] == symbol].iloc[0]
-        if "trend_z" in row:
-            cols = ["trend_z", "rel_strength_z", "low_vol_z", "momentum_z"]
-            labels = ["Trend", "Rel strength", "Low vol", "Momentum"]
-        else:
-            cols = ["value_z", "quality_z", "momentum_z", "low_risk_z", "sentiment_z"]
-            labels = ["Value", "Quality", "Momentum", "Low risk", "Sentiment"]
-        vals = [float(row[c]) for c in cols if c in row]
-        fig2 = go.Figure(go.Bar(x=vals, y=labels, orientation="h"))
-        fig2.update_layout(title=f"{symbol} Factor z-scores", height=300)
-        st.plotly_chart(fig2, width="stretch")
+    reg_row = registry[registry["symbol"] == symbol] if not registry.empty else pd.DataFrame()
+    if not reg_row.empty:
+        r = reg_row.iloc[0]
+        st.write(f"Structural {r.get('structural_grade', '')} (run {run_ts})")
+        st.write(f"Tactical {r.get('tactical_grade', '')} (run {run_ts})")
+        st.write(f"Active score {r.get('active_score', '')} (run {run_ts})")
+    elif not factors.empty and "Symbol" in factors.columns and symbol in factors["Symbol"].values:
+        st.write(f"Factor scores available (run {run_ts})")
     else:
-        st.info("No factor scores for this asset yet. Run main.py.")
+        st.info(EMPTY_NO_RUN)
 
-    # Broker card.
-    st.subheader("Broker card")
-    if broker["isin"]:
-        st.code(broker["isin"], language=None)
+    # Evidence list (T4c).
+    st.subheader("Evidence")
+    evidence = load_evidence(symbol)
+    if evidence.empty:
+        st.info(EMPTY_NEWS.format(symbol=symbol))
     else:
-        st.warning("ISIN MISSING - resolve in broker app before execution")
-    active_score = float(reg_row["active_score"].iloc[0]) if not reg_row.empty and "active_score" in reg_row else 0.0
-    alpha_bps = alpha_bps_from_active_score(active_score)
-    min_size = alpha_bps_from_active_score(active_score) / 100.0 * 100.0
-    st.write(f"Min trade size for this symbol: {min_size:.0f} EUR")
-    route = route_signal(
-        structural_grade=float(reg_row["structural_grade"].iloc[0]) if not reg_row.empty and "structural_grade" in reg_row else 0.0,
-        tactical_grade=float(reg_row["tactical_grade"].iloc[0]) if not reg_row.empty and "tactical_grade" in reg_row else 0.0,
-        instrument_class=classify_instrument(symbol),
-        structure=structure,
-    )
-    st.write(f"Route recommendation: {route}")
+        st.dataframe(evidence, width="stretch")
+
+    # Execution card (T4d).
+    st.subheader("Execution")
+    isin = broker.get("isin", "")
+    if not isin:
+        st.warning(EMPTY_BLOCKED.format(symbol=symbol))
+    else:
+        st.write(f"ISIN {isin}")
+        st.write(f"Route {route_signal(0.0, 0.0, classify_instrument(symbol), get_structure(symbol))}")
+        st.write(f"Fee {BROKER_CASH_APY*0:.0f} EUR placeholder")
+        active_score = float(reg_row["active_score"].iloc[0]) if (
+            not reg_row.empty and "active_score" in reg_row) else 0.0
+        st.write(f"Min trade size {alpha_bps_from_active_score(active_score)/100.0*100.0:.0f} EUR")
 
 
-# ── Page 3: Universe Manager ──────────────────────────────────────────────────
+# ── Page 4: Data and Runs ─────────────────────────────────────────────────────
 
-def page_universe_manager() -> None:
-    st.header("Universe Manager")
+def page_data_and_runs() -> None:
+    st.header("Data and Runs")
 
+    # Run buttons.
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Run update"):
+            _run_cli("update")
+    with c2:
+        if st.button("Run run"):
+            _run_cli("run")
+
+    # Run history.
+    st.subheader("Run history")
+    st.dataframe(_run_history(), width="stretch")
+
+    # Universe registry (read-only; the only surviving piece of Universe Manager).
+    st.subheader("Universe registry")
     registry = load_registry()
     if registry.empty:
-        st.info("No registry yet. Run data_updater.py to populate.")
-        return
-
-    # Metric row: counts of CORE / ACTIVE / WATCHLIST / DELISTED.
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("CORE", int((registry["universe_status"] == "CORE").sum()))
-    c2.metric("ACTIVE", int((registry["universe_status"] == "ACTIVE").sum()))
-    c3.metric("WATCHLIST", int((registry["universe_status"] == "WATCHLIST").sum()))
-    c4.metric("DELISTED", int((registry["universe_status"] == "DELISTED").sum()))
-
-    # Event log table.
-    st.subheader("Event log")
-    events = load_events()
-    if not events.empty:
-        st.dataframe(events, width="stretch")
+        st.info("No registry yet. Run quant update to populate.")
     else:
-        st.info("No universe events yet.")
+        statuses = st.multiselect(
+            "Status", sorted(registry["universe_status"].dropna().unique()),
+            default=sorted(registry["universe_status"].dropna().unique()),
+        )
+        classes = st.multiselect(
+            "Class", sorted(registry["instrument_class"].dropna().unique()),
+            default=sorted(registry["instrument_class"].dropna().unique()),
+        )
+        filtered = registry[
+            registry["universe_status"].isin(statuses)
+            & registry["instrument_class"].isin(classes)
+        ]
+        cols = [c for c in ["symbol", "instrument_class", "universe_status", "structure"]
+                if c in filtered.columns]
+        st.dataframe(filtered[cols], width="stretch")
 
-    # Filterable registry table.
-    st.subheader("Registry")
-    statuses = st.multiselect("Status", sorted(ALL_STATUSES),
-                              default=sorted(ALL_STATUSES))
-    classes = st.multiselect("Class", ["EQUITY", "ETF", "COMMODITY", "CASH"],
-                             default=["EQUITY", "ETF", "COMMODITY", "CASH"])
-    search = st.text_input("Search symbol", "").strip().upper()
+    # Data health (full list) + cache sizes + DB path.
+    st.subheader("Data health")
+    st.write(f"DB path {paths.DB_FILE}")
+    st.write(f"Stale threshold {STALE_DATA_DAYS} days")
+    st.write(f"Cash APY {BROKER_CASH_APY*100:.2f}%")
 
-    filtered = registry[
-        registry["universe_status"].isin(statuses)
-        & registry["instrument_class"].isin(classes)
-    ]
-    if search:
-        filtered = filtered[filtered["symbol"].str.contains(search, na=False)]
-    st.dataframe(
-        filtered[["symbol", "instrument_class", "universe_status", "structure",
-                  "graduated_at", "fetch_failures"]],
-        width="stretch",
-    )
 
-    # Actions with confirmation.
-    st.subheader("Actions")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        pin_sym = st.text_input("Pin to ACTIVE", "").strip().upper()
-        if st.button("Pin to ACTIVE", key="pin") and pin_sym:
-            conn = get_connection()
-            conn.execute(
-                """INSERT INTO asset_registry (symbol, instrument_class, universe_status)
-                   VALUES (?, 'EQUITY', 'ACTIVE')
-                   ON CONFLICT (symbol) DO UPDATE SET universe_status = 'ACTIVE'""",
-                [pin_sym],
-            )
-            log_universe_event(pin_sym, "PIN", "pinned to ACTIVE")
-            st.success(f"Pinned {pin_sym} to ACTIVE.")
-    with c2:
-        demote_sym = st.text_input("Demote to WATCHLIST", "").strip().upper()
-        if st.button("Demote to WATCHLIST", key="demote") and demote_sym:
-            conn = get_connection()
-            conn.execute(
-                "UPDATE asset_registry SET universe_status = 'WATCHLIST' WHERE symbol = ?",
-                [demote_sym],
-            )
-            log_universe_event(demote_sym, "DEMOTE", "manual demote to WATCHLIST")
-            st.success(f"Demoted {demote_sym} to WATCHLIST.")
-    with c3:
-        delist_sym = st.text_input("Mark DELISTED", "").strip().upper()
-        if st.button("Mark DELISTED", key="delist") and delist_sym:
-            mark_delisted(delist_sym, "manual delist")
-            st.success(f"Marked {delist_sym} DELISTED.")
-    with c4:
-        add_sym = st.text_input("Add to watchlist", "").strip().upper()
-        add_cls = st.selectbox("Class", ["EQUITY", "ETF", "COMMODITY", "CASH"],
-                               key="add_cls")
-        if st.button("Add to watchlist", key="add") and add_sym:
-            add_to_watchlist(add_sym, add_cls)
-            st.success(f"Added {add_sym} to watchlist.")
+def _run_cli(command: str) -> None:
+    """Execute the CLI as a subprocess and stream the log into an expander."""
+    with st.expander(f"quant {command} log", expanded=True):
+        proc = subprocess.run(
+            [_sys.executable, "-m", "quant.cli", command],
+            capture_output=True, text=True,
+        )
+        st.code(proc.stdout or "(no output)")
+        if proc.returncode != 0:
+            st.error(f"quant {command} exited {proc.returncode}")
+            st.code(proc.stderr or "")
+
+
+def _run_history() -> pd.DataFrame:
+    """List run directories with their log path."""
+    out = str(paths.OUTPUTS_DIR)
+    if not os.path.isdir(out):
+        return pd.DataFrame(columns=["run", "log"])
+    runs = sorted([d for d in os.listdir(out) if d.startswith("run_")], reverse=True)
+    rows = [{"run": r, "log": os.path.join(out, r, "pipeline.log")} for r in runs]
+    return pd.DataFrame(rows)
 
 
 def main() -> None:
     init_db()
-    render_sidebar()
-    page = st.sidebar.radio("Navigate", ["Daily Briefing", "Asset Explorer", "Universe Manager"])
-    if page == "Daily Briefing":
-        page_daily_briefing()
-    elif page == "Asset Explorer":
-        page_asset_explorer()
+    page = render_sidebar()
+    if page == "Briefing":
+        page_briefing()
+    elif page == "Portfolio":
+        page_portfolio()
+    elif page == "Explorer":
+        page_explorer()
     else:
-        page_universe_manager()
+        page_data_and_runs()
 
 
 if __name__ == "__main__":

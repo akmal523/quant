@@ -144,6 +144,23 @@ def init_db() -> None:
         )
     """)
 
+    # ── v10.5.0 (spec 6): first-class NLP evidence table ─────────────────────
+    # Documented columns so the Explorer can show WHY a sentiment score exists:
+    # source, title, published_at, score, confidence, retrieved_at. A score that
+    # used news stores the item count; a score that did not stores confidence
+    # 'low'. The UI aggregates the disclaimer into one evidence footnote.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS nlp_evidence (
+            symbol VARCHAR,
+            source VARCHAR,
+            title VARCHAR,
+            published_at TIMESTAMP,
+            score DOUBLE,
+            confidence VARCHAR,
+            retrieved_at TIMESTAMP DEFAULT now()
+        )
+    """)
+
     # Point-in-time fundamentals history (Pillar 1.3 — no lookahead bias).
     # as_of_date: the date the fundamentals are valid for.
     # published_date: when the market actually knew them.
@@ -219,14 +236,14 @@ def init_db() -> None:
         )
     """)
 
-    # ── Phase 5 (v10.2): Account state ───────────────────────────────────────
-    # Persists the user's cash input from the Daily Briefing bucket check.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS account_state (
-            key VARCHAR PRIMARY KEY,
-            value DOUBLE
-        )
-    """)
+    # ── v10.5.0: account_state table removed ─────────────────────────────────
+    # Cash, risk profile, and base currency now live in data/account.yaml
+    # (single source of truth, spec 2.2). The old DuckDB table is dropped so no
+    # widget can compute its own copy of cash (R2).
+    try:
+        conn.execute("DROP TABLE IF EXISTS account_state")
+    except Exception:
+        pass
 
     # ── Phase 5 (v11): Rebalance log ─────────────────────────────────────────
     # Tracks the last rebalance date per symbol for time-gated rebalancing.
