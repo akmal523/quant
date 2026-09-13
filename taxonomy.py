@@ -16,12 +16,20 @@ Dependencies: pandas, database.get_connection, universe.is_etf.
 from __future__ import annotations
 
 import os
+import threading
 import time
 import pandas as pd
 
 from database import get_connection
 
 BROKER_REGISTRY_PATH = "broker_registry.csv"
+
+# DuckDB allows only one writer at a time. data_updater.py runs fetch_single in a
+# ThreadPoolExecutor, and each worker calls get_instrument_class() -> here. Without
+# this lock those concurrent INSERTs block each other and freeze the whole run.
+# Reentrant so a locked writer can safely call another writer (e.g. set_core ->
+# log_universe_event) without deadlocking.
+_DB_WRITE_LOCK = threading.RLock()
 
 # Instrument classes that bypass the heavy Fundamentals/NLP pipeline.
 ETF_CLASSES = {"ETF"}
@@ -93,39 +101,40 @@ def sync_broker_registry(path: str = BROKER_REGISTRY_PATH) -> int:
         return 0
     conn = get_connection()
     updated = 0
-    for _, r in reg.iterrows():
-        sym = str(r.get("yahoo_ticker", ""))
-        if not sym:
-            continue
-        isin = str(r.get("isin", "") or "")
-        if isin == "nan":
-            isin = ""
-        tr_ticker = str(r.get("tr_ticker", "") or sym)
-        if tr_ticker == "nan":
-            tr_ticker = sym
-        exchange = str(r.get("exchange", "") or "LS Exchange")
-        if exchange == "nan":
-            exchange = "LS Exchange"
-        currency = str(r.get("currency", "") or "")
-        if currency == "nan":
-            currency = ""
-        instrument_class = str(r.get("instrument_class", "") or "EQUITY")
-        if instrument_class == "nan":
-            instrument_class = "EQUITY"
-        conn.execute(
-            """INSERT INTO asset_registry (symbol, instrument_class, isin, tr_ticker,
-                                          exchange, currency, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT (symbol) DO UPDATE SET
-                 instrument_class = excluded.instrument_class,
-                 isin = excluded.isin,
-                 tr_ticker = excluded.tr_ticker,
-                 exchange = excluded.exchange,
-                 currency = excluded.currency,
-                 updated_at = excluded.updated_at""",
-            [sym, instrument_class, isin, tr_ticker, exchange, currency, time.time()],
-        )
-        updated += 1
+    with _DB_WRITE_LOCK:
+        for _, r in reg.iterrows():
+            sym = str(r.get("yahoo_ticker", ""))
+            if not sym:
+                continue
+            isin = str(r.get("isin", "") or "")
+            if isin == "nan":
+                isin = ""
+            tr_ticker = str(r.get("tr_ticker", "") or sym)
+            if tr_ticker == "nan":
+                tr_ticker = sym
+            exchange = str(r.get("exchange", "") or "LS Exchange")
+            if exchange == "nan":
+                exchange = "LS Exchange"
+            currency = str(r.get("currency", "") or "")
+            if currency == "nan":
+                currency = ""
+            instrument_class = str(r.get("instrument_class", "") or "EQUITY")
+            if instrument_class == "nan":
+                instrument_class = "EQUITY"
+            conn.execute(
+                """INSERT INTO asset_registry (symbol, instrument_class, isin, tr_ticker,
+                                              exchange, currency, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (symbol) DO UPDATE SET
+                     instrument_class = excluded.instrument_class,
+                     isin = excluded.isin,
+                     tr_ticker = excluded.tr_ticker,
+                     exchange = excluded.exchange,
+                     currency = excluded.currency,
+                     updated_at = excluded.updated_at""",
+                [sym, instrument_class, isin, tr_ticker, exchange, currency, time.time()],
+            )
+            updated += 1
     return updated
 
 
@@ -205,16 +214,17 @@ def _upsert_registry(symbol: str, name: str, instrument_class: str) -> None:
     updates name/instrument_class/updated_at).
     """
     try:
-        conn = get_connection()
-        conn.execute(
-            """INSERT INTO asset_registry (symbol, name, instrument_class, universe_status, updated_at)
-               VALUES (?, ?, ?, 'WATCHLIST', ?)
-               ON CONFLICT (symbol) DO UPDATE SET
-                 name = excluded.name,
-                 instrument_class = excluded.instrument_class,
-                 updated_at = excluded.updated_at""",
-            [symbol, name, instrument_class, time.time()],
-        )
+        with _DB_WRITE_LOCK:
+            conn = get_connection()
+            conn.execute(
+                """INSERT INTO asset_registry (symbol, name, instrument_class, universe_status, updated_at)
+                   VALUES (?, ?, ?, 'WATCHLIST', ?)
+                   ON CONFLICT (symbol) DO UPDATE SET
+                     name = excluded.name,
+                     instrument_class = excluded.instrument_class,
+                     updated_at = excluded.updated_at""",
+                [symbol, name, instrument_class, time.time()],
+            )
     except Exception:
         # Registry table may not exist yet (init_db not called). Non-fatal.
         pass
@@ -228,11 +238,12 @@ def log_universe_event(symbol: str, event: str, reason: str) -> None:
     Invariants: best-effort; never raises (table may not exist yet).
     """
     try:
-        conn = get_connection()
-        conn.execute(
-            "INSERT INTO universe_events (symbol, event, reason) VALUES (?, ?, ?)",
-            [symbol, event, reason],
-        )
+        with _DB_WRITE_LOCK:
+            conn = get_connection()
+            conn.execute(
+                "INSERT INTO universe_events (symbol, event, reason) VALUES (?, ?, ?)",
+                [symbol, event, reason],
+            )
     except Exception:
         pass
 
@@ -243,16 +254,17 @@ def set_core(symbol: str) -> None:
     Intent (Phase 5 / v10.2): CORE assets are never graduated, never demoted.
     Invariants: status becomes CORE; event logged.
     """
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO asset_registry (symbol, universe_status, updated_at)
-           VALUES (?, 'CORE', ?)
-           ON CONFLICT (symbol) DO UPDATE SET
-             universe_status = 'CORE',
-             updated_at = excluded.updated_at""",
-        [symbol, time.time()],
-    )
-    log_universe_event(symbol, "PIN", "set to CORE (immutable sleeve)")
+    with _DB_WRITE_LOCK:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO asset_registry (symbol, universe_status, updated_at)
+               VALUES (?, 'CORE', ?)
+               ON CONFLICT (symbol) DO UPDATE SET
+                 universe_status = 'CORE',
+                 updated_at = excluded.updated_at""",
+            [symbol, time.time()],
+        )
+        log_universe_event(symbol, "PIN", "set to CORE (immutable sleeve)")
 
 
 def add_to_watchlist(symbol: str, instrument_class: str = "EQUITY") -> None:

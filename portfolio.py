@@ -12,9 +12,21 @@ from config import (
     TARGET_WEIGHTS, REBALANCE_FREQUENCY_DAYS, REBALANCE_DRIFT_TIERS,
     MIN_TRADE_SIZE_EUR, REBALANCE_FIRST_RUN,
 )
+from currency import get_fx_to_eur
 
 def load_portfolio(filepath: str = "portfolio.csv") -> pd.DataFrame:
-    required_cols = ["Symbol", "Buy_Price", "Amount_EUR"]
+    """Load portfolio.csv (Plan 3 broker-synced schema).
+
+    New schema: Symbol, Avg_Entry_Price, Current_Value_EUR, Broker_PnL_EUR.
+    The user copies exactly what Trade Republic shows. Invested_EUR is derived
+    (Current_Value_EUR - Broker_PnL_EUR), never guessed from price history.
+
+    Backward-compat aliases are emitted so legacy callers (briefing, tax
+    optimizer) keep working: Buy_Price=Avg_Entry_Price, Amount_EUR=
+    Current_Value_EUR, Original_Amount=Invested_EUR.
+    Invariants: returns a DataFrame with Symbol + all new/legacy columns.
+    """
+    required_cols = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
     if not os.path.exists(filepath):
         return pd.DataFrame(columns=required_cols)
 
@@ -23,22 +35,69 @@ def load_portfolio(filepath: str = "portfolio.csv") -> pd.DataFrame:
         # BEFORE CSV parsing, preventing stray commas from creating extra fields.
         df = pd.read_csv(filepath, comment="#").dropna(how="all")
         df.columns = df.columns.str.strip()
-        
+
+        # Accept either the new schema or the legacy (Buy_Price/Amount_EUR).
+        if "Avg_Entry_Price" not in df.columns and "Buy_Price" in df.columns:
+            df["Avg_Entry_Price"] = df["Buy_Price"]
+        if "Current_Value_EUR" not in df.columns and "Amount_EUR" in df.columns:
+            df["Current_Value_EUR"] = df["Amount_EUR"]
+        if "Broker_PnL_EUR" not in df.columns:
+            # Legacy fallback: derive from Original_Amount cost basis.
+            if "Original_Amount" in df.columns:
+                df["Broker_PnL_EUR"] = df["Current_Value_EUR"] - df["Original_Amount"]
+            else:
+                df["Broker_PnL_EUR"] = 0.0
+
         for col in required_cols:
             if col not in df.columns:
                 df[col] = 0.0 if col != "Symbol" else "UNKNOWN"
-        
-        # Optional Original_Amount column — defaults to Amount_EUR if absent
-        if "Original_Amount" not in df.columns:
-            df["Original_Amount"] = df["Amount_EUR"]
-        
+
         df["Symbol"] = df["Symbol"].astype(str).str.strip()
-        df["Buy_Price"] = pd.to_numeric(df["Buy_Price"].astype(str).str.strip(), errors="coerce")
-        df["Amount_EUR"] = pd.to_numeric(df["Amount_EUR"].astype(str).str.strip(), errors="coerce")
-        df["Original_Amount"] = pd.to_numeric(df["Original_Amount"].astype(str).str.strip(), errors="coerce")
+        df["Avg_Entry_Price"] = pd.to_numeric(df["Avg_Entry_Price"].astype(str).str.strip(), errors="coerce")
+        df["Current_Value_EUR"] = pd.to_numeric(df["Current_Value_EUR"].astype(str).str.strip(), errors="coerce")
+        df["Broker_PnL_EUR"] = pd.to_numeric(df["Broker_PnL_EUR"].astype(str).str.strip(), errors="coerce")
+
+        # Derived invested amount (broker truth, not price-guessed).
+        df["Invested_EUR"] = df["Current_Value_EUR"] - df["Broker_PnL_EUR"]
+
+        # Backward-compat aliases for legacy callers.
+        df["Buy_Price"] = df["Avg_Entry_Price"]
+        df["Amount_EUR"] = df["Current_Value_EUR"]
+        df["Original_Amount"] = df["Invested_EUR"]
+
         return df.dropna(subset=["Symbol"]).reset_index(drop=True)
     except Exception:
         return pd.DataFrame(columns=required_cols)
+
+
+def load_broker_data(filepath: str = "portfolio.csv") -> dict[str, float]:
+    """Load broker-reported PnL (EUR) per symbol for reconciliation.
+
+    Intent (Plan 3, Phase 4.1): Broker_PnL_EUR now lives directly in portfolio.csv
+    (the user copies exactly what Trade Republic shows). The separate
+    broker_data.csv is retired. The audit uses this as the absolute PnL truth.
+    Invariants: returns {symbol: broker_pnl_eur}; empty dict if file missing.
+    Dependencies: pandas, os.
+    """
+    if not os.path.exists(filepath):
+        return {}
+    try:
+        df = pd.read_csv(filepath, comment="#").dropna(how="all")
+        df.columns = df.columns.str.strip()
+        if "Symbol" not in df.columns or "Broker_PnL_EUR" not in df.columns:
+            return {}
+        df["Symbol"] = df["Symbol"].astype(str).str.strip()
+        df["Broker_PnL_EUR"] = pd.to_numeric(
+            df["Broker_PnL_EUR"].astype(str).str.strip(), errors="coerce"
+        )
+        return {
+            r["Symbol"]: float(r["Broker_PnL_EUR"])
+            for _, r in df.iterrows()
+            if pd.notna(r["Broker_PnL_EUR"])
+        }
+    except Exception:
+        return {}
+
 
 def classify_asset(symbol: str) -> str:
     """Classify a symbol into a management tier.
@@ -211,39 +270,92 @@ def enhanced_portfolio_audit(
     from scoring import generate_signal_for_tier
     from optimizer import calculate_min_trade_size, check_volume_liquidity
 
-    total_value = portfolio_df["Amount_EUR"].sum()
+    broker_pnl = load_broker_data()
     scan_map = scan_df.set_index("Symbol").to_dict("index")
-    rows = []
 
+    # Pass 1: collect per-position broker truth + FX. Weights use the broker's
+    # Current_Value_EUR directly (no price-guessing), so DCA positions never
+    # show a phantom PnL.
+    pre = []
     for _, p_row in portfolio_df.iterrows():
         symbol = p_row["Symbol"]
         tier = classify_asset(symbol)
         target_weight = TARGET_WEIGHTS.get(tier, 0.25)
+        avg_entry_price = p_row.get("Avg_Entry_Price", p_row.get("Buy_Price", 0))
+        current_value_eur = p_row.get("Current_Value_EUR", p_row.get("Amount_EUR", 0))
+        broker_pnl_eur = p_row.get("Broker_PnL_EUR", broker_pnl.get(symbol, 0.0))
+        fx = get_fx_to_eur(symbol)
 
         if symbol not in scan_map:
-            rows.append({
-                "Symbol": symbol, "Tier": tier, "Signal": "N/A",
-                "Drift": None, "Recommendation": "NOT SCANNED",
-            })
+            pre.append({"symbol": symbol, "tier": tier, "target_weight": target_weight,
+                        "avg_entry_price": avg_entry_price, "current_value_eur": current_value_eur,
+                        "broker_pnl_eur": broker_pnl_eur, "fx": fx,
+                        "curr_price": None, "s": None})
             continue
-
         s = scan_map[symbol]
         curr_price = s.get("Current_Price", 0)
         no_price = (curr_price is None or curr_price == 0 or
                     (isinstance(curr_price, float) and pd.isna(curr_price)))
-        if no_price:
-            rows.append({
-                "Symbol": symbol, "Tier": tier, "Signal": "N/A",
-                "Drift": None, "Recommendation": "NO DATA",
-            })
+        pre.append({"symbol": symbol, "tier": tier, "target_weight": target_weight,
+                    "avg_entry_price": avg_entry_price, "current_value_eur": current_value_eur,
+                    "broker_pnl_eur": broker_pnl_eur, "fx": fx, "curr_price": curr_price,
+                    "no_price": no_price, "s": s})
+
+    total_value = 0.0
+    for p in pre:
+        if p.get("s") is None or p.get("no_price"):
+            continue
+        total_value += p["current_value_eur"]
+
+    rows = []
+    for p in pre:
+        symbol = p["symbol"]
+        tier = p["tier"]
+        target_weight = p["target_weight"]
+        if p.get("s") is None:
+            rows.append({"Symbol": symbol, "Tier": tier, "Signal": "N/A",
+                         "Drift": None, "Recommendation": "NOT SCANNED"})
+            continue
+        if p.get("no_price"):
+            rows.append({"Symbol": symbol, "Tier": tier, "Signal": "N/A",
+                         "Drift": None, "Recommendation": "NO DATA"})
             continue
 
-        buy_price = p_row["Buy_Price"]
-        orig_amount = p_row.get("Original_Amount", p_row["Amount_EUR"])
-        shares = orig_amount / buy_price if buy_price and buy_price > 0 else 0.0
-        current_value = curr_price * shares
-        # Correct weight formula: current value / total portfolio value.
-        current_weight = current_value / total_value if total_value > 0 else 0.0
+        s = p["s"]
+        curr_price = p["curr_price"]
+        avg_entry_price = p["avg_entry_price"]
+        current_value_eur = p["current_value_eur"]
+        broker_pnl_eur = p["broker_pnl_eur"]
+        fx = p["fx"]
+
+        # Plan 3 (Phase 2): broker truth, never price-guessed.
+        invested_eur = current_value_eur - broker_pnl_eur
+        real_pnl_eur = broker_pnl_eur
+        real_pnl_pct = (real_pnl_eur / invested_eur * 100) if invested_eur and invested_eur > 0 else 0.0
+
+        # FX layer (Phase 3): dual-price display + FX impact.
+        avg_entry_price_eur = avg_entry_price * fx
+        current_price_eur = curr_price * fx
+        # Approx shares from broker value / avg entry price (both EUR).
+        shares = (current_value_eur / avg_entry_price_eur) if (avg_entry_price_eur and avg_entry_price_eur > 0) else 0.0
+        # Pure asset performance at today's FX; residual is currency impact.
+        asset_pnl_eur = (curr_price - avg_entry_price) * fx * shares
+        fx_impact_eur = real_pnl_eur - asset_pnl_eur
+
+        # Reconciliation (Phase 4.2): trust but verify.
+        # Plan 3 formula (native Avg_Entry_Price, NOT FX-converted):
+        #   System_Estimated_Value = (Current_Value_EUR / Avg_Entry_Price)
+        #                            * Current_Market_Price_EUR
+        # A large deviation means the broker's Current_Value_EUR is inconsistent
+        # with the market price -> stale CSV or unusually high spread.
+        system_estimated_value = (
+            (current_value_eur / avg_entry_price) * current_price_eur
+            if (avg_entry_price and avg_entry_price > 0) else 0.0
+        )
+        deviation = system_estimated_value - current_value_eur
+        recon_flag = "[!]" if abs(deviation) > 1.00 else ""
+
+        current_weight = current_value_eur / total_value if total_value > 0 else 0.0
         drift = current_weight - target_weight
 
         should_rebalance, rebalance_reason = should_rebalance_asset(
@@ -283,16 +395,29 @@ def enhanced_portfolio_audit(
         rows.append({
             "Symbol": symbol,
             "Tier": tier,
+            "Avg_Entry_Price": round(avg_entry_price, 2),
+            "Avg_Entry_Price_EUR": round(avg_entry_price_eur, 2),
+            "Current_Price_Native": round(curr_price, 2),
+            "Current_Price_EUR": round(current_price_eur, 2),
+            "Invested_EUR": round(invested_eur, 2),
+            "Value_EUR": round(current_value_eur, 2),
             "Current_Weight": f"{current_weight:.1%}",
             "Target_Weight": f"{target_weight:.1%}",
             "Drift": f"{drift:.1%}",
+            "Real_PnL_EUR": round(real_pnl_eur, 2),
+            "Real_PnL_Pct": round(real_pnl_pct, 2),
+            "FX_Impact_EUR": round(fx_impact_eur, 2),
+            "System_Estimated_Value": round(system_estimated_value, 2),
+            "Recon_Deviation": round(deviation, 2),
+            "Recon_Flag": recon_flag,
             "Signal": signal,
             "Horizon": horizon,
             "Recommendation": recommendation,
-            "PnL_pct": round(((current_value - orig_amount) / orig_amount * 100) if orig_amount else 0, 2),
-            "PnL_EUR": round(current_value - orig_amount, 2),
+            # Backward-compat aliases (tax optimizer, briefing, effectiveness).
+            "PnL_pct": round(real_pnl_pct, 2),
+            "PnL_EUR": round(real_pnl_eur, 2),
             "Current_Price": curr_price,
-            "Current_Value": round(current_value, 2),
+            "Current_Value": round(current_value_eur, 2),
             "Active_Score": s.get("Active_Score", 0),
         })
 
@@ -327,16 +452,15 @@ def print_audit_report(audit_df: pd.DataFrame) -> None:
 def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> dict:
     """
     Calculate overall account effectiveness metrics from the portfolio audit.
-    
-    CSV schema: Buy_Price = avg cost per share, Amount_EUR = current market value,
-                Original_Amount = original cost basis.
-    PnL per position = current_value - cost_basis.
-    Shares derived from Original_Amount / Buy_Price.
-    
+
+    Plan 3 (Phase 2): the audit emits broker-synced EUR columns (Invested_EUR,
+    Value_EUR, Real_PnL_EUR). Invested_EUR = Current_Value_EUR - Broker_PnL_EUR,
+    so total PnL is the broker's reported PnL (never price-guessed).
+
     Returns a dict with:
-      - total_invested: sum of Original_Amount (cost basis)
-      - total_value: sum of position current values
-      - total_pnl_eur: total_value - total_invested
+      - total_invested: sum of Invested_EUR
+      - total_value: sum of Value_EUR
+      - total_pnl_eur: sum of Real_PnL_EUR (broker truth)
       - total_pnl_pct: weighted PnL percentage
       - weighted_score: value-weighted average Active_Score
     """
@@ -362,8 +486,24 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
         p_info = port_map.get(sym, {"Buy_Price": 0, "Original_Amount": 0})
         cost_basis = p_info["Original_Amount"]
         buy_price = p_info["Buy_Price"]
-        
-        # Skip unscanned or zero-invested positions
+
+        # Prefer the FX-aware EUR columns produced by enhanced_portfolio_audit.
+        if "Real_PnL_EUR" in row and "Value_EUR" in row and "Invested_EUR" in row:
+            invested = float(row.get("Invested_EUR") or 0)
+            value = float(row.get("Value_EUR") or 0)
+            if invested <= 0:
+                position_count += 1
+                continue
+            total_invested += invested
+            total_value += value
+            score = row.get("Active_Score", 0)
+            if pd.notna(score):
+                weighted_score_sum += float(score) * value
+            position_count += 1
+            active_count += 1
+            continue
+
+        # Fallback: legacy native-currency path.
         if cost_basis <= 0 or buy_price <= 0:
             position_count += 1
             continue
@@ -371,14 +511,14 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
         if pd.isna(curr_price) or curr_price is None or curr_price == 0:
             position_count += 1
             continue
-        
+
         curr_price = float(curr_price)
         buy_price = float(buy_price)
-        
+
         # Derive shares from Original_Amount cost basis
         shares = cost_basis / buy_price if buy_price > 0 else 0.0
         value = curr_price * shares
-        
+
         total_invested += cost_basis
         total_value += value
         score = row.get("Active_Score", 0)
@@ -387,7 +527,12 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
         position_count += 1
         active_count += 1
     
-    total_pnl_eur = total_value - total_invested
+    # Broker truth: sum the reported PnL directly (== value - invested by
+    # construction, but explicit is safer against rounding drift).
+    total_pnl_eur = 0.0
+    for _, row in audit_df.iterrows():
+        if "Real_PnL_EUR" in row and pd.notna(row.get("Real_PnL_EUR")):
+            total_pnl_eur += float(row.get("Real_PnL_EUR") or 0)
     total_pnl_pct = (total_pnl_eur / total_invested * 100) if total_invested > 0 else 0.0
     weighted_score = (weighted_score_sum / total_value) if total_value > 0 else 0.0
     

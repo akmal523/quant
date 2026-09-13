@@ -1,6 +1,6 @@
-# Quant-AI v10.3.0 - Broker-Aware Family Office Terminal (EUR-Native)
+# Quant-AI v10.3.6 - Broker-Aware Family Office Terminal (EUR-Native)
 
-A professional-grade Python pipeline for systematic multi-sector equity analysis. Uses a **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities + portfolio holdings) instead of a hardcoded 277-stock set, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship. Fully aligned with Trade Republic's asymmetric 1-EUR fee structure and 2.25% cash APY.
+A professional-grade Python pipeline for systematic equity analysis. Uses a **smart 1000+ ticker universe** (S&P 500 + Nasdaq-100 + Russell 1000 + broad ETFs) filtered by a **two-stage funnel** (liquidity/viability → trend/momentum) down to the top survivors, normalises global currencies to EUR, and scores assets using a cross-sectional factor model, market-regime HMM, EWMA volatility, batched FinBERT NLP sentiment, and sector-aware fundamental stewardship. Portfolio PnL is **broker-synced** (copied directly from Trade Republic), never price-guessed. Fully aligned with Trade Republic's asymmetric 1-EUR fee structure and 2.25% cash APY.
 
 **Trade Republic Ready.** The engine detects native currency (USD, CHF, GBP, DKK, NOK, SEK, CAD, AUD, KRW, GBX) and converts to EUR using live FX rates from Yahoo Finance and the ECB (Frankfurter API).
 
@@ -12,8 +12,9 @@ A professional-grade Python pipeline for systematic multi-sector equity analysis
 
 ```
 quant/
-├── main.py                 # Orchestration engine (Smart Funnel -> Batch FinBERT -> Multiprocessing -> Audit)
-├── data_updater.py          # Incremental market data fetcher (ThreadPoolExecutor, 10x faster)
+├── main.py                 # Orchestration engine (reads cached funnel survivors -> FinBERT -> Audit)
+├── data_updater.py          # Incremental fetcher; runs the funnel (batched) and caches survivors
+├── funnel.py                # Two-stage universe filter (liquidity -> momentum) + survivor cache
 ├── build_features.py        # Vectorized cross-sectional feature engine (Polars)
 ├── optimizer.py             # Portfolio optimizer (cvxpy, Ledoit-Wolf covariance + risk buckets)
 ├── validation.py            # Data validation + liquidity filters
@@ -28,6 +29,7 @@ quant/
 ├── portfolio.py             # Portfolio audit with PnL tracking
 ├── fundamentals.py          # Hierarchical fundamentals + point-in-time history
 ├── database.py              # DuckDB thread-local connection management
+├── yf_utils.py             # Timeout-guarded yfinance helpers (freeze-safe)     [NEW]
 ├── universe.py              # 20-sector asset universe + ETF detection + geo risk tables
 ├── taxonomy.py              # Asset taxonomy (EQUITY/ETF/COMMODITY/CASH) + broker registry  [NEW]
 ├── routing.py               # Signal routing: Sparplan vs Active Trade + fee hurdle       [NEW]
@@ -58,6 +60,80 @@ quant/
 ├── outputs/                 # Market scan reports + run artifacts (run_<timestamp>/)
 └── plans/                   # Engineering change proposals
 ```
+
+---
+## New in v10.3.6 — Universe Cleanup & Single Funnel Run
+
+> **Correctness & flow release.** `main.py` no longer re-runs the data fetch,
+> the universe contains only clean Yahoo tickers, and legitimate volatility is
+> no longer dropped.
+
+### 1. Non-Existent Tickers Pruned
+- [`universe_builder.py`](universe_builder.py) skips/deletes `LBRDK` and `WBS`
+  and purges stale dotted class-share rows on rebuild. `universe_master` is now
+  1082 clean Yahoo symbols.
+
+### 2. Funnel Runs Once (2-Step Flow Restored)
+- [`database.py`](database.py) adds a `funnel_survivors` cache table.
+- [`data_updater.py`](data_updater.py) computes survivors and caches them;
+  [`main.py`](main.py) reads the cache instead of re-running the 1000+ symbol
+  funnel. Flow: `data_updater.py` (step 1) then `main.py` (step 2).
+
+### 3. Cleaner Runs
+- [`data_updater.py`](data_updater.py) no longer skips volatile names on the
+  `>25%` move check (79/79 tickers fetched, 0 skips).
+- [`yf_utils.py`](yf_utils.py) suppresses yfinance's `possibly delisted` noise.
+
+---
+## New in v10.3.5 — Pipeline Freeze Fix: Bounded Network I/O & Single-Writer Database
+
+> **Reliability release.** `data_updater.py` no longer freezes. Every network
+> and database-lock wait is now time-bounded, and the previously silent funnel
+> phase reports progress.
+
+### 1. Timeout-Guarded yfinance
+- [`yf_utils.py`](yf_utils.py) *(new)* exposes `history_with_timeout()`, which
+  runs each `Ticker.history()` call in a daemon thread with a hard per-attempt
+  timeout (15s) and retries/backoff — the same pattern as
+  [`fundamentals.py`](fundamentals.py).
+- [`data_updater.py`](data_updater.py) `fetch_single` and
+  [`funnel.py`](funnel.py) `fetch_snapshot` / `fetch_history` now use it. A
+  throttled Yahoo response returns `None` instead of hanging forever.
+- `as_completed` loops gained an overall timeout safety net.
+
+### 2. Visible Funnel Phase
+- [`data_updater.py`](data_updater.py) `main()` prints `Building fetch list...`
+  before `build_fetch_list()` and reports the resulting count.
+
+### 3. Single-Writer Database
+- [`taxonomy.py`](taxonomy.py) serializes all registry writes with a reentrant
+  `_DB_WRITE_LOCK`, so the fetch thread pool never writes to DuckDB concurrently.
+- [`database.py`](database.py) `get_connection()` connects through a bounded
+  daemon thread (`CONNECT_TIMEOUT = 15s`) and fails loudly on a locked DB rather
+  than blocking.
+
+### 4. Request Throttling
+- [`data_updater.py`](data_updater.py) now applies the previously-unused
+  `REQUEST_DELAY` before each fetch (with jitter); worker concurrency dropped
+  from 10 to 5.
+
+### 5. Batched Downloads (the real speed fix)
+- [`yf_utils.py`](yf_utils.py) `download_batch()` fetches 50 tickers per
+  `yf.download()` request. The 1084-symbol universe costs ~20 requests, not
+  1084. [`funnel.py`](funnel.py) Stage 1 and Stage 2 use it.
+- [`funnel.py`](funnel.py) now enforces `FUNNEL_STAGE1_TARGET` (top 300 by
+  dollar volume), so Stage 2 downloads 300 histories, not ~1066. Full funnel:
+  1084 -> 300 -> 24 in ~76s (was ~120s).
+
+### 6. Rate-Limit Circuit Breaker
+- [`yf_utils.py`](yf_utils.py) detects `YFRateLimitError`, backs off all
+  workers together, and aborts fast after 3 consecutive hits with a clear
+  message instead of grinding through ~1000 retries.
+
+### 7. US Share-Class Tickers
+- [`universe_builder.py`](universe_builder.py) normalizes `BRK.B`, `BF.A`,
+  `HEI.A`, `LEN.B`, `UHAL.B` to Yahoo's dashed form (`BRK-B`, ...) so they are
+  no longer dropped as "possibly delisted". European suffixes are unaffected.
 
 ---
 ## New in v10.2
@@ -256,11 +332,13 @@ quant/
 
 ## New in v10.1
 
-> **Universe model change:** [`data_updater.py`](data_updater.py) no longer fetches
-> all 277 `SECTOR_UNIVERSE` stocks. It fetches only **CORE ETFs + ACTIVE
-> (graduated) universe + portfolio holdings** via `build_fetch_list()`. New
-> symbols default to `WATCHLIST`; only `discovery.py` graduation or manual pin
-> promotes them to `ACTIVE`. This keeps the heavy-analysis universe lean.
+> **Universe model change (v10.3.3):** the hardcoded ~300 `SECTOR_UNIVERSE` is
+> deleted. [`universe_builder.py`](universe_builder.py) loads a **1000+ ticker
+> pool** from index constituents into `universe_master`. [`funnel.py`](funnel.py)
+> filters it in two stages (liquidity → momentum) to the top ~24 survivors.
+> [`data_updater.py`](data_updater.py) fetches full history only for those
+> survivors + CORE ETFs + ACTIVE + portfolio. New symbols default to
+> `WATCHLIST`; `discovery.py` graduation promotes them to `ACTIVE`.
 
 ### 1. Execution Reality (Trade Republic Integration)
 - **1-EUR fee asymmetry** — [`optimizer.py`](optimizer.py) adds `minimum_trade_size()` and `passes_fee_hurdle()`. Formula: `Min Capital = (Round_Trip_Fee / Alpha_BPS) * 10000`. A 200 bps alpha needs ≥ 100 EUR to clear the 2 EUR round-trip fee.
@@ -380,11 +458,11 @@ Removed 7 redundant threshold constants from `config.py` that were duplicated un
 
 ## Features
 
-- **Core & Satellite Universe** - Fetches only CORE ETFs + ACTIVE (graduated) equities + portfolio holdings, not a hardcoded 277-stock set. New symbols default to `WATCHLIST`; `discovery.py` graduates anomalies to `ACTIVE`.
+- **Smart 1000+ Universe** - [`universe_builder.py`](universe_builder.py) loads S&P 500 + Nasdaq-100 + Russell 1000 + broad ETFs into `universe_master`. [`funnel.py`](funnel.py) filters to the top ~24 survivors for heavy analysis.
 - **Bifurcated Scoring** - [`taxonomy.py`](taxonomy.py) tags `EQUITY`/`ETF`/`COMMODITY`/`CASH`. ETFs/commodities bypass Fundamentals/NLP and score on macro regime + trend + relative strength.
 - **Trade Republic Execution** - 1-EUR fee asymmetry via `minimum_trade_size()`; Sparplan vs Active Trade routing; ISIN/`tr_ticker` resolution via `broker_registry.csv`.
 - **Smart Balance Buckets** - Safety ≥ 10%, Core ≥ 40%, Alpha ≤ 50% hard constraints in the cvxpy optimizer; cash earns the 2.25% broker APY as the risk-free rate.
-- **20-Sector Universe** - Uranium, Energy, Oil & Gas, Defense, Cybersecurity, Gold, Silver, Copper, Lithium, Quantum, Semiconductors, AI/Cloud, Logistics, Banking, Insurance, Healthcare, Water, Agriculture, Real Estate, Broad ETFs.
+- **Broker-Sync Portfolio** - [`portfolio.csv`](portfolio.csv) uses `Symbol, Avg_Entry_Price, Current_Value_EUR, Broker_PnL_EUR`. PnL is broker truth; `[!]` reconciliation flag when the system estimate deviates > €1.00.
 - **Universal ETF Detection** - Automatically identifies ETFs by sector, display name keywords, and hardcoded fallbacks. ETFs bypass corporate fundamental filters and score purely on market-regime momentum.
 - **Global Sentiment Fallback** - US equities scored via SEC 8-K filings; international assets fall back to News RSS.
 - **Batched Local FinBERT NLP** - Air-gapped sentiment analysis ([ProsusAI/FinBERT](https://huggingface.co/ProsusAI/finbert)). `FinBERTBatchScorer` pools chunks across documents into single vectorized forward passes. No API calls.
@@ -445,23 +523,32 @@ python3 data_updater.py
 ```
 
 Fetches the **Core & Satellite universe** (CORE ETFs + ACTIVE graduated equities +
-portfolio holdings) with 10 parallel workers. **Incremental mode:** on subsequent
-runs it fetches only data after each symbol's last stored date (with a 5-day
-overlap), reducing update time from minutes to seconds. New symbols default to
-`WATCHLIST`; run `discovery.py` weekly to graduate anomalies to `ACTIVE`.
+portfolio holdings) with 5 parallel workers, and runs the **two-stage funnel**
+over the 1000+ `universe_master` (batched `yf.download`, ~20 requests) to select
+the top ~24 survivors, which are **cached in the `funnel_survivors` table**.
+**Incremental mode:** on subsequent runs it fetches only data after each symbol's
+last stored date (with a 5-day overlap). New symbols default to `WATCHLIST`; run
+`discovery.py` weekly (or `universe_builder.py` to refresh the index universe).
+
+> This is **step 1 of 2**. `main.py` (step 2) reads the cached survivors — it
+> does not re-fetch the universe.
 
 ### 3. Configure Portfolio
 
-Edit `portfolio.csv` with your Trade Republic holdings (EUR cost basis):
+Edit `portfolio.csv` with exactly what Trade Republic shows (EUR values):
 
 ```csv
-Symbol,Buy_Price,Amount_EUR
-IWDA.AS,120.50,115.00
-HEI.DE,185.20,200.00
-LMT,509.88,75.00
-RHO.DE,356.40,48.26
+Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR
+EUNL.DE,125.03,281.25,12.00
+AMZN,220.55,150.41,5.20
 ```
 
+- `Avg_Entry_Price` = average entry price per share (native currency).
+- `Current_Value_EUR` = current position value in EUR (from the broker).
+- `Broker_PnL_EUR` = the broker's "P&L from purchase" in EUR.
+
+`Invested_EUR = Current_Value_EUR - Broker_PnL_EUR` is derived; the script never
+guesses historical PnL from price charts (fixes the DCA phantom-profit bug).
 Comments after `#` are automatically stripped.
 
 ### 4. Run the Scan
@@ -469,6 +556,10 @@ Comments after `#` are automatically stripped.
 ```bash
 python3 main.py
 ```
+
+Step 2 of 2: reads the cached funnel survivors from step 1 plus CORE/ACTIVE/
+portfolio, then scores, audits, and reports. Run `data_updater.py` first so the
+survivor cache and market data are current.
 
 ### 5. Run the Streamlit Dashboard
 

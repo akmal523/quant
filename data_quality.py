@@ -30,13 +30,16 @@ class DataQualityValidator:
     }
 
     def validate_batch(self, df: pd.DataFrame, symbol: str,
-                       check_min_history: bool = True) -> tuple[bool, list[str]]:
+                       check_min_history: bool = True,
+                       check_extreme_moves: bool = True) -> tuple[bool, list[str]]:
         """Validate a batch of market data. Returns (is_valid, issues).
 
-        Intent: check_min_history=False for incremental slices (only ~5 days
-        fetched). The 60-day minimum is a FULL-history scoring invariant, not a
-        data-integrity check for the append slice; the full history already
-        lives in market_history and was validated on the initial 5y fetch.
+        Intent: check_min_history=False and check_extreme_moves=False for
+        incremental slices (only ~5 days fetched). The 60-day minimum and the
+        >25% daily-move check are FULL-history invariants, not data-integrity
+        checks for the append slice. A single >25% move on a real trading day
+        (earnings/news) is legitimate and must not block the incremental update;
+        the full history was already validated on the initial 5y fetch.
         """
         issues = []
         if df is None or df.empty:
@@ -57,12 +60,13 @@ class DataQualityValidator:
         if (close > self.THRESHOLDS["max_price"]).any():
             issues.append("Price above max threshold")
 
-        daily_return = close.pct_change()
-        extreme = daily_return[daily_return.abs() > self.THRESHOLDS["max_daily_return"]]
-        if len(extreme) > 0:
-            issues.append(
-                f"{len(extreme)} days with >{self.THRESHOLDS['max_daily_return']*100:.0f}% moves"
-            )
+        if check_extreme_moves:
+            daily_return = close.pct_change()
+            extreme = daily_return[daily_return.abs() > self.THRESHOLDS["max_daily_return"]]
+            if len(extreme) > 0:
+                issues.append(
+                    f"{len(extreme)} days with >{self.THRESHOLDS['max_daily_return']*100:.0f}% moves"
+                )
 
         if "Date" in df.columns:
             dup_count = int(df["Date"].duplicated().sum())

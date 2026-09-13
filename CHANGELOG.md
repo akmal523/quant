@@ -7,6 +7,234 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.3.6] - 2026-09-13
+
+### Fixed - Universe Cleanup & Single Funnel Run
+
+`main.py` was re-running the full 1000+ symbol funnel that `data_updater.py`
+already runs (a duplicated network fetch every cycle); the broad universe
+contained tickers Yahoo does not carry; and legitimate volatile names were
+silently dropped. All cleaned up.
+
+1. **Non-existent tickers pruned** - [`universe_builder.py`](universe_builder.py)
+   - `NONEXISTENT_SYMBOLS` (`LBRDK`, `WBS`) are skipped on build and deleted
+     from `universe_master`; stale dotted class-share rows are purged on rebuild.
+     `universe_master` is now 1082 clean Yahoo symbols (was 1084).
+
+2. **Funnel runs once (2-step flow restored)** - [`database.py`](database.py),
+   [`funnel.py`](funnel.py), [`data_updater.py`](data_updater.py), [`main.py`](main.py)
+   - New `funnel_survivors` table caches the funnel result. `data_updater.py`
+     writes it (`save_survivors`); `main.py` now READS it (`load_survivors`)
+     instead of re-running the 1000+ symbol funnel. Removes a duplicated ~76s
+     network fetch per daily cycle and honours the documented
+     `data_updater.py` -> `main.py` flow.
+
+3. **Legitimate volatility no longer blocked** - [`data_updater.py`](data_updater.py)
+   - The `>25% daily move` check hard-skipped volatile names (BE, SMTC, DELL,
+     ARM, FLEX, TEAM); a skipped symbol never acquires a `last_date`, so it was
+     skipped forever. Extreme moves are now treated as legitimate market
+     behaviour (structural checks still run: NaN/negative/duplicate/stale).
+     Result: 79/79 tickers fetched, 0 skips.
+
+4. **yfinance delisted noise silenced** - [`yf_utils.py`](yf_utils.py)
+   - `download_batch()` wraps `yf.download()` in `_silence_yf_output()`,
+     raising the yfinance logger and redirecting stderr, so batch probes of bad
+     tickers no longer print `possibly delisted` or surface as `[ERROR]`.
+
+---
+
+## [10.3.5] - 2026-09-13
+
+### Fixed - Pipeline Freeze: Bounded Network I/O & Single-Writer Database
+
+`data_updater.py` froze during runs. The root cause was three compounding
+unbounded-blocking issues; all waits are now time-bounded.
+
+1. **yfinance calls had no timeout** - [`yf_utils.py`](yf_utils.py) *(new)*,
+   [`data_updater.py`](data_updater.py), [`funnel.py`](funnel.py)
+   - New `history_with_timeout()` runs each `Ticker.history()` call in a daemon
+     thread with a hard per-attempt timeout (default 15s) plus retries/backoff,
+     mirroring the pattern already used in [`fundamentals.py`](fundamentals.py).
+     A throttled Yahoo response can no longer hang the run.
+   - `fetch_single` (data_updater) and `fetch_snapshot` / `fetch_history`
+     (funnel) now use the helper and treat a timeout (`None`) as "no data".
+   - The `as_completed` loops now carry an overall timeout safety net so one
+     stalled ticker cannot block the whole batch.
+
+2. **Funnel phase was silent** - [`data_updater.py`](data_updater.py)
+   - `main()` now prints `Building fetch list...` before `build_fetch_list()`
+     and reports the resulting count, so the (potentially slow) funnel is
+     visible instead of looking frozen.
+
+3. **DuckDB multi-threaded write contention** - [`taxonomy.py`](taxonomy.py),
+   [`database.py`](database.py)
+   - Added a reentrant `_DB_WRITE_LOCK` that serializes all `asset_registry` /
+     `universe_events` writes (`_upsert_registry`, `log_universe_event`,
+     `set_core`, `sync_broker_registry`). Worker threads in the fetch pool no
+     longer write to DuckDB concurrently.
+   - `get_connection()` now connects through a bounded daemon thread
+     (`CONNECT_TIMEOUT = 15s`) and raises a clear error instead of blocking
+     forever when the DB file is locked. The old comment claimed a `timeout=15`
+     that was never actually passed.
+
+4. **Request throttling** - [`data_updater.py`](data_updater.py)
+   - The defined-but-unused `REQUEST_DELAY` is now applied before each fetch
+     (with jitter), and worker concurrency was lowered from 10 to 5 to avoid
+     tripping Yahoo's rate limiter.
+
+5. **Batched downloads** - [`yf_utils.py`](yf_utils.py), [`funnel.py`](funnel.py)
+   - New `download_batch()` fetches many tickers per `yf.download()` request
+     (50 per chunk) instead of one request per ticker. The 1084-symbol universe
+     now costs ~20 requests, not 1084. Funnel Stage 1 and Stage 2 both use it.
+
+6. **Rate-limit circuit breaker** - [`yf_utils.py`](yf_utils.py)
+   - `YFRateLimitError` is detected by name; a global cooldown with exponential
+     backoff pauses all workers together, and after 3 consecutive hits the run
+     aborts fast (`[!] Yahoo rate limit persists - aborting further fetches`)
+     instead of grinding through ~1000 retries.
+
+7. **Funnel Stage 1 soft cap enforced** - [`funnel.py`](funnel.py)
+   - `FUNNEL_STAGE1_TARGET` (300) was documented but ignored, so Stage 2
+     downloaded 1y history for ~1066 tickers every run. Stage 1 now ranks
+     survivors by dollar volume and keeps the top 300. The full funnel
+     (1084 -> 300 -> 24) dropped from ~120s to ~76s.
+
+8. **US share-class ticker normalization** - [`universe_builder.py`](universe_builder.py)
+   - Wikipedia lists class shares with a dot (`BRK.B`, `BF.A`, `HEI.A`,
+     `LEN.B`, `UHAL.B`) while Yahoo uses a dash (`BRK-B`, ...). These were
+     reported "possibly delisted" and silently dropped. Dots are now converted
+     to dashes for the US-only index tables; European suffixes (`.L`/`.DE`/
+     `.AS`) come from the curated `BROAD_ETFS` list and are unaffected.
+
+---
+
+## [10.3.4] - 2026-09-12
+
+### Fixed - Reconciliation, Data Quality Gate & Funnel Noise
+
+1. **Reconciliation formula aligned with Plan 3** - [`portfolio.py`](portfolio.py)
+   - `System_Estimated_Value` now uses the **native** `Avg_Entry_Price` (not
+     FX-converted): `(Current_Value_EUR / Avg_Entry_Price) * Current_Market_Price_EUR`.
+   - **Root cause:** converting `Avg_Entry_Price` to EUR inflated the deviation
+     and fired a false `[!]` flag on every position (e.g. AMZN +24.71 instead of
+     +0.49). Now only genuinely divergent positions are flagged.
+
+2. **Data Quality Gate no longer drops volatile tickers on incremental** -
+   [`data_quality.py`](data_quality.py) + [`data_updater.py`](data_updater.py)
+   - Added `check_extreme_moves: bool = True` to `validate_batch()`. The
+     `>25% daily move` check is a full-history corruption invariant, not an
+     append-slice check. A single big move on a real trading day (earnings/news)
+     is legitimate and must not block the update.
+   - [`data_updater.py`](data_updater.py) passes `check_extreme_moves=not last_date`
+     (mirrors the existing `check_min_history` pattern).
+   - **Result:** BE, QRVO, SMTC, OKTA, SANM, DELL, GTLB are no longer skipped.
+
+3. **Funnel silences yfinance delisted-symbol noise** - [`funnel.py`](funnel.py)
+   - Added `_silence_yfinance()` context manager that redirects stderr to
+     devnull during snapshot/history fetches. The broad universe contains some
+     delisted/bad tickers (e.g. `BRK.B`, `BF.B` from Russell 1000); yfinance
+     prints `$SYM: possibly delisted` for each. These are non-fatal (the funnel
+     skips them) but flooded the console. Now silent.
+
+---
+
+## [10.3.3] - 2026-09-12
+
+### Added - Architecture Restoration & Broker-Sync Overhaul (Plan 3)
+
+1. **Smart 1000+ Universe** - [`universe_builder.py`](universe_builder.py) *(new)*
+   - Deleted the hardcoded ~300 `SECTOR_UNIVERSE`. The broad pool now loads
+     dynamically from index constituents (S&P 500 = 503, Nasdaq-100 = 102,
+     Russell 1000 = 1021) + 49 broad ETFs → **1084 unique symbols** in a new
+     `universe_master` table.
+   - Uses a browser User-Agent to bypass Wikipedia's HTTP 403 block on
+     `pandas.read_html`.
+
+2. **Multi-Stage Funnel** - [`funnel.py`](funnel.py) *(new)*
+   - Stage 1 (liquidity/viability): 1-day snapshot, `price > $5` and min daily
+     dollar volume → ~300-500 survivors.
+   - Stage 2 (trend/momentum): 1y history, SMA/RSI/6m-return composite score →
+     top ~24 survivors for heavy FinBERT/GARCH analysis.
+
+3. **Universe Refactor** - [`universe.py`](universe.py)
+   - Removed `SECTOR_UNIVERSE`, `get_market_universe`, `symbol_to_sector`,
+     `get_sector_symbols`, `universe_stats`. Kept `CURRENCY_SYMBOLS` + GEO
+     tables. `is_etf()` now reads `broker_registry.csv` directly (no circular
+     import with `taxonomy.classify_instrument`).
+
+4. **Staged Data Pipeline** - [`data_updater.py`](data_updater.py) + [`main.py`](main.py)
+   - `build_fetch_list()` fetches full 5y history only for funnel survivors +
+     CORE ETFs + ACTIVE + portfolio. `main.py` scan universe = funnel output +
+     portfolio + CORE + ACTIVE.
+
+5. **Broker-Sync CSV** - [`portfolio.csv`](portfolio.csv) + [`portfolio.py`](portfolio.py)
+   - New schema: `Symbol, Avg_Entry_Price, Current_Value_EUR, Broker_PnL_EUR`.
+     `Invested_EUR = Current_Value_EUR - Broker_PnL_EUR`;
+     `Real_PnL_EUR = Broker_PnL_EUR` (broker truth, never price-guessed);
+     `Real_PnL_Pct = Broker_PnL_EUR / Invested_EUR * 100`. Fixes the phantom
+     DCA profit bug.
+   - `broker_data.csv` retired; `Broker_PnL_EUR` consolidated into
+     `portfolio.csv`.
+
+6. **FX Transparency** - [`portfolio.py`](portfolio.py)
+   - Dual-price display: `Current_Price_Native` + `Current_Price_EUR`;
+     `FX_Impact_EUR` retained.
+
+7. **Reconciliation Engine** - [`portfolio.py`](portfolio.py)
+   - `System_Estimated_Value = shares × current_price_eur`;
+     `Recon_Deviation` + `Recon_Flag` `[!]` when deviation > €1.00 (stale CSV
+     or high spread).
+
+8. **Discovery Feed** - [`discovery.py`](discovery.py)
+   - Graduation engine now scans `universe_master` (watchlist.csv is fallback).
+
+9. **Tests** - [`test_funnel.py`](test_funnel.py) *(new)*, [`test_universe_builder.py`](test_universe_builder.py) *(new)*, [`test_portfolio_fx.py`](test_portfolio_fx.py) *(rewritten)*.
+
+---
+
+## [10.3.2] - 2026-09-11
+
+### Added - Portfolio Audit & FX Reconciliation (Action Plan Items 1-4, 6)
+
+1. **Real PnL in EUR** - [`portfolio.py`](portfolio.py)
+   - `enhanced_portfolio_audit` now computes FX-aware EUR PnL:
+     `Invested_EUR` = `Original_Amount` (real EUR cost basis),
+     `Value_EUR` = `(Current_Price / FX) * Shares` (live, converted to EUR),
+     `Real_PnL_EUR` = `Value_EUR - Invested_EUR`,
+     `Real_PnL_Pct` = `Real_PnL_EUR / Invested_EUR * 100`.
+   - Shares are backed out from the CSV's recorded current EUR value so cost
+     basis and FX impact stay independent of today's rate.
+
+2. **FX Impact Tracking** - [`portfolio.py`](portfolio.py)
+   - New `FX_Impact_EUR` column = `Real_PnL_EUR - Asset_PnL_EUR`, where
+     `Asset_PnL_EUR` is the pure price move converted at today's rate. Positive
+     = currency helped; negative = currency hurt.
+
+3. **Broker Reconciliation** - [`portfolio.py`](portfolio.py) + [`broker_data.csv`](broker_data.csv) *(new)*
+   - `load_broker_data()` reads `broker_data.csv` (`Symbol,Broker_PnL_EUR`).
+   - Audit emits `Broker_Deviation` = `System_PnL_EUR - Broker_PnL_EUR` and a
+     `Broker_Flag` `[!]` when `|deviation| > €0.50`.
+
+4. **Restructured Audit Table** - [`portfolio.py`](portfolio.py) + [`main.py`](main.py)
+   - Columns: `Symbol | Tier | Avg_Buy_Price | Current_Price_FX | Invested_EUR |
+     Value_EUR | Current_Weight | Target_Weight | Drift | Real_PnL_EUR |
+     Real_PnL_Pct | FX_Impact_EUR | Broker_Deviation | Broker_Flag | Signal |
+     Horizon | Recommendation`.
+   - Backward-compat aliases (`PnL_pct`, `PnL_EUR`, `Current_Value`) retained
+     for the tax optimizer and effectiveness report.
+
+5. **DIP BUY Gating** - [`main.py`](main.py)
+   - DIP BUY alerts only fire for positions underweight vs their target tier
+     (or not in the audit), never for overweight positions.
+
+6. **FX Helpers** - [`currency.py`](currency.py)
+   - Added `deduce_currency()` and `get_fx_to_eur()` (EUR=1.0, USD=1/EURUSD
+     live, GBX via USD proxy, others via `apply_fx_conversion`).
+
+7. **Tests** - [`test_portfolio_fx.py`](test_portfolio_fx.py) *(new)* — 4 tests.
+
+---
+
 ## [10.3.1] - 2026-09-11
 
 ### Fixed - Incremental Data Acquisition (Bugfix)

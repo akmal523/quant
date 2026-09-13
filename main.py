@@ -249,6 +249,18 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     cash_mgr = CashManager()
     cash_target = cash_mgr.target_cash_allocation(regime, vix=18.0, opportunity_score=0.5)
     cash_eur = port_value * 0.10  # placeholder cash
+    # Item 6: gate DIP BUY on underweight vs target tier. Only buy dips on
+    # positions that are underweight (or not in the audit), never on overweight
+    # positions that are already at/above target.
+    weight_map = {}
+    if not audit_res.empty and {"Current_Weight", "Target_Weight"}.issubset(audit_res.columns):
+        for _, r in audit_res.iterrows():
+            try:
+                cw = float(str(r.get("Current_Weight", "0%")).rstrip("%")) / 100.0
+                tw = float(str(r.get("Target_Weight", "0%")).rstrip("%")) / 100.0
+                weight_map[r["Symbol"]] = (cw, tw)
+            except Exception:
+                continue
     dip_alerts = []
     for sym in port_df["Symbol"]:
         if sym in closes:
@@ -256,7 +268,9 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
             dd = float((s.iloc[-1] - s.max()) / s.max()) if s.max() > 0 else 0.0
             amt = cash_mgr.dip_buying_algorithm(sym, dd, cash_eur)
             if amt > 0:
-                dip_alerts.append((sym, amt))
+                cw, tw = weight_map.get(sym, (0.0, 0.0))
+                if sym not in weight_map or cw < tw:
+                    dip_alerts.append((sym, amt))
 
     # Tax optimizer.
     tax_df = audit_res.copy()
@@ -331,10 +345,11 @@ def main() -> None:
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
     logger.info("Loaded Portfolio: %s", list(portfolio_symbols))
 
-    # ── Phase 4 (3.2): Core & Satellite universe filter ─────────────────────
-    # Only scan CORE ETFs + ACTIVE (graduated) universe + portfolio holdings.
-    # Stale symbols lingering in market_history from the old 277-stock fetch
-    # are excluded so the heavy FinBERT/GARCH analysis stays lean.
+    # ── Plan 3 (Phase 1): Smart Funnel universe filter ──────────────────────
+    # The broad 1000+ universe is filtered to the top survivors ONCE per cycle by
+    # data_updater.py and cached in the funnel_survivors table. main.py reads that
+    # cache (it does NOT re-run the funnel / re-fetch the universe). Scan universe
+    # = cached survivors + ACTIVE registry + CORE ETFs + portfolio holdings.
     active_symbols = set(portfolio_symbols)
     try:
         rows = conn.execute(
@@ -345,10 +360,25 @@ def main() -> None:
     except Exception:
         pass
     # CORE ETFs are always tracked even if not in registry.
-    from universe import SECTOR_UNIVERSE
-    active_symbols.update(SECTOR_UNIVERSE.get("Broad ETFs", {}).values())
+    from universe_builder import BROAD_ETFS
+    active_symbols.update(BROAD_ETFS.values())
+    # Funnel survivors (top ~24): read the cache written by data_updater.py.
+    # This keeps the documented 2-step flow (data_updater -> main) and avoids
+    # re-fetching the 1000+ symbol universe / re-tripping Yahoo rate limits.
+    try:
+        from funnel import load_survivors
+        cached_survivors = load_survivors()
+        if cached_survivors:
+            active_symbols.update(cached_survivors)
+            logger.info("Funnel survivors loaded from cache: %d", len(cached_survivors))
+        else:
+            logger.warning("No cached funnel survivors - run data_updater.py first. "
+                           "Scanning CORE + ACTIVE + portfolio only.")
+    except Exception as e:
+        logger.warning("Funnel survivor cache read failed: %s", e)
     grouped_data = {s: df for s, df in grouped_data.items() if s in active_symbols}
-    logger.info("Scan universe (CORE + ACTIVE + portfolio): %d symbols", len(grouped_data))
+    logger.info("Scan universe (funnel + CORE + ACTIVE + portfolio): %d symbols",
+                len(grouped_data))
 
     # ── Pillar 1: Smart Funnel ──────────────────────────────────────────────
     # Tier 1 (microseconds): fast fundamental filter.
@@ -595,7 +625,10 @@ def main() -> None:
         print("FULL PORTFOLIO AUDIT (Tier-Aware)")
         print("=" * 120)
         cols = ['Symbol', 'Tier', 'Current_Weight', 'Target_Weight', 'Drift',
-                'Signal', 'Horizon', 'Recommendation', 'PnL_pct']
+                'Invested_EUR', 'Value_EUR', 'Real_PnL_EUR', 'Real_PnL_Pct',
+                'FX_Impact_EUR', 'Recon_Deviation', 'Recon_Flag',
+                'Current_Price_Native', 'Current_Price_EUR',
+                'Signal', 'Horizon', 'Recommendation']
         print(audit_res[cols].to_string(index=False))
         print("\n")
 

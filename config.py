@@ -89,6 +89,15 @@ STALE_DATA_DAYS = 3
 # Consecutive fetch failures before a symbol is marked DELISTED.
 MAX_FETCH_FAILURES = 3
 
+# ── Plan 3 (Phase 1): Multi-Stage Funnel thresholds ───────────────────────────
+# Stage 1 (liquidity/viability): filter the 1000+ universe_master down to a
+# viable pool. min daily DOLLAR volume = price * shares traded.
+FUNNEL_MIN_PRICE = 5.0
+FUNNEL_MIN_DAILY_VOLUME = 1_000_000   # min daily dollar volume (price*volume)
+FUNNEL_STAGE1_TARGET = 300             # soft cap on Stage 1 survivors
+FUNNEL_TOP_N = 24                      # Stage 2 survivors for heavy analysis
+FUNNEL_MAX_WORKERS = 10
+
 # CORE sleeve: immutable, never graduated, never demoted. Broad market, water,
 # bonds, and money market ETFs. These are the long-term accumulation vehicles.
 CORE_ETFS = [

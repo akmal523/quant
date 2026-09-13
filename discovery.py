@@ -40,8 +40,8 @@ from taxonomy import (
     CORE_STATUSES, DEMOTABLE_STATUSES,
 )
 
-# Default watchlist: symbols not in the active SECTOR_UNIVERSE but tracked for
-# potential graduation. Extend this CSV with up to ~1,000 tickers.
+# Legacy watchlist CSV (fallback only). Plan 3 (Phase 1): the graduation engine
+# now scans the broad universe_master pool (1000+ index constituents) instead.
 WATCHLIST_CSV = "watchlist.csv"
 
 
@@ -199,9 +199,14 @@ def run_discovery() -> dict:
     """
     init_db()
     conn = get_connection()
-    watchlist = load_watchlist()
+    # Plan 3 (Phase 1): scan the broad universe_master pool for graduation.
+    # Fall back to the legacy watchlist.csv only if universe_master is empty.
+    from universe_builder import load_universe_master
+    watchlist = load_universe_master()
     if not watchlist:
-        print(" [!] No watchlist.csv found — skipping discovery scan.")
+        watchlist = load_watchlist()
+    if not watchlist:
+        print(" [!] No universe_master / watchlist found — skipping discovery scan.")
         return {"scanned": 0, "graduated": 0, "demoted": 0, "delisted": 0}
 
     graduated = 0

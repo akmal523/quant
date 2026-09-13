@@ -59,6 +59,59 @@ def currency_symbol(code: str) -> str:
     return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "") + " ")
 
 
+def deduce_currency(symbol: str) -> str:
+    """Deduce native currency from a yahoo ticker suffix. Pure function.
+
+    Intent: portfolio audit needs per-symbol native currency to convert prices
+    to EUR. Symbols without a suffix are US-listed (USD). Exchange suffixes map
+    to their listing currency. Invariants: returns an ISO-ish code; unknown
+    suffixes default to USD.
+    """
+    if "." not in symbol:
+        return "USD"
+    suffix = symbol.split(".")[-1].upper()
+    eur_zones = {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}
+    if suffix in eur_zones:
+        return "EUR"
+    if suffix == "L":
+        return "GBX"
+    if suffix == "SW":
+        return "CHF"
+    if suffix == "CO":
+        return "DKK"
+    if suffix == "OL":
+        return "NOK"
+    if suffix == "ST":
+        return "SEK"
+    if suffix == "TO":
+        return "CAD"
+    if suffix == "AX":
+        return "AUD"
+    if suffix == "KS":
+        return "KRW"
+    return "USD"
+
+
+def get_fx_to_eur(symbol: str) -> float:
+    """Return multiplier converting a symbol's native price to EUR.
+
+    Intent: portfolio audit converts native-currency prices to EUR for real PnL.
+    EUR -> 1.0; USD -> 1/EURUSD (live). GBX -> GBP -> EUR via USD proxy. Other
+    currencies fall back to apply_fx_conversion on a single-row frame; unknown
+    rates degrade to 1.0 (no crash). Dependencies: get_eur_rate, apply_fx_conversion.
+    """
+    ccy = deduce_currency(symbol)
+    if ccy == "EUR":
+        return 1.0
+    if ccy == "USD":
+        return 1.0 / get_eur_rate()
+    if ccy == "GBX":
+        return (1.0 / 100.0) / get_eur_rate()
+    dummy = pd.DataFrame({"Close": [1.0]})
+    conv = apply_fx_conversion(dummy, ccy, "EUR")
+    return float(conv["Close"].iloc[0])
+
+
 def apply_fx_conversion(
     hist: pd.DataFrame,
     from_currency: str,

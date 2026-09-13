@@ -1,3 +1,187 @@
+# Release Notes - v10.3.6
+
+**Quant-AI v10.3.6** - Universe Cleanup & Single Funnel Run
+
+## Fixed
+
+1. **Non-existent tickers pruned** - [`universe_builder.py`](universe_builder.py)
+   — `LBRDK`/`WBS` and stale dotted class-share rows are removed from
+   `universe_master` on rebuild (now 1082 clean Yahoo symbols).
+2. **Funnel runs once (2-step flow)** - [`database.py`](database.py),
+   [`funnel.py`](funnel.py), [`data_updater.py`](data_updater.py),
+   [`main.py`](main.py) — a new `funnel_survivors` cache means `data_updater.py`
+   computes survivors and `main.py` reads them, removing a duplicated 1000+
+   symbol fetch from every daily cycle.
+3. **Volatility no longer blocks ingestion** - [`data_updater.py`](data_updater.py)
+   — the `>25%` move check no longer hard-skips BE/SMTC/DELL/ARM/FLEX/TEAM;
+   all 79 tickers now update.
+4. **Silenced delisted-ticker noise** - [`yf_utils.py`](yf_utils.py) —
+   `download_batch()` suppresses yfinance's `possibly delisted` stderr/log
+   output during batch probes.
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_funnel.py` | 5 | Pass |
+| `test_universe_builder.py` | 4 | Pass |
+| `test_part3.py` | 14 | Pass |
+
+---
+
+# Release Notes - v10.3.5
+
+**Quant-AI v10.3.5** - Pipeline Freeze Fix: Bounded Network I/O & Single-Writer Database
+
+## Fixed
+
+1. **Unbounded yfinance calls** - [`yf_utils.py`](yf_utils.py) *(new)*,
+   [`data_updater.py`](data_updater.py), [`funnel.py`](funnel.py) — the new
+   `history_with_timeout()` wraps `Ticker.history()` in a daemon thread with a
+   hard per-attempt timeout (15s) plus retries/backoff. A throttled Yahoo
+   response can no longer hang the run, and the `as_completed` loops now have an
+   overall timeout safety net.
+2. **Silent funnel phase** - [`data_updater.py`](data_updater.py) — `main()`
+   now reports progress before/after `build_fetch_list()`, so the slow funnel no
+   longer looks frozen.
+3. **DuckDB write contention** - [`taxonomy.py`](taxonomy.py),
+   [`database.py`](database.py) — a reentrant write lock serializes registry
+   writes from the fetch thread pool; `get_connection()` now uses a bounded
+   connect timeout (`CONNECT_TIMEOUT = 15s`) instead of blocking forever on a
+   locked database.
+4. **Request throttling** - [`data_updater.py`](data_updater.py) — the
+   previously-unused `REQUEST_DELAY` is now applied before each fetch (with
+   jitter), and worker concurrency was lowered from 10 to 5.
+5. **Batched downloads** - [`yf_utils.py`](yf_utils.py), [`funnel.py`](funnel.py)
+   — new `download_batch()` fetches 50 tickers per `yf.download()` request; the
+   1084-symbol universe now costs ~20 requests instead of 1084.
+6. **Rate-limit circuit breaker** - [`yf_utils.py`](yf_utils.py) — detects
+   `YFRateLimitError`, backs off globally, and aborts fast after 3 consecutive
+   hits rather than grinding through every ticker.
+7. **Funnel Stage 1 cap** - [`funnel.py`](funnel.py) — `FUNNEL_STAGE1_TARGET`
+   is now enforced (top 300 by dollar volume), cutting Stage 2 from ~1066 to 300
+   history downloads; the full funnel dropped from ~120s to ~76s.
+8. **US share-class tickers** - [`universe_builder.py`](universe_builder.py) —
+   `BRK.B`/`BF.A`/`HEI.A`/`LEN.B`/`UHAL.B` are normalized to Yahoo's dashed
+   form (`BRK-B`, ...) so they are no longer dropped as "possibly delisted".
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_funnel.py` | 5 | Pass |
+| `test_universe_builder.py` | 4 | Pass |
+| `test_portfolio_fx.py` | 6 | Pass |
+| `test_rebalancing.py` | 13 | Pass |
+| `test_phase4.py` | 20 | Pass |
+| `test_phase5.py` | 13 | Pass |
+
+---
+
+# Release Notes - v10.3.4
+
+**Quant-AI v10.3.4** - Reconciliation, Data Quality & Funnel Noise Fixes
+
+## Fixed
+
+1. **Reconciliation formula aligned with Plan 3** - [`portfolio.py`](portfolio.py)
+   — `System_Estimated_Value` uses the native `Avg_Entry_Price`:
+   `(Current_Value_EUR / Avg_Entry_Price) * Current_Market_Price_EUR`. Fixes
+   false `[!]` flags on every position (AMZN +24.71 → +0.49).
+2. **Data Quality Gate** - [`data_quality.py`](data_quality.py) +
+   [`data_updater.py`](data_updater.py) — added `check_extreme_moves`; skipped
+   on incremental slices so a single legitimate >25% move (earnings/news) no
+   longer drops the symbol. BE, QRVO, SMTC, OKTA, SANM, DELL, GTLB now update.
+3. **Funnel noise** - [`funnel.py`](funnel.py) — `_silence_yfinance()` redirects
+   stderr during fetches, removing the `$SYM: possibly delisted` flood from
+   probing bad/delisted Russell 1000 tickers.
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_funnel.py` | 5 | Pass |
+| `test_universe_builder.py` | 4 | Pass |
+| `test_portfolio_fx.py` | 6 | Pass |
+| `test_rebalancing.py` | 13 | Pass |
+| `test_phase4.py` | 20 | Pass |
+| `test_phase5.py` | 13 | Pass |
+
+---
+
+# Release Notes - v10.3.3
+
+**Quant-AI v10.3.3** - Architecture Restoration & Broker-Sync Overhaul
+
+## What's New
+
+1. **Smart 1000+ Universe** - [`universe_builder.py`](universe_builder.py) *(new)*
+   — the hardcoded ~300 `SECTOR_UNIVERSE` is deleted. The broad pool now loads
+   dynamically from index constituents (S&P 500 = 503, Nasdaq-100 = 102,
+   Russell 1000 = 1021) + 49 broad ETFs → **1084 unique symbols** in a new
+   `universe_master` table.
+2. **Multi-Stage Funnel** - [`funnel.py`](funnel.py) *(new)* — Stage 1
+   liquidity/viability (price > $5, min daily $ volume) → ~300-500; Stage 2
+   trend/momentum (SMA/RSI/6m return) → top ~24 survivors for heavy analysis.
+3. **Broker-Sync CSV** - [`portfolio.csv`](portfolio.csv) — new schema
+   `Symbol, Avg_Entry_Price, Current_Value_EUR, Broker_PnL_EUR`. PnL is broker
+   truth, never price-guessed. Fixes the phantom DCA profit bug.
+4. **FX Transparency** - dual-price display (`Current_Price_Native` +
+   `Current_Price_EUR`); `FX_Impact_EUR` retained.
+5. **Reconciliation Engine** - `System_Estimated_Value = shares ×
+   current_price_eur`; `[!]` flag when deviation > €1.00 (stale CSV / spread).
+6. **Staged Data Pipeline** - [`data_updater.py`](data_updater.py) +
+   [`main.py`](main.py) fetch full history only for funnel survivors + CORE +
+   ACTIVE + portfolio.
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_funnel.py` | 5 | Pass |
+| `test_universe_builder.py` | 4 | Pass |
+| `test_portfolio_fx.py` | 6 | Pass |
+| `test_rebalancing.py` | 13 | Pass |
+| `test_phase4.py` | 20 | Pass |
+| `test_phase5.py` | 13 | Pass |
+
+---
+
+# Release Notes - v10.3.2
+
+**Quant-AI v10.3.2** - Portfolio Audit & FX Reconciliation
+
+## What's New
+
+1. **Real PnL in EUR** - [`portfolio.py`](portfolio.py) — the audit now shows
+   actual money made/lost in EUR (`Real_PnL_EUR`, `Real_PnL_Pct`) instead of
+   native-currency price growth. `Invested_EUR` = `Original_Amount`;
+   `Value_EUR` = `(Current_Price / FX) * Shares`; `Real_PnL_EUR` =
+   `Value_EUR - Invested_EUR`.
+2. **FX Impact Tracking** - new `FX_Impact_EUR` column isolates the currency
+   contribution to EUR PnL (positive = currency helped, negative = hurt).
+3. **Broker Reconciliation** - [`broker_data.csv`](broker_data.csv) lets you
+   paste Trade Republic PnL; the audit emits `Broker_Deviation` and flags
+   `[!]` when it exceeds €0.50.
+4. **Restructured Audit Table** - readable columns: `Symbol | Tier |
+   Avg_Buy_Price | Current_Price_FX | Invested_EUR | Value_EUR | Weight |
+   Real_PnL_EUR | Real_PnL_Pct | FX_Impact_EUR | Broker_Deviation |
+   Rebalance_Action`.
+5. **DIP BUY Gating** - [`main.py`](main.py) only suggests DIP BUYs on
+   underweight positions, never overweight ones.
+6. **FX Helpers** - [`currency.py`](currency.py) adds `deduce_currency()` and
+   `get_fx_to_eur()`.
+
+## Test Suite
+
+| Suite | Tests | Status |
+|:---|:---:|:---|
+| `test_portfolio_fx.py` | 4 | Pass |
+| `test_rebalancing.py` | 13 | Pass |
+| `test_advanced.py` | 15 | Pass |
+| `test_phase5.py` | 13 | Pass |
+
+---
+
 # Release Notes - v10.3.1
 
 **Quant-AI v10.3.1** - Incremental Data Acquisition Bugfix

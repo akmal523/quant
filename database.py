@@ -3,14 +3,49 @@ import duckdb
 import threading
 
 DB_PATH = "quant_cache.duckdb"
+# Max seconds to wait for the DuckDB file lock before giving up. DuckDB allows
+# concurrent reads but strictly one writer; if another process (dashboard, a
+# previous crashed run) holds the lock, an unguarded connect() can block forever
+# and freeze the pipeline.
+CONNECT_TIMEOUT = 15.0
 _local = threading.local()
+
+
+def _connect_with_timeout() -> duckdb.DuckDBPyConnection:
+    """Open the DB, but never block longer than CONNECT_TIMEOUT seconds.
+
+    Intent: Python's duckdb.connect() exposes no lock timeout. Run it in a
+    daemon thread and join with a bounded timeout so a locked database raises a
+    clear error instead of silently freezing the run.
+    """
+    result: list = [None]
+    error: list = [None]
+
+    def _worker() -> None:
+        try:
+            result[0] = duckdb.connect(DB_PATH, config={'access_mode': 'READ_WRITE'})
+        except Exception as e:  # noqa: BLE001
+            error[0] = e
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(CONNECT_TIMEOUT)
+
+    if t.is_alive():
+        raise TimeoutError(
+            f"DuckDB connect timed out after {CONNECT_TIMEOUT:.0f}s "
+            f"(database locked by another process?). Path: {DB_PATH}"
+        )
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
 
 def get_connection() -> duckdb.DuckDBPyConnection:
     """Provides thread-local DuckDB connection."""
-    if not hasattr(_local, "conn"):
+    if not hasattr(_local, "conn") or _local.conn is None:
         # DuckDB allows concurrent reads, strictly one write process.
-        # timeout=15 for WAL-style waiting.
-        _local.conn = duckdb.connect(DB_PATH, config={'access_mode': 'READ_WRITE'})
+        _local.conn = _connect_with_timeout()
     return _local.conn
 
 def init_db() -> None:
@@ -189,5 +224,35 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS rebalance_log (
             symbol VARCHAR PRIMARY KEY,
             last_rebalance_date DATE
+        )
+    """)
+
+    # ── Plan 3 (Phase 1): Broad Universe Master ─────────────────────────────
+    # Replaces the hardcoded ~300 SECTOR_UNIVERSE. Holds the full 1000+ ticker
+    # pool built from index constituents (S&P 500, Nasdaq 100, Russell 1000)
+    # plus broad ETFs. The funnel (funnel.py) filters this pool down to the
+    # top survivors for heavy analysis. universe_status mirrors asset_registry
+    # semantics (WATCHLIST default) so discovery can graduate from this pool.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS universe_master (
+            symbol VARCHAR PRIMARY KEY,
+            name VARCHAR,
+            source VARCHAR,
+            instrument_class VARCHAR NOT NULL DEFAULT 'EQUITY',
+            universe_status VARCHAR NOT NULL DEFAULT 'WATCHLIST',
+            updated_at DOUBLE
+        )
+    """)
+
+    # ── Plan 3 (Phase 1): Funnel survivors cache ─────────────────────────────
+    # data_updater.py runs the (expensive, 1000+ symbol) funnel once per cycle
+    # and persists the top survivors here. main.py then reads this table instead
+    # of re-running the funnel, keeping the documented 2-step flow
+    # (data_updater -> main) without duplicating the network fetch.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS funnel_survivors (
+            symbol VARCHAR PRIMARY KEY,
+            score DOUBLE,
+            updated_at DOUBLE
         )
     """)

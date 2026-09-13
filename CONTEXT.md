@@ -20,16 +20,22 @@ consistent across code, docs, and AI agents.
 | **Alpha Bucket** | Active equities. Constraint: ≤ 50%. |
 | **Graduation** | Watchlist → ACTIVE on 52-week-high or 3x-volume anomaly. |
 | **Demotion** | ACTIVE → Watchlist after 6 months with no signals. |
+| **universe_master** | Broad 1000+ ticker pool (S&P 500 + Nasdaq 100 + Russell 1000 + ETFs). Built by `universe_builder.py`. |
+| **Funnel** | Two-stage filter: Stage 1 liquidity/viability (price>$5, min $ volume) → ~300-500; Stage 2 trend/momentum → top ~24 survivors. |
+| **Broker-synced CSV** | `portfolio.csv` schema `Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR`. Invested = Value − Broker_PnL; PnL is broker truth, never price-guessed. |
+| **Reconciliation** | `System_Estimated_Value = shares × current_price_eur`; `[!]` flag when deviation > €1.00 (stale CSV / high spread). |
 
 ## Module Map (Callers)
 
 ```
-data_updater.py ──> taxonomy.py (broker registry, instrument_class)
-main.py ──────────> scoring.py, taxonomy.py, routing.py, notifier.py
-optimizer.py ─────> risk.py (daily rf), config.py (buckets, fees)
-discovery.py ─────> taxonomy.py, database.py (asset_registry)
-dashboard.py ─────> database.py, taxonomy.py, routing.py, risk.py
-notifier.py ──────> config.py, risk.py
+universe_builder.py ─> database.py (universe_master), taxonomy.py
+funnel.py ───────────> config.py (thresholds), yfinance (snapshots/history)
+data_updater.py ─────> universe_builder.py, funnel.py, taxonomy.py, database.py
+main.py ─────────────> funnel.py, universe_builder.py, scoring.py, taxonomy.py, routing.py, notifier.py
+optimizer.py ────────> risk.py (daily rf), config.py (buckets, fees)
+discovery.py ────────> universe_builder.py, taxonomy.py, database.py (asset_registry)
+dashboard.py ────────> database.py, taxonomy.py, routing.py, risk.py
+notifier.py ─────────> config.py, risk.py
 ```
 
 ## Data Contract (asset_registry)
