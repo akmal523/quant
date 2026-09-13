@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import time
 import urllib.request
 
@@ -39,11 +40,27 @@ def _read_cache() -> dict:
         return {}
 
 
+def _atomic_write_json(path: str, payload: dict) -> None:
+    """Write via temp file + rename so a crash mid-write cannot corrupt the file."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except Exception:  # noqa: BLE001
+                pass
+        raise
+
+
 def _write_cache(cache: dict) -> None:
     try:
-        os.makedirs(os.path.dirname(_cache_path()), exist_ok=True)
-        with open(_cache_path(), "w", encoding="utf-8") as f:
-            json.dump(cache, f)
+        _atomic_write_json(_cache_path(), cache)
     except Exception:  # noqa: BLE001
         pass
 
@@ -97,3 +114,45 @@ def fetch_news_headlines(symbol: str) -> str:
     if not items:
         return ""
     return " | ".join(i["headline"] for i in items[:5])
+
+
+def _state_path() -> str:
+    return os.path.join(str(paths.OUTPUTS_DIR), "news_state.json")
+
+
+def _read_state() -> dict:
+    try:
+        with open(_state_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def record_fetch_result(success: bool, now: float | None = None) -> dict:
+    """Persist the consecutive review-fetch failure counter (reset on success)."""
+    state = _read_state()
+    now = time.time() if now is None else now
+    if success:
+        state = {"consecutive_failures": 0, "since": None}
+    else:
+        n = int(state.get("consecutive_failures", 0)) + 1
+        state = {"consecutive_failures": n, "since": state.get("since") or now}
+    try:
+        _atomic_write_json(_state_path(), state)
+    except Exception:  # noqa: BLE001
+        pass
+    return state
+
+
+def outage_message() -> str | None:
+    """Health line after >=3 consecutive review-fetch failures, else None."""
+    state = _read_state()
+    if int(state.get("consecutive_failures", 0)) >= 3 and state.get("since"):
+        from datetime import datetime
+
+        from quant.ui import copy as C
+
+        d = datetime.fromtimestamp(float(state["since"]))
+        since = f"{d.strftime('%A')} {d.day} {d.strftime('%b')}"
+        return C.HEALTH_NEWS_OUTAGE.format(since=since)
+    return None

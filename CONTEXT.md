@@ -303,3 +303,13 @@ quant.dashboard ──────────────> quant.portfolio.cash
 All UI artifact reads go through `quant.reporting.artifacts`:
 `latest_review()`, `read_regime()`, `read_actions()`, `read_scores(symbol)`,
 `read_history()`. No page touches run directories or parquet paths directly.
+
+### News stores (v10.5.3, R7)
+
+Two stores, two roles. The **news cache** (`outputs/news_cache.json`, keyed by
+symbol, 24 h TTL, atomic temp+rename writes) is the single fetch-and-cache path
+for Explore's on-demand news AND the review's holdings coverage, so both render
+the same headlines for a symbol on the same day; a source-outage counter
+(`outputs/news_state.json`) drives the Health line after three consecutive review
+failures. The **DuckDB `nlp_evidence` / `nlp_scores`** tables keep their distinct
+role: scored sentiment inputs consumed by the scoring pipeline, not display.

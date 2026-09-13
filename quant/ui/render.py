@@ -532,6 +532,14 @@ def _health_problems() -> list[str]:
             pass
     if read_regime().get("state") == "failed":
         problems.append(C.HEALTH_REGIME_FAILED)
+    try:
+        from quant.data.news import outage_message
+
+        msg = outage_message()
+        if msg:
+            problems.append(msg)
+    except Exception:  # noqa: BLE001
+        pass
     return problems
 
 

@@ -503,6 +503,20 @@ def main() -> None:
     from quant.data.async_fetcher import fetch_all_texts_concurrently
     survivor_texts = asyncio.run(fetch_all_texts_concurrently(list(survivors.keys())))
 
+    # v10.5.3 (R7): route portfolio holdings through the shared news cache so the
+    # review and Explore can never disagree for the same symbol on the same day.
+    try:
+        from quant.data.news import load_news, record_fetch_result
+
+        for _sym in (port_df["Symbol"] if not port_df.empty else []):
+            if not survivor_texts.get(_sym):
+                _items = load_news(_sym)
+                if _items:
+                    survivor_texts[_sym] = " | ".join(i["headline"] for i in _items[:5])
+        record_fetch_result(any(bool(t) for t in survivor_texts.values()))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Holdings news merge failed: %s", e)
+
     # ── Step 3: NLP scoring in MAIN process (single FinBERT, DI) ────────────
     scorer = NLPScorer()
 
