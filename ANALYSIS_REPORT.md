@@ -9,7 +9,7 @@
 
 ---
 
-## 🔴 Critical Bugs (Will Cause Incorrect Results or Crashes)
+##  Critical Bugs (Will Cause Incorrect Results or Crashes)
 
 ### 1. Duplicate Data Loading in `main.py` (LINES 148–171)
 [`main.py`](main.py:148) loads market data **twice**, destroying the sorted/cleaned DataFrame from the first load:
@@ -92,7 +92,7 @@ Neither function exists in [`sentiment.py`](sentiment.py). The NLP cache uses Du
 
 ---
 
-## 🟠 High-Impact Issues (Performance, Correctness, Maintainability)
+##  High-Impact Issues (Performance, Correctness, Maintainability)
 
 ### 7. Redundant Constants in `config.py`
 [`config.py`](config.py) has **duplicated threshold definitions**:
@@ -167,7 +167,7 @@ if invested <= 0:
 
 ---
 
-## 🟡 Medium-Priority Improvements
+##  Medium-Priority Improvements
 
 ### 14. No Type Annotations on ~40% of Functions
 Functions like [`currency.apply_fx_conversion`](currency.py:56), [`scoring.stewardship_score_v2`](scoring.py:63), and [`risk.calculate_risk_penalty`](risk.py:53) are missing return type hints. Adding `-> pd.DataFrame` / `-> float` would prevent subtle bugs and enable static analysis.
@@ -235,7 +235,7 @@ Catches `SystemExit`, `KeyboardInterrupt` which could hang the pool. Use `except
 
 ---
 
-## 🏆 Recommended Changes (Priority-Ordered)
+##  Recommended Changes (Priority-Ordered)
 
 | # | File | Change | Category |
 |---|------|--------|----------|
@@ -256,7 +256,7 @@ Catches `SystemExit`, `KeyboardInterrupt` which could hang the pool. Use `except
 
 ---
 
-## 📈 Quantitative Accuracy Summary
+##  Quantitative Accuracy Summary
 
 | Metric | Current Status | Should Be |
 |--------|---------------|-----------|

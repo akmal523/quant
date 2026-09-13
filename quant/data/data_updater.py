@@ -89,6 +89,13 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         df = df[[c for c in cols_to_keep if c in df.columns]]
         df = df.dropna(subset=['Close'])
 
+        # ── Bad-tick repair (MUST run before split detection) ───────────────
+        # A single corrupt Yahoo row (spike-and-revert) would otherwise be
+        # misread as a split by detect_split, mangling the series and tripping
+        # the hard drop assertion (e.g. DFEN 2024-06-03).
+        from quant.data.data_quality import repair_isolated_glitches
+        df = repair_isolated_glitches(df)
+
         # ── v10.4.0 (Phase 1): Corporate Actions Engine ─────────────────────
         # Unadjusted data in a backtest guarantees false returns. Detect splits
         # from the price/volume discontinuity and restate pre-split prices so the
@@ -186,20 +193,31 @@ def build_fetch_list() -> list[tuple[str, str, str]]:
         pass
 
     # 4. Funnel survivors (top ~24 from the broad universe).
+    # The broad 1000+ universe_master must exist before the funnel can filter it.
+    # It is normally built by the weekly cron (universe_builder.py), but on a
+    # fresh DB it is empty -> the funnel would silently return 0 survivors and
+    # the scan universe would collapse to CORE + portfolio only. Build on demand.
     try:
-        from quant.data.universe_builder import load_universe_master
+        from quant.data.universe_builder import load_universe_master, build_universe_master
         from quant.data.funnel import run_funnel, save_survivors
         pool = load_universe_master()
+        if not pool:
+            print("  [UNIVERSE] universe_master empty - building broad 1000+ pool...")
+            build_universe_master()
+            pool = load_universe_master()
+        print(f"  [FUNNEL] input pool: {len(pool)} symbols")
         if pool:
             result = run_funnel(pool)
             # Persist survivors so main.py reuses them instead of re-running the
             # 1000+ symbol funnel (keeps the 2-step flow: data_updater -> main).
             save_survivors(result["survivors"])
+            print(f"  [FUNNEL] {result['input']} -> {result['stage1']} -> "
+                  f"{result['stage2']} survivors")
             for sym in result["survivors"]:
                 if sym not in tickers:
                     tickers[sym] = (sym, "Funnel")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  [!] Funnel failed (non-fatal): {e}")
 
     return [(sym, name, sector) for sym, (name, sector) in tickers.items()]
 
@@ -262,14 +280,26 @@ def main() -> None:
                         'Symbol', 'Sector', 'Instrument_Class']
         final_df = final_df[[c for c in cols_to_keep if c in final_df.columns]]
 
+        # Explicit column list: market_history carries an extra ingested_at
+        # column (v10.4.0 bitemporal audit) that final_df does not, so a bare
+        # `SELECT *` supplies 9 values for 10 columns (BinderException).
+        final_df["ingested_at"] = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        insert_cols = ("Date, Open, High, Low, Close, Volume, Symbol, Sector, "
+                       "Instrument_Class, ingested_at")
+        insert_select = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, "
+                         "Sector, Instrument_Class, ingested_at FROM final_df")
         if incremental:
             # INSERT OR REPLACE dedups on PRIMARY KEY (Symbol, Date).
-            conn.execute("INSERT OR REPLACE INTO market_history SELECT * FROM final_df")
+            conn.execute(
+                f"INSERT OR REPLACE INTO market_history ({insert_cols}) {insert_select}"
+            )
             print(f"\nIncremental update: {len(final_df)} rows appended/updated "
                   f"({len(all_data)}/{total} tickers fetched).")
         else:
             conn.execute("DELETE FROM market_history")
-            conn.execute("INSERT INTO market_history SELECT * FROM final_df")
+            conn.execute(
+                f"INSERT INTO market_history ({insert_cols}) {insert_select}"
+            )
             print(f"\nWrite complete: {len(final_df)} rows saved to DuckDB "
                   f"({len(all_data)}/{total} tickers fetched).")
 

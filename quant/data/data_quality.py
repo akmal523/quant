@@ -108,3 +108,40 @@ class DataQualityValidator:
 
         df = df.dropna(subset=["Close"])
         return df
+
+
+def repair_isolated_glitches(
+    df: pd.DataFrame,
+    max_jump: float = 0.5,
+    revert_tol: float = 0.25,
+) -> pd.DataFrame:
+    """Repair isolated bad ticks (spike-and-revert) from the data source.
+
+    Intent: Yahoo occasionally returns a single corrupt row (e.g. DFEN
+    2024-06-03 Close=8.15 between ~23 neighbours, reverting the next day). Such
+    a spike is neither a real move nor a split, but left in place it (a) makes
+    detect_split see a false ratio jump and mangle the series, then (b) trips the
+    hard drop assertion and aborts the whole run. Replace the bad row's OHLC with
+    the mean of its neighbours.
+    Invariants: only single-row, self-reverting spikes are touched; a sustained
+    move (real split/crash) is never modified; pure function (no I/O).
+    """
+    if df is None or df.empty or "Close" not in df.columns or len(df) < 3:
+        return df
+    out = df.copy()
+    close = out["Close"].astype(float).to_numpy()
+    n = len(close)
+    for i in range(1, n - 1):
+        prev, cur, nxt = close[i - 1], close[i], close[i + 1]
+        if prev <= 0 or nxt <= 0:
+            continue
+        jump = abs(cur / prev - 1.0)
+        revert = abs(nxt / prev - 1.0)
+        # Spike away from prev, then snap back to prev the next day => bad tick.
+        if jump > max_jump and revert < revert_tol:
+            for col in ("Open", "High", "Low", "Close"):
+                if col in out.columns:
+                    out.iloc[i, out.columns.get_loc(col)] = (
+                        out[col].iloc[i - 1] + out[col].iloc[i + 1]
+                    ) / 2.0
+    return out

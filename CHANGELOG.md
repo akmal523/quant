@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.4.1] - 2026-09-13
+
+### Fixed - Pipeline Abort: Schema Mismatch, Split Volume, Empty Universe
+
+`data_updater.py` aborted at the final write and `main.py` crashed on an empty
+scan universe. Three independent defects, all fixed.
+
+1. **`market_history` INSERT column mismatch** - [`quant/data/data_updater.py`](quant/data/data_updater.py)
+   - **Root cause:** v10.4.0 added an `ingested_at` column to `market_history`
+     (10 columns), but the write used `INSERT INTO market_history SELECT * FROM
+     final_df` where `final_df` has only 9 columns -> `BinderException: table
+     market_history has 10 columns but 9 values were supplied`. In FULL mode the
+     `DELETE FROM market_history` ran first, so the failed INSERT left the table
+     **empty** (wiping all history).
+   - **Fix:** explicit column list on both the incremental and full INSERT paths,
+     and `final_df["ingested_at"]` is now populated (bitemporal arrival time).
+
+2. **Split adjustment crashed on int64 Volume** - [`quant/data/corporate_actions.py`](quant/data/corporate_actions.py)
+   - **Root cause:** `adjust_for_split` multiplied an `int64` Volume column by a
+     fractional split ratio (e.g. x1.5) via `.loc` assignment, raising
+     `Invalid value '[...]' for dtype 'int64'` (seen on DFEN). The symbol was
+     dropped from the run.
+   - **Fix:** cast Volume to `float` before applying the ratio.
+
+3. **Funnel had no 1000+ universe to filter** - [`quant/data/data_updater.py`](quant/data/data_updater.py)
+   - **Root cause:** `build_fetch_list()` only *loaded* `universe_master`; it was
+     never built in the pipeline (`build_universe_master()` was only reachable via
+     `__main__`). On a fresh DB `universe_master` was empty -> the funnel returned
+     **0 survivors** and the scan universe collapsed to CORE + portfolio only
+     (50 tickers). The funnel block was also wrapped in a silent `except: pass`.
+   - **Fix:** build `universe_master` on demand when empty, log the funnel
+     `input -> stage1 -> stage2` counts, and surface funnel errors instead of
+     swallowing them.
+
+4. **`main.py` crashed on empty scan universe** - [`quant/main.py`](quant/main.py)
+   - **Root cause:** with `market_history` empty, `grouped_data` was empty and the
+     regime HMM fit called `max()` on an empty dict ->
+     `ValueError: max() iterable argument is empty`.
+   - **Fix:** fail fast with a clear "run data_updater.py" message before the
+     regime fit.
+
+5. **Isolated Yahoo bad ticks aborted the run** - [`quant/data/data_quality.py`](quant/data/data_quality.py),
+   [`quant/data/data_updater.py`](quant/data/data_updater.py)
+   - **Root cause:** Yahoo returned a single corrupt row for DFEN
+     (2024-06-03 Close=8.15 between ~23 neighbours, reverting the next day).
+     `detect_split` misread the spike as a 1:3 reverse split, mangled the series,
+     and the hard drop assertion then aborted the whole pipeline
+     (`-64.4% one-day drop ... without a split flag`).
+   - **Fix:** new `repair_isolated_glitches` replaces a single spike-and-revert
+     row's OHLC with the mean of its neighbours. Runs BEFORE split detection, so
+     a bad tick can no longer masquerade as a split. Sustained moves (real
+     splits/crashes) are never touched.
+
+---
+
 ## [10.4.0] - 2026-09-13
 
 ### Added - Institutional-Grade Elevation (Phases 1-5)

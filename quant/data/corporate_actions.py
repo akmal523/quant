@@ -117,6 +117,10 @@ def adjust_for_split(df: pd.DataFrame, event: SplitEvent) -> pd.DataFrame:
         if col in out.columns:
             out.loc[mask, col] = out.loc[mask, col] / event.ratio
     if "Volume" in out.columns:
+        # Cast to float first: an int64 Volume column cannot hold the fractional
+        # values a split ratio produces (e.g. x1.5), which raises
+        # "Invalid value ... for dtype 'int64'" on .loc assignment.
+        out["Volume"] = out["Volume"].astype(float)
         out.loc[mask, "Volume"] = out.loc[mask, "Volume"] * event.ratio
     return out
 

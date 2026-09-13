@@ -418,6 +418,14 @@ def main() -> None:
     logger.info("Scan universe (funnel + CORE + ACTIVE + portfolio): %d symbols",
                 len(grouped_data))
 
+    # Fail fast: an empty scan universe means market_history has no rows for the
+    # active symbols (usually a failed/aborted data_updater run). Without this
+    # guard the regime HMM fit below calls max() on an empty dict and crashes.
+    if not grouped_data:
+        logger.error("No market data for the scan universe. "
+                     "Run data_updater.py to populate market_history.")
+        return
+
     # ── Pillar 1: Smart Funnel ──────────────────────────────────────────────
     # Tier 1 (microseconds): fast fundamental filter.
     # Tier 2 (milliseconds): fast technical filter (uptrend check).
