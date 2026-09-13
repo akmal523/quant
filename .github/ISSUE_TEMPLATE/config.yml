@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & ideas
+    url: https://github.com/akmal523/quant/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions.
+  - name: Security report
+    url: https://github.com/akmal523/quant/security/advisories/new
+    about: Report a vulnerability privately (do not open a public issue).

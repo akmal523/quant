@@ -1,0 +1,21 @@
+[run]
+source = quant
+branch = True
+omit =
+    quant/dashboard.py
+    */__init__.py
+    quant/cli/__main__.py
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+# Ratchet floor = measured baseline (v10.4.2). Target: 80% (see tests/README.md).
+# Raise this number as coverage improves; never lower it.
+fail_under = 42
+
+[html]
+directory = htmlcov

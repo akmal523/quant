@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.4.2] - 2026-09-13
+
+### Changed - Professional Transformation (Packaging, Testing, DX, Community)
+
+Packaging, test isolation, documentation, developer experience, and release
+automation brought up to professional open-source standards. No trading-logic
+changes; backtest behaviour is unchanged (golden snapshot stable).
+
+**Phase 1 - Foundation & Packaging**
+
+1. **PEP 621 packaging** - [`pyproject.toml`](pyproject.toml) migrated to the
+   `hatchling` backend with full metadata, dependencies, and extras `[dashboard]`,
+   `[test]`, `[dev]`. [`requirements.txt`](requirements.txt) is now a deprecation
+   pointer.
+2. **Reproducible environment** - [`uv.lock`](uv.lock) pins the exact transitive
+   dependency tree (185 packages).
+3. **`quant` CLI** - new [`quant/cli/`](quant/cli/__init__.py) console command
+   with `update` / `run` / `reconcile` / `all` subcommands. Root `main.py` and
+   `data_updater.py` are now thin shims.
+4. **Single source of version truth** - `__version__` in
+   [`quant/__init__.py`](quant/__init__.py); bump-my-version config.
+5. **Path hygiene** - all filesystem paths resolve via
+   [`quant/paths.py`](quant/paths.py); zero hardcoded absolute paths (audited).
+
+**Phase 2 - Testing Infrastructure & Isolation**
+
+6. **Ephemeral test DB** - [`tests/conftest.py`](tests/conftest.py) redirects
+   `quant.paths.DB_FILE` and `quant.data.database.DB_PATH` to a throwaway DuckDB
+   for the whole session. Production `quant_cache.duckdb` is never touched.
+7. **Deterministic tests** - [`tests/test_portfolio_fx.py`](tests/test_portfolio_fx.py)
+   now uses a hermetic sample CSV instead of the live broker file;
+   [`tests/test_scoring.py`](tests/test_scoring.py) risk-penalty test is seeded.
+8. **Coverage gate** - [`.coveragerc`](.coveragerc) with a ratchet floor
+   (baseline 42%, target 80%); CI fails below it.
+9. **CI hardening** - [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+   installs `-e ".[test]"`, runs `pytest -n auto --cov`, and uploads coverage.
+10. **Golden automation** - [`.github/workflows/golden.yml`](.github/workflows/golden.yml)
+    regenerates on `main`, enforces the > 0.01% drift gate on PRs.
+
+**Phase 3 - Documentation & Trust Signals**
+
+11. **README restructure** - one-screen pitch, verified badges only, Mermaid
+    architecture diagram, quick start, configuration, testing, contributing,
+    disclaimer.
+12. **CONTEXT.md** - added the Mean-CVaR-over-Sharpe ADR, v10.4.2 glossary, data
+    contracts, module map, and the test-isolation contract.
+13. **API docs** - `mkdocs` + `mkdocstrings` ([`mkdocs.yml`](mkdocs.yml),
+    [`docs/`](docs/)) deployed to GitHub Pages.
+
+**Phase 4 - Developer Experience**
+
+14. **Pre-commit** - [`.pre-commit-config.yaml`](.pre-commit-config.yaml) (ruff,
+    ruff-format, whitespace/EOF/yaml/large-file hygiene).
+15. **Ruff + pyright** - line length 100, `E/F/I/N/W/UP`, `quant` first-party;
+    [`pyrightconfig.json`](pyrightconfig.json) and [`.vscode/`](.vscode/settings.json).
+16. **CONTRIBUTING.md** - setup, style, testing, conventional commits, PR process.
+
+**Phase 5 - Release Management**
+
+17. **Conventional commits + git-cliff** - [`cliff.toml`](cliff.toml) and
+    [`.github/workflows/release.yml`](.github/workflows/release.yml) generate the
+    changelog and GitHub release on tag.
+18. **PyPI publishing** - [`.github/workflows/publish.yml`](.github/workflows/publish.yml)
+    via Trusted Publishing on tag.
+
+**Phase 6 - Community**
+
+19. **Templates & governance** - bug/feature issue templates, Discussions link,
+    [`SECURITY.md`](SECURITY.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md),
+    [`.github/FUNDING.yml`](.github/FUNDING.yml), and
+    [`docs/launch.md`](docs/launch.md).
+
+### Tests
+
+- Full suite green: 145 passed. Coverage floor 42% enforced in CI.
+
+---
+
 ## [10.4.1] - 2026-09-13
 
 ### Fixed - Pipeline Abort: Schema Mismatch, Split Volume, Empty Universe

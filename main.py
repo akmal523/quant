@@ -1,10 +1,10 @@
 """
-Entry point: `python3 main.py`.
+Entry point: `python3 main.py` (compatibility shim).
 
-Thin wrapper so the documented command keeps working after the package move.
-Runs the full analysis pipeline defined in `quant.main`.
+Prefer the console command `quant run`. Kept so the documented command keeps
+working after the package/CLI move.
 """
-from quant.main import main
+from quant.cli import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(["run"]))

@@ -1,0 +1,65 @@
+name: Golden Snapshot
+
+# Intent: golden backtest output must be stable on PRs (drift > 0.01% fails),
+# but intentional changes merged to main regenerate it automatically. Never
+# regenerate on a PR — that would mask a regression.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "quant/**"
+      - "tests/golden_util.py"
+      - "tests/golden/**"
+      - "scripts/make_golden.py"
+  pull_request:
+    paths:
+      - "quant/**"
+      - "tests/golden_util.py"
+      - "tests/golden/**"
+      - "scripts/make_golden.py"
+
+jobs:
+  drift:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Fail on golden drift
+        run: python -m pytest tests/test_golden_snapshot.py -q
+
+  regenerate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Regenerate golden snapshot
+        run: python scripts/make_golden.py
+      - name: Commit if changed
+        run: |
+          if [[ -n "$(git status --porcelain tests/golden/)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add tests/golden/
+            git commit -m "chore: regenerate golden snapshot [skip ci]"
+            git push
+          else
+            echo "Golden snapshot unchanged."
+          fi

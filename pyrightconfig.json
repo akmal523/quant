@@ -1,0 +1,8 @@
+{
+  "include": ["quant"],
+  "exclude": ["**/__pycache__", ".venv", "myenv", "dist", "build"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none"
+}

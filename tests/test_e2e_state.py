@@ -1,14 +1,13 @@
 import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-from quant import paths
 # test_e2e_state.py
-import duckdb
+# Use the shared connection so tests/conftest.py can redirect the DB path.
+from quant.data.database import get_connection
 
 def verify_state():
     try:
-        # read_only=True prevents locking issues if main.py is stuck
-        conn = duckdb.connect(paths.DB_FILE, read_only=True)
+        conn = get_connection()
         tables = conn.execute("SHOW TABLES").df()["name"].tolist()
         
         assert "market_history" in tables, "Updater failed."

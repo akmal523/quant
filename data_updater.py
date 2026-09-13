@@ -1,10 +1,10 @@
 """
-Entry point: `python3 data_updater.py`.
+Entry point: `python3 data_updater.py` (compatibility shim).
 
-Thin wrapper so the documented command keeps working after the package move.
-Runs the market-data update + funnel in `quant.data.data_updater`.
+Prefer the console command `quant update`. Kept so the documented command keeps
+working after the package/CLI move.
 """
-from quant.data.data_updater import main
+from quant.cli import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(["update"]))

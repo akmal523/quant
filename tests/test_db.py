@@ -1,17 +1,12 @@
 import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-from quant import paths
 # test_db.py
-import os
-import duckdb
+# DB isolation is provided by tests/conftest.py (ephemeral DuckDB). Never
+# delete the production store from a test.
 from quant.data.database import init_db, get_connection
 
 def test_db_init():
-    # Setup
-    if os.path.exists(paths.DB_FILE):
-        os.remove(paths.DB_FILE)
-
     # Act
     init_db()
     conn = get_connection()

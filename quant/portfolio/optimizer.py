@@ -17,7 +17,12 @@ Dependencies: cvxpy, numpy, sklearn (LedoitWolf), config, risk.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from quant.config import (
     MAX_POSITION_PCT, TARGET_VOLATILITY,

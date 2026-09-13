@@ -226,10 +226,14 @@ def test_hmm_market_state_score_nan_vol():
 
 def test_calculate_risk_penalty():
     from quant.portfolio.risk import calculate_risk_penalty
-    normal = pd.Series(np.random.normal(0.001, 0.01, 500))
+    # Seeded + a crash deep enough that its 5th-percentile VaR is unambiguously
+    # past the -5% threshold. Unseeded normal() straddles the threshold and
+    # makes this test flaky (penalty sometimes exactly 0.0).
+    rng = np.random.default_rng(42)
+    normal = pd.Series(rng.normal(0.001, 0.01, 500))
     p = calculate_risk_penalty(normal)
     assert 0.0 <= p <= 25.0, f"Penalty {p} out of range"
-    crash = pd.Series(np.random.normal(-0.005, 0.03, 500))
+    crash = pd.Series(rng.normal(-0.02, 0.03, 500))
     assert calculate_risk_penalty(crash) > 0
     assert calculate_risk_penalty(pd.Series([], dtype=float)) == 0.0
     print(f"  [PASS] test_calculate_risk_penalty: normal={p:.2f}")

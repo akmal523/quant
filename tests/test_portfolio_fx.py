@@ -9,10 +9,26 @@ broker reconciliation loader, and the enhanced audit's new columns.
 from __future__ import annotations
 
 import sys as _sys
+import tempfile
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-from quant import paths
 import pandas as pd
+
+
+def _sample_portfolio_path(tmpdir: str) -> str:
+    """Write a deterministic broker-synced portfolio CSV.
+
+    Intent: tests must NOT depend on the mutable live ``data/portfolio.csv``
+    (its rows change with real holdings). Hermetic + reproducible.
+    """
+    p = _Path(tmpdir) / "portfolio.csv"
+    p.write_text(
+        "Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR\n"
+        "EUNL.DE,125.03,281.25,12.00\n"
+        "AMZN,220.55,150.41,5.20\n",
+        encoding="utf-8",
+    )
+    return str(p)
 
 
 def test_get_fx_to_eur_eur_is_one():
@@ -34,7 +50,8 @@ def test_get_fx_to_eur_usd_positive():
 def test_load_broker_data():
     """Broker_PnL_EUR now lives in portfolio.csv (broker_data.csv retired)."""
     from quant.portfolio.portfolio import load_broker_data
-    data = load_broker_data(paths.DATA_PORTFOLIO)
+    with tempfile.TemporaryDirectory() as d:
+        data = load_broker_data(_sample_portfolio_path(d))
     assert "AMZN" in data
     assert data["AMZN"] == 5.20
     print("  [PASS] test_load_broker_data")
@@ -43,7 +60,8 @@ def test_load_broker_data():
 def test_load_portfolio_new_schema():
     """New schema emits Invested_EUR + backward-compat aliases."""
     from quant.portfolio.portfolio import load_portfolio
-    df = load_portfolio(paths.DATA_PORTFOLIO)
+    with tempfile.TemporaryDirectory() as d:
+        df = load_portfolio(_sample_portfolio_path(d))
     assert {"Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR",
             "Invested_EUR"}.issubset(df.columns)
     eunl = df[df["Symbol"] == "EUNL.DE"].iloc[0]

@@ -1,6 +1,7 @@
 # Databases & Caches
 *.duckdb
 *.duckdb.wal
+quant_cache.duckdb
 *.parquet
 __pycache__/
 .cache/
@@ -9,6 +10,7 @@ __pycache__/
 # Output Reports & Run Artifacts
 outputs/
 outputs/run_*/
+site/
 *.csv
 # Track the curated static inputs (now under data/).
 !data/portfolio.csv
@@ -28,8 +30,14 @@ sec_filings/
 .venv/
 myenv/
 venv/
+.env
 .env/
 env/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
 
 # Python bytecode & cache
 *.pyc
@@ -52,7 +60,9 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 *.swp
 *.swo
 *~

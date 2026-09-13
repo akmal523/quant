@@ -88,3 +88,49 @@ quant.infra.observability ────> telemetry.json (fetch latency, DuckDB ms
 - **Cash as risk-free rate**: TR pays 2.25% APY on uninvested cash. Using this
   as R_f (instead of US Treasuries) is the correct opportunity cost for a
   EUR-based solo family office. Hard to reverse, real trade-off → documented.
+
+- **Mean-CVaR over Sharpe (v10.4.2)**: optimization minimizes the average loss
+  in the worst `CVAR_ALPHA` (5%) tail (Expected Shortfall) instead of variance.
+  Sharpe penalizes upside volatility and assumes elliptical returns; equity
+  returns are fat-tailed. Mean-CVaR (Rockafellar-Uryasev LP) is coherent and
+  tail-faithful. Sharpe is retained for reporting, not for sizing. Hard to
+  reverse, real trade-off → documented.
+
+---
+
+## v10.4.2 Domain Additions
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Coverage ratchet** | A `fail_under` floor in `.coveragerc` that may only be raised. Baseline 42%, target 80%. |
+| **Golden drift** | Relative change (> 0.01%) in the deterministic backtest snapshot vs `tests/golden/backtest_2024.json`. |
+| **CLI entry point** | The `quant` console command (`update` / `run` / `reconcile` / `all`). Root wrappers are shims. |
+
+### Data contracts
+
+- `market_history` columns: `Date, Open, High, Low, Close, Volume, Symbol,
+  Sector, Instrument_Class` + `ingested_at TIMESTAMP` (bitemporal arrival time).
+- `trade_log`: `ts, symbol, side, signal_price, signal_ts, fill_price, fill_ts,
+  slippage_bps, fee_eur`.
+- `portfolio_snapshot`: `snapshot_date, symbol, shares, price_eur, value_eur`
+  (PK `(snapshot_date, symbol)`).
+
+### Module dependencies (v10.4.2)
+
+```
+quant.cli ────────────────────> quant.data.data_updater, quant.main,
+                                quant.execution.reconciliation
+quant.main ───────────────────> quant.analytics.scoring, quant.portfolio.*
+quant.data.data_updater ──────> quant.data.universe_builder, quant.data.funnel
+quant.portfolio.optimizer ────> quant.portfolio.risk, quant.portfolio.regime_constraints
+tests.conftest ──────────────> quant.paths, quant.data.database (isolated DB)
+```
+
+### Test isolation contract
+
+- All tests run against an ephemeral DuckDB injected by [`tests/conftest.py`](tests/conftest.py).
+- `quant.paths.DB_FILE` and `quant.data.database.DB_PATH` are patched for the session.
+- Tests must never read/write live `data/` or `outputs/`; use `tmp_path` / `tempfile`.
+- All randomness seeded (`np.random.default_rng`).
