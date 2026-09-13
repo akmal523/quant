@@ -313,3 +313,13 @@ the same headlines for a symbol on the same day; a source-outage counter
 (`outputs/news_state.json`) drives the Health line after three consecutive review
 failures. The **DuckDB `nlp_evidence` / `nlp_scores`** tables keep their distinct
 role: scored sentiment inputs consumed by the scoring pipeline, not display.
+
+### Registry write paths (H3-fix)
+
+`data/broker_registry.csv` is written by exactly two bounded paths:
+`quant.data.registry_repair.ensure_registry_rows` (adds rows for HELD or
+CORE/ACTIVE symbols only; refuses to grow past `portfolio + CORE_ETFS + 20`) and
+`repair_isins` (fills missing ISIN cells only). `sync_broker_registry` READS the
+CSV into `asset_registry`; it never writes the CSV. No path may use
+`universe_master` (1000+ symbols) as a registry source — that caused the 1090-row
+explosion. `tests/test_registry_bounded.py` enforces the ceiling.

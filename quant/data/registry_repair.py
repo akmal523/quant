@@ -190,6 +190,24 @@ def ensure_registry_rows(registry_path: str = paths.DATA_BROKER_REGISTRY,
         except Exception:  # noqa: BLE001
             pass
 
+    # Bounded invariant: refuse to grow the registry past the routable ceiling.
+    try:
+        from quant.config import CORE_ETFS
+        from quant.portfolio.portfolio import load_portfolio
+
+        _pf = load_portfolio(str(paths.DATA_PORTFOLIO))
+        _n_port = 0 if _pf.empty else len(_pf)
+        _bound = _n_port + len(CORE_ETFS) + 20
+        if len(df) > _bound:
+            import logging
+
+            logging.getLogger("quant.data").warning(
+                "broker_registry has %d rows, above the bounded ceiling %d; "
+                "refusing to add more", len(df), _bound)
+            return {"added": 0, "warning": "registry_above_bound"}
+    except Exception:  # noqa: BLE001
+        pass
+
     added = 0
     for sym in symbols:
         sym = str(sym or "").strip()
