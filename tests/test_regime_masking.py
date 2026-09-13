@@ -36,10 +36,18 @@ def _all_text(at: AppTest) -> str:
     return " ".join(chunks)
 
 
+_PAGE_FILE = {
+    C.PAGE_TODAY: "pages/today.py",
+    C.PAGE_PORTFOLIO: "pages/portfolio.py",
+    C.PAGE_EXPLORE: "pages/explore.py",
+    C.PAGE_SETTINGS: "pages/settings.py",
+}
+
+
 def _run_page(page: str) -> AppTest:
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
-    at.sidebar.radio[0].set_value(page).run()
+    at.switch_page(_PAGE_FILE[page]).run()
     return at
 
 
@@ -53,21 +61,25 @@ def _metrics_run(tmp_path, payload: dict) -> str:
 def test_review_regime_is_displayed(tmp_path, monkeypatch):
     history.record_review(value_eur=1000.0, invested_eur=900.0,
                           cash_eur=100.0, pnl_eur=100.0)
-    run_dir = _metrics_run(tmp_path, {"market_regime": "bull", "review_ts": "2026-09-13"})
-    monkeypatch.setattr(artifacts, "latest_run", lambda: run_dir)
+    run_dir = _metrics_run(tmp_path, {"regime": {"state": "estimated", "label": "rising",
+                                               "confidence": "high", "as_of": "2026-09-13"},
+                                       "review_ts": "2026-09-13"})
+    monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
 
     text = _all_text(_run_page(C.PAGE_TODAY))
-    assert f"Market trend: {C.regime_word('bull')}." in text
+    assert C.MARKET_TREND.format(label="rising", confidence="high") in text
 
 
 def test_regime_failure_is_health_not_missing_history(tmp_path, monkeypatch):
     history.record_review(value_eur=1000.0, invested_eur=900.0,
                           cash_eur=100.0, pnl_eur=100.0)
-    run_dir = _metrics_run(tmp_path, {"regime_error": True, "review_ts": "2026-09-13"})
-    monkeypatch.setattr(artifacts, "latest_run", lambda: run_dir)
+    run_dir = _metrics_run(tmp_path, {"regime": {"state": "failed", "error": "boom",
+                                              "as_of": "2026-09-13"},
+                                       "review_ts": "2026-09-13"})
+    monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
 
     today_text = _all_text(_run_page(C.PAGE_TODAY))
-    assert C.EMPTY_REGIME_ERROR in today_text
+    assert C.MARKET_TREND_FAILED in today_text
     # The masking hole is closed: a failed computation is not missing history.
     assert "not enough history" not in today_text
 

@@ -93,6 +93,171 @@ def save_metrics(run_dir: str, metrics: dict) -> str:
     return path
 
 
+# ── v10.5.3 (spec 1.1): the five UI artifact accessors ────────────────────────
+# Intent: NO UI page touches run directories or parquet paths directly. Every
+# artifact read goes through one of these five helpers, so a "the artifact did
+# not reach the UI" bug is impossible by construction.
+# Invariants: never raise; return an empty/neutral value when the artifact is
+# absent (a missing artifact is a real state the UI renders, not an exception).
+
+_REGIME_DEFAULT: dict = {
+    "state": "insufficient_history",
+    "label": None,
+    "prob": None,
+    "confidence": None,
+    "as_of": None,
+    "error": None,
+}
+
+
+def latest_review() -> dict:
+    """Return the latest run's metrics.json as a dict ({} when absent)."""
+    run = latest_run_dir()
+    if not run:
+        return {}
+    path = os.path.join(run, "metrics.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def read_regime() -> dict:
+    """Return the regime block (spec 1.2). Neutral default when absent."""
+    review = latest_review()
+    regime = review.get("regime")
+    if isinstance(regime, dict):
+        return {**_REGIME_DEFAULT, **regime}
+    return dict(_REGIME_DEFAULT)
+
+
+def _read_audit_df() -> pd.DataFrame:
+    path = os.path.join(OUTPUTS_DIR, "portfolio_audit.csv")
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:  # noqa: BLE001
+        return pd.DataFrame()
+
+
+def read_actions() -> list[dict]:
+    """Return per-holding dicts merging the audit row with its canonical action.
+
+    Intent: the holdings table and the action cards read ONE object (spec 2.1 /
+    A3). Includes the audit columns the table needs (value, weights) plus the
+    action fields (action, amount, blocked, status, remedy).
+    """
+    from quant.config import MIN_TRADE_SIZE_EUR, REBALANCE_DRIFT_TIERS
+    from quant.reporting.actions import build_actions
+    from quant.ui import copy as ui_copy
+
+    audit = _read_audit_df()
+    if audit.empty:
+        return []
+
+    def _pct(value) -> float:
+        try:
+            return float(str(value).rstrip("%") or 0) / 100.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    by_sym = {a["symbol"]: a for a in build_actions(audit)}
+    total_value = float(audit["Value_EUR"].sum()) if "Value_EUR" in audit else 0.0
+    out: list[dict] = []
+    for _, r in audit.iterrows():
+        sym = str(r.get("Symbol", ""))
+        a = by_sym.get(sym, {})
+        rec = str(r.get("Recommendation", "") or "")
+        tier = str(r.get("Tier", "ACTIVE"))
+        threshold = REBALANCE_DRIFT_TIERS.get(tier, 0.05)
+        drift_frac = _pct(r.get("Drift", ""))
+        cooldown = r.get("Cooldown_Until")
+        if isinstance(cooldown, float) and cooldown != cooldown:
+            cooldown = None
+        status = a.get("status") or ui_copy.status_for(rec, cooldown_until=cooldown)
+        suppressed = None
+        # S3: over threshold but the move is below the minimum order size.
+        if not a.get("action") and not a.get("blocked") and abs(drift_frac) > threshold:
+            if abs(drift_frac) * total_value < MIN_TRADE_SIZE_EUR:
+                suppressed = "below_min"
+                status = ui_copy.STATUS_BELOW_MIN
+        out.append({
+            "symbol": sym,
+            "name": str(r.get("Name", "") or sym),
+            "tier": tier,
+            "value_eur": float(r.get("Value_EUR", 0) or 0),
+            "current_weight": str(r.get("Current_Weight", "")),
+            "target_weight": str(r.get("Target_Weight", "")),
+            "drift": str(r.get("Drift", "")),
+            "action": a.get("action"),
+            "amount_eur": a.get("amount_eur"),
+            "blocked": bool(a.get("blocked", False)),
+            "remedy": a.get("remedy"),
+            "status": status,
+            "min_trade_eur": a.get("min_trade_eur", MIN_TRADE_SIZE_EUR),
+            "cooldown_until": cooldown,
+            "suppressed": suppressed,
+        })
+    return out
+
+
+def read_scores(symbol: str) -> dict:
+    """Return {structural_grade, tactical_grade, active_score} for a symbol.
+
+    Source order: the latest run's scores artifact, then asset_registry.
+    Invariants: returns the keys with None when nothing is known.
+    """
+    keys = {"structural_grade": None, "tactical_grade": None, "active_score": None}
+    run = latest_run_dir()
+    if run:
+        path = os.path.join(run, "scores.parquet")
+        if os.path.exists(path):
+            try:
+                df = pd.read_parquet(path)
+                m = df[df["Symbol"].astype(str) == str(symbol)]
+                if not m.empty:
+                    r = m.iloc[0]
+                    return {
+                        "structural_grade": float(r.get("Structural_Grade", 0) or 0),
+                        "tactical_grade": float(r.get("Tactical_Grade", 0) or 0),
+                        "active_score": float(r.get("Active_Score", 0) or 0),
+                    }
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            res = conn.execute(
+                "SELECT structural_grade, tactical_grade, active_score "
+                "FROM asset_registry WHERE symbol = ?", [symbol]
+            ).fetchone()
+        if res:
+            return {
+                "structural_grade": float(res[0] or 0),
+                "tactical_grade": float(res[1] or 0),
+                "active_score": float(res[2] or 0),
+            }
+    except Exception:  # noqa: BLE001
+        pass
+    return keys
+
+
+def read_history() -> pd.DataFrame:
+    """Return the portfolio value history (one row per review).
+
+    Single accessor for the Today value chart (spec 1.1). Delegates to the
+    history module so the table definition stays in one place.
+    """
+    from quant.portfolio.history import load_history
+
+    return load_history()
+
+
 # ── Structured Logging ────────────────────────────────────────────────────────
 
 class StructuredLogger:

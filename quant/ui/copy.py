@@ -129,6 +129,8 @@ STATUS_ADD = "Add"
 STATUS_TRIM = "Trim"
 STATUS_BLOCKED = "Blocked"
 STATUS_WAITING = "Waiting until {date}"
+STATUS_BELOW_MIN = "Below minimum order"
+STATUS_NOT_REVIEWED = "Not reviewed yet"
 # Column-name -> human header (P2: no column names in the UI).
 COLUMN_HEADERS = {
     "Symbol": "Instrument",
@@ -151,6 +153,8 @@ FIRST_RUN_STEPS = [
 # ── Formatting helpers (spec 3.3) ─────────────────────────────────────────────
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday",
+             "Friday", "Saturday", "Sunday"]
 
 
 def fmt_eur(value: float | None) -> str:
@@ -217,9 +221,79 @@ def regime_word(regime: str) -> str:
     return REGIME_WORDS.get(str(regime).lower(), "mixed")
 
 
+# ── v10.5.3 (spec v4): state machines, charts, feedback, calendar ─────────────
+
+# Today (spec 2.1)
+GUIDE_NO_REVIEW = "No review yet. Save and review from Portfolio to get your first advice."
+HEADER_REVIEW = "Review of {date} close, prepared {prepared}."
+MARKET_TREND = "Market trend: {label} ({confidence} confidence)."
+MARKET_TREND_INSUFFICIENT = "Market trend: not enough history yet."
+MARKET_TREND_FAILED = "Market trend: unavailable (see Health)."
+NEEDS_ATTENTION_ISIN = "ISIN missing for {symbol}. Repair it in Settings."
+LAST_REVIEW_FAILED = "The last review failed. See Settings for details."
+FOOTNOTE_BELOW_MIN = ("{n} positions sit outside target; the moves are below the "
+                      "{min} EUR minimum order size.")
+FOOTNOTE_BELOW_MIN_ONE = ("1 position sits outside target; the move is below the "
+                          "{min} EUR minimum order size.")
+FOOTNOTE_COOLDOWN = "{n} positions are outside target and in their cooldown until {date}."
+FOOTNOTE_COOLDOWN_ONE = "1 position is outside target and in its cooldown until {date}."
+
+# Charts (spec 3)
+CHART_BUILDING = "The value chart builds up after a few reviews."
+CHART_SINCE = "{sign}{pct}% since {date} ({amount} EUR)"
+CHART_NO_HISTORY = "No price history for {name} yet. Refresh market data in Settings."
+
+# Explore (spec 2.2)
+SCORES_NONE = "No scores for {name} yet. Scores appear after the next review."
+NEWS_CHECKING = "Checking news..."
+HOW_TO_BUY_ISIN_MISSING = "ISIN missing for {name}. Repair it in Settings."
+
+# Portfolio (spec 2.3)
+VALIDATION_UNIVERSE = ("{n} holdings are not in the universe yet; they will be added "
+                       "on the next refresh.")
+VALIDATION_UNIVERSE_ONE = "1 holding is not in the universe yet; it will be added on the next refresh."
+OUTCOME_ACTIONS = "Review complete. {n} actions on Today."
+OUTCOME_NOTHING = "Review complete. Nothing to do today."
+SAVE_ONLY_DONE = "Saved. The next review will use these values."
+LABEL_MATCHES = "Matches"
+LABEL_ACCOUNT = "Account"
+
+# Operation feedback (spec 4)
+BTN_REFRESHING = "Refreshing market data..."
+BTN_REVIEWING = "Reviewing..."
+BTN_REPAIRING = "Repairing registry..."
+OUTCOME_REFRESH = "Refreshed {n} instruments. Prices through {date} ({secs} s)."
+OUTCOME_REFRESH_DONE = "Refresh complete."
+VIEW_LOG = "View log"
+
+# Calendar (spec 7)
+SAVINGS_COUNTDOWN = ("Savings plan executes in {days} days ({date}); additions before "
+                     "that date apply this month.")
+SAVINGS_TODAY = "Savings plan executes today."
+MARKETS_CLOSED = "Markets were closed; prices through {date} close."
+
+# News outage (spec 6.3)
+HEALTH_NEWS_OUTAGE = ("News source unreachable since {since}. Scores use price history "
+                      "and fundamentals only.")
+
+
 def status_word(universe_status: str) -> str:
     """Map a universe_status enum to its human word."""
     return STATUS_WORDS.get(str(universe_status).upper(), "Watching")
+
+
+def fmt_weekday_date(value: date | datetime | str | None) -> str:
+    """Format a date as 'Friday 11 Sep 2026' (spec 7.1). Empty on bad input."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    if not isinstance(value, (date, datetime)):
+        return ""
+    return f"{_WEEKDAYS[value.weekday()]} {fmt_date(value)}"
 
 
 def status_for(

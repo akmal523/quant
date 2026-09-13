@@ -44,6 +44,11 @@ def test_read_only_connection_closes_on_exception():
 
 
 def test_dashboard_uses_only_read_only_connections():
-    src = (Path(__file__).resolve().parents[1] / "quant" / "dashboard.py").read_text()
-    assert "read_only_connection" in src
-    assert "get_connection" not in src
+    # v10.5.3 R2: the UI renderers moved to quant/ui/render.py + quant/pages/*.
+    root = Path(__file__).resolve().parents[1] / "quant"
+    render = (root / "ui" / "render.py").read_text()
+    assert "read_only_connection" in render
+    ui_sources = [root / "ui" / "render.py", *sorted((root / "pages").glob("*.py"))]
+    for src_path in ui_sources:
+        assert "get_connection" not in src_path.read_text(), \
+            f"{src_path.name} opens a persistent writer"

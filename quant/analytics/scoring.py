@@ -28,6 +28,16 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Core Models ───────────────────────────────────────────────────────────────
 
+def regime_confidence(prob: float, high: float = 0.30, medium: float = 0.15) -> str:
+    """Map a bull probability to high | medium | low confidence (v10.5.3, 1.2).
+
+    Rule: |prob - 0.5| >= high -> "high"; >= medium -> "medium"; else "low".
+    Pure; no I/O. Used by the review's regime block and the UI.
+    """
+    d = abs(float(prob) - 0.5)
+    return "high" if d >= high else "medium" if d >= medium else "low"
+
+
 def fit_market_regime(
     hist_close: pd.Series,
     vol: pd.Series,

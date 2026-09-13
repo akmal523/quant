@@ -25,7 +25,8 @@ BANNED = [
     r"run_\d", r"run_latest", r"\.duckdb", r"/home/", r"exit(ed)? \d",
     r"\(source:", r"INFO\]", r"\bn/a\b", r"\bunknown\b",
     r"quant_update", r"\bquant run\b", r"WATCHLIST", r"\bPLAIN\b",
-    r"factor_scores",
+    r"factor_scores", r"advice below", r"Fix in Portfolio",
+    r"\(\w+\) \(\w+\)", r"\u00b7\s*$", r"·\s*$",
 ]
 
 _TEXTLIKE = ("markdown", "info", "warning", "error", "caption", "text",
@@ -40,10 +41,18 @@ def _all_text(at: AppTest) -> str:
     return " ".join(chunks)
 
 
+_PAGE_FILE = {
+    C.PAGE_TODAY: "pages/today.py",
+    C.PAGE_PORTFOLIO: "pages/portfolio.py",
+    C.PAGE_EXPLORE: "pages/explore.py",
+    C.PAGE_SETTINGS: "pages/settings.py",
+}
+
+
 def _run_page(page: str) -> AppTest:
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
-    at.sidebar.radio[0].set_value(page).run()
+    at.switch_page(_PAGE_FILE[page]).run()
     return at
 
 
@@ -73,3 +82,22 @@ def test_settings_shows_data_status():
     # v10.5.2 A2: an empty fixture DB shows the missing-data empty state; a
     # populated DB shows the full sentence. A placeholder sentence is never shown.
     assert (C.EMPTY_NO_MARKET_DATA in text) or ("instruments, prices through" in text)
+
+
+def test_navigation_order_and_labels():
+    # R2 sidebar contract: page order Today, Portfolio, Explore, Settings.
+    dash = (Path(__file__).resolve().parents[1] / "quant" / "dashboard.py").read_text()
+    order = [dash.index(f'"{path}"') for path in
+             ("pages/today.py", "pages/portfolio.py", "pages/explore.py", "pages/settings.py")]
+    assert order == sorted(order)
+    for title in (C.PAGE_TODAY, C.PAGE_PORTFOLIO, C.PAGE_EXPLORE, C.PAGE_SETTINGS):
+        assert f"title={title}" in dash or title in dash
+
+
+def test_open_today_is_gated_and_switches_page():
+    # AppTest cannot follow a programmatic st.switch_page triggered by a button,
+    # so assert the wiring structurally (target page + success gate) here; the
+    # four-page reachability is covered by test_no_banned_tokens_on_any_page.
+    render = (Path(__file__).resolve().parents[1] / "quant" / "ui" / "render.py").read_text()
+    assert 'st.switch_page("pages/today.py")' in render
+    assert "_review_ok" in render

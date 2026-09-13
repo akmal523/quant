@@ -37,6 +37,7 @@ from quant.analytics.scoring import (
     stewardship_score_v2,
     apply_fast_filter,
     etf_tactical_grade,
+    regime_confidence as regime_confidence_of,
 )
 from quant.data.fundamentals import get_fundamentals
 from quant.data.universe import is_etf
@@ -451,19 +452,25 @@ def main() -> None:
 
     # ── Pillar 2b: Fit market regime HMM ONCE on a broad index ──────────────
     # Use SPY if present in universe, else the longest-history asset as proxy.
-    # A2 (v10.5.2): a fit failure is recorded as regime_error so the UI surfaces
-    # it in Health instead of masking it as missing history.
+    # v10.5.3 (spec 1.2): write the regime block UNCONDITIONALLY with an explicit
+    # state (estimated | insufficient_history | failed) so the UI never guesses.
     market_regime_prob = 0.5
-    regime_error = False
+    regime_state = "estimated"
+    regime_error_msg = None
     regime_sym = "SPY" if "SPY" in grouped_data else max(grouped_data, key=lambda s: len(grouped_data[s]))
     try:
         regime_df = grouped_data[regime_sym]
-        regime_vol = fast_volatility(regime_df["Close"])
-        regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
-        market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
-        logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
+        if len(regime_df["Close"]) < 252:
+            regime_state = "insufficient_history"
+            market_regime_prob = 0.5
+        else:
+            regime_vol = fast_volatility(regime_df["Close"])
+            regime_raw = fit_market_regime(regime_df["Close"], regime_vol)
+            market_regime_prob = regime_raw / float(WEIGHT_TECHNICAL)
+            logger.info("Market regime (fit on %s): bull prob=%.2f", regime_sym, market_regime_prob)
     except Exception as e:  # noqa: BLE001
-        regime_error = True
+        regime_state = "failed"
+        regime_error_msg = str(e)
         market_regime_prob = 0.5
         logger.warning("Market regime fit failed (surfaced in Health): %s", e)
 
@@ -657,12 +664,34 @@ def main() -> None:
         audit_res.to_csv(str(paths.OUTPUTS_DIR / "portfolio_audit.csv"), index=False)
 
     actions = build_actions(audit_res)
+
+    # v10.5.3 (spec 1.1): persist scores as a run artifact the UI reads via
+    # artifacts.read_scores (single accessor; no parquet paths in the UI).
+    try:
+        from quant.reporting.artifacts import save_artifact
+        score_cols = [c for c in ("Symbol", "Structural_Grade", "Tactical_Grade",
+                                  "Active_Score") if c in final_df.columns]
+        if not final_df.empty and "Symbol" in score_cols:
+            save_artifact(run_dir, "scores", final_df[score_cols])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Scores artifact failed: %s", e)
     blocked = [a for a in actions if a["blocked"]]
 
-    regime_label = (
-        "unavailable" if regime_error
-        else ("bull" if market_regime_prob >= 0.5 else "bear")
-    )
+    if regime_state == "estimated":
+        regime_label = ("rising" if market_regime_prob >= 0.6
+                        else "falling" if market_regime_prob <= 0.4 else "mixed")
+        regime_confidence = regime_confidence_of(market_regime_prob)
+    else:
+        regime_label = "unavailable"
+        regime_confidence = None
+    regime_block = {
+        "state": regime_state,
+        "label": regime_label if regime_state == "estimated" else None,
+        "prob": round(market_regime_prob, 4) if regime_state == "estimated" else None,
+        "confidence": regime_confidence,
+        "as_of": today,
+        "error": regime_error_msg,
+    }
     reporter.line(f"quant run {__version__}")
     reporter.line(f"  regime {regime_label}, p={market_regime_prob:.2f} "
                   f"(fit {regime_sym}, as-of {today})")
@@ -704,14 +733,8 @@ def main() -> None:
         metrics_payload = {
             "review_ts": today,
             "latest_bar": latest_bar,
+            "regime": regime_block,
         }
-        if regime_error:
-            # A2: computation ran and failed -> Health item, not an empty state.
-            metrics_payload["regime_error"] = True
-        else:
-            metrics_payload["market_regime"] = regime_label
-            metrics_payload["regime_prob"] = market_regime_prob
-            metrics_payload["regime_source"] = regime_sym
         save_metrics(run_dir, metrics_payload)
     except Exception as e:  # noqa: BLE001
         logger.warning("Review history/metrics failed (non-fatal): %s", e)

@@ -20,7 +20,7 @@ import re
 
 import pandas as pd
 
-from quant.config import REBALANCE_DRIFT_TIERS
+from quant.config import REBALANCE_DRIFT_TIERS, MIN_TRADE_SIZE_EUR
 from quant.execution.taxonomy import resolve_broker
 from quant.ui import copy as ui_copy
 
@@ -70,6 +70,7 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
                 "target": target,
                 "drift": drift,
                 "blocked": True,
+                "min_trade_eur": MIN_TRADE_SIZE_EUR,
                 "status": ui_copy.status_for(rec, blocked=True),
                 "remedy": ui_copy.ACTION_BLOCKED_MANUAL.format(symbol=sym),
             })
@@ -87,6 +88,7 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
             "target": target,
             "drift": drift,
             "blocked": False,
+            "min_trade_eur": MIN_TRADE_SIZE_EUR,
             "status": ui_copy.status_for(rec, cooldown_until=cooldown_until),
             "remedy": None,
         })

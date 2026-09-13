@@ -46,9 +46,9 @@ def test_today_empty_state_when_no_reviews():
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
     text = _all_text(at)
-    # v10.5.1: the Today page shows the catalog empty states / first-run guide.
+    # v10.5.3 S0: the Today page shows the guidance card and the building chart.
     assert (
-        ("Nothing to do today" in text)
-        or ("The value chart appears after your second review" in text)
-        or ("Start here" in text)
+        ("No review yet. Save and review from Portfolio" in text)
+        or ("The value chart builds up after a few reviews" in text)
+        or ("Nothing to do today" in text)
     )

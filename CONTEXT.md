@@ -280,3 +280,26 @@ quant.ui.runner.run_repair ───> quant.data.registry_repair (in-process, un
 quant.reporting.actions ──────> quant.ui.copy (status_for)
 quant.dashboard ──────────────> quant.portfolio.cash_rate (current_rate), quant.ui.runner (run_repair)
 ```
+
+## v10.5.3 Domain Additions
+
+### Regime block + confidence
+
+- `metrics.json` carries `regime = {state, label, prob, confidence, as_of, error}`.
+- `state` is `estimated | insufficient_history | failed`; `label` is `rising | falling | mixed`.
+- `confidence` = `regime_confidence(prob)`: `|prob - 0.5| >= 0.30 -> high`,
+  `>= 0.15 -> medium`, else `low` ([`quant/analytics/scoring.py`](quant/analytics/scoring.py)).
+- UI mapping: estimated -> `Market trend: {label} ({confidence} confidence).`;
+  insufficient_history -> `Market trend: not enough history yet.`;
+  failed -> `Market trend: unavailable (see Health).` (Health names the failure).
+
+### State vocabulary (canonical status)
+
+`On track`, `Add`, `Trim`, `Waiting until {date}`, `Below minimum order`,
+`Blocked`, `Not reviewed yet` (single mapper `quant.ui.copy.status_for`).
+
+### Artifact accessors (five)
+
+All UI artifact reads go through `quant.reporting.artifacts`:
+`latest_review()`, `read_regime()`, `read_actions()`, `read_scores(symbol)`,
+`read_history()`. No page touches run directories or parquet paths directly.

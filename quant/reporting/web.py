@@ -25,7 +25,9 @@ import pandas as pd
 
 from quant import paths
 from quant import __version__
+from quant.config import MIN_TRADE_SIZE_EUR, REBALANCE_DRIFT_TIERS
 from quant.reporting.actions import build_actions
+from quant.ui import copy as ui_copy
 from quant.reporting.artifacts import latest_run
 from quant.portfolio.account import load_account
 
@@ -103,10 +105,40 @@ def build_data(run_dir: str) -> dict:
                 "reason": str(r.get("Recommendation", "")),
             })
 
+    # v10.5.3 parity: the Same copy module drives the hosted trend + footnote lines.
+    regime = metrics.get("regime") or {}
+    rstate = regime.get("state", "insufficient_history")
+    if rstate == "estimated":
+        trend = ui_copy.MARKET_TREND.format(label=regime.get("label"),
+                                            confidence=regime.get("confidence"))
+    elif rstate == "failed":
+        trend = ui_copy.MARKET_TREND_FAILED
+    else:
+        trend = ui_copy.MARKET_TREND_INSUFFICIENT
+
+    footnotes: list[str] = []
+    if not audit.empty and "Value_EUR" in audit:
+        total = float(audit["Value_EUR"].sum())
+        below = 0
+        for _, r in audit.iterrows():
+            tier = str(r.get("Tier", "ACTIVE"))
+            threshold = REBALANCE_DRIFT_TIERS.get(tier, 0.05)
+            try:
+                drift = float(str(r.get("Drift", "")).rstrip("%") or 0) / 100.0
+            except (TypeError, ValueError):
+                drift = 0.0
+            if abs(drift) > threshold and abs(drift) * total < MIN_TRADE_SIZE_EUR:
+                below += 1
+        if below:
+            tpl = ui_copy.FOOTNOTE_BELOW_MIN_ONE if below == 1 else ui_copy.FOOTNOTE_BELOW_MIN
+            footnotes.append(tpl.format(n=below, min=f"{MIN_TRADE_SIZE_EUR:.0f}"))
+
     return {
         "version": __version__,
         "as_of": os.path.basename(run_dir),
-        "regime": metrics.get("market_regime", ""),
+        "regime": (metrics.get("regime") or {}).get("label") or "",
+        "trend": trend,
+        "footnotes": footnotes,
         "portfolio": {
             "value_eur": round(total_value, 2),
             "pnl_eur": round(pnl, 2),
@@ -139,7 +171,11 @@ def render_html(data: dict) -> str:
         f"<a href='https://github.com/akmal523/quant'>Repository</a></p>"
     )
 
-    # 2. Portfolio.
+    # 2. Trend (parity with the app's trend-state lines).
+    if data.get("trend"):
+        parts.append(f"<p>{_esc(data['trend'])}</p>")
+
+    # 3. Portfolio.
     parts.append("<h2>Portfolio</h2>")
     parts.append(f"<p>Value {p['value_eur']:.2f} EUR. "
                  f"Total profit or loss {p['pnl_eur']:+.2f} EUR. "
@@ -163,7 +199,11 @@ def render_html(data: dict) -> str:
     else:
         parts.append("<p>No actions required today.</p>")
 
-    # 4. Holdings.
+    # 4. Suppression footnotes (parity with Today S3).
+    for line in data.get("footnotes", []):
+        parts.append(f"<p class='muted'>{_esc(line)}</p>")
+
+    # 5. Holdings.
     parts.append("<h2>Holdings</h2>")
     if data["holdings"]:
         parts.append("<table><tr><th>Symbol</th><th>Tier</th><th>Weight</th>"

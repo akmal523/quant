@@ -51,3 +51,26 @@ def test_html_parses_cleanly(tmp_path):
 def test_publish_without_run_returns_error(tmp_path):
     rc = publish(run_dir=str(tmp_path / "missing"), out_dir=str(tmp_path / "web"))
     assert rc == 1
+
+
+def test_briefing_renders_trend_and_suppression_footnote(tmp_path):
+    """v10.5.3 parity: the hosted report shows the same trend + footnote lines."""
+    import json
+
+    import pandas as pd
+
+    from quant.reporting import web
+
+    run = tmp_path / "run_x"
+    run.mkdir()
+    (run / "metrics.json").write_text(json.dumps(
+        {"regime": {"state": "estimated", "label": "rising", "confidence": "high"}}),
+        encoding="utf-8")
+    pd.DataFrame([{
+        "Symbol": "X", "Tier": "ACTIVE", "Value_EUR": 100.0, "Drift": "20.0%",
+        "Current_Weight": "100.0%", "Target_Weight": "80.0%", "Signal": "HOLD",
+    }]).to_csv(run / "portfolio_audit.csv", index=False)
+
+    html = web.render_html(web.build_data(str(run)))
+    assert "Market trend: rising (high confidence)." in html
+    assert "50 EUR minimum order size" in html
