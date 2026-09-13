@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-ai"
-version = "10.3.6"
+version = "10.4.0"
 description = "Broker-aware, EUR-native systematic equity analysis for Trade Republic."
 readme = "README.md"
 requires-python = ">=3.11"

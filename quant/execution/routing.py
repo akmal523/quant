@@ -25,7 +25,7 @@ from quant.config import (
     SPARPLAN_STRUCT_MIN, ACTIVE_TACT_MIN,
     ROUND_TRIP_FEE_EUR, BROKER_CASH_APY,
 )
-from quant.portfolio.optimizer import minimum_trade_size
+from quant.portfolio.optimizer import minimum_trade_size, minimum_trade_size_vol_aware
 from quant.execution.taxonomy import PLAIN_STRUCTURE, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE
 
 
@@ -85,6 +85,7 @@ def build_execution_instruction(
     expected_alpha_bps: float,
     isin: str = "",
     tr_ticker: str = "",
+    asset_vol: float | None = None,
 ) -> dict:
     """Build a human-readable execution instruction for the daily briefing.
 
@@ -92,9 +93,16 @@ def build_execution_instruction(
     Active Trade") for the Streamlit dashboard and Telegram/Discord notifier.
     Phase 5 (v10.2): a missing ISIN makes the instruction unexecutable (the TR
     app searches by ISIN), so emit an explicit "ISIN MISSING" instruction.
+    v10.4.0 (Phase 2): when asset_vol is supplied, the fee hurdle is scaled by
+    volatility so the fixed fee is amortized over an adequate notional.
     Invariants: returns dict with symbol, route, action, instruction, isin.
     """
-    min_size = minimum_trade_size(expected_alpha_bps, ROUND_TRIP_FEE_EUR)
+    if asset_vol is not None:
+        min_size = minimum_trade_size_vol_aware(
+            expected_alpha_bps, asset_vol, ROUND_TRIP_FEE_EUR,
+        )
+    else:
+        min_size = minimum_trade_size(expected_alpha_bps, ROUND_TRIP_FEE_EUR)
     fee_ok = capital_eur >= min_size
 
     if route == "ACTIVE":

@@ -123,6 +123,18 @@ def get_fundamentals_as_of(symbol: str, as_of_date: str) -> dict | None:
     }
 
 
+def get_fundamentals_pit(symbol: str, as_of_date: str) -> dict | None:
+    """Point-in-time fundamentals accessor for backtests (v10.4.0, Phase 1).
+
+    Intent: a backtest must NEVER see a fundamental before the market did. This
+    is the ONLY accessor backtests should use. It returns the snapshot whose
+    published_date <= as_of_date, or None (fail-closed, no lookahead fallback).
+    Invariants: never returns a snapshot published after as_of_date.
+    Dependencies: get_fundamentals_as_of.
+    """
+    return get_fundamentals_as_of(symbol, as_of_date)
+
+
 # ── ICR Computation ───────────────────────────────────────────────────────────
 
 def _compute_icr(data: dict) -> float | None:
@@ -278,6 +290,14 @@ def get_fundamentals(symbol: str) -> dict:
 
     if data:
         _save_to_cache(symbol, data)
+        # v10.4.0 (Phase 1): persist a bitemporal PIT snapshot so future backtests
+        # can replay what was known on a given date. Live fetch => published today.
+        try:
+            import datetime as _dt
+            today = _dt.date.today().isoformat()
+            save_fundamentals_history(symbol, data, as_of_date=today, published_date=today)
+        except Exception:
+            pass
         data["ICR"] = _compute_icr(data)
         return data
 

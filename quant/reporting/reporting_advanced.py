@@ -38,6 +38,7 @@ def build_briefing(
     harvest_opportunities,
     attribution_df,
     guardrail_blocks: list,
+    alpha_metrics: dict | None = None,
 ) -> str:
     """Assemble the unified daily briefing string."""
     w = 100
@@ -102,6 +103,26 @@ def build_briefing(
         lines.append("\n[GUARDRAIL BLOCKS]")
         for b in guardrail_blocks:
             lines.append(f"  BLOCKED: {b}")
+
+    # ── Alpha Quality (v10.4.0, Phase 5) ───────────────────────────────────
+    if alpha_metrics:
+        lines.append("\n[ALPHA QUALITY]")
+        dsr = alpha_metrics.get("dsr")
+        if dsr is not None:
+            lines.append(f"  Deflated Sharpe Ratio: {dsr:.3f} "
+                         f"(>0.95 = edge survives multiple-testing)")
+        ic_curve = alpha_metrics.get("ic_curve")
+        if ic_curve is not None and not ic_curve.empty:
+            ic_str = " | ".join(
+                f"T+{int(r['horizon'])} IC {r['mean_ic']:+.3f}"
+                for _, r in ic_curve.iterrows()
+            )
+            lines.append(f"  Alpha Decay: {ic_str}")
+        turn = alpha_metrics.get("turnover")
+        if turn:
+            lines.append(f"  Turnover: mean {turn.get('mean_turnover', 0):.3f} "
+                         f"| std {turn.get('turnover_std', 0):.3f} "
+                         f"(high std = unpredictable costs)")
 
     lines.append("\n" + "=" * w)
     return "\n".join(lines)

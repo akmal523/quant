@@ -28,6 +28,10 @@ EVENTS = {
     "DIP_DETECTED": "dip_detected",
     "CORRELATION_SPIKE": "correlation_spike",
     "COST_HURDLE_MISSED": "cost_hurdle_missed",
+    # v10.4.0 (Phase 4): event-driven decoupling of the pipeline.
+    "MARKET_CLOSE_DATA_READY": "market_close_data_ready",
+    "SCORING_COMPLETE": "scoring_complete",
+    "KILL_SWITCH": "kill_switch",
 }
 
 

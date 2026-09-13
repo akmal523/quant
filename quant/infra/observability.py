@@ -34,6 +34,31 @@ class ObservabilityCollector:
 
     def __init__(self):
         self.steps: list[dict] = []
+        # v10.4.0 (Phase 4): structured telemetry. Named numeric series (e.g.
+        # fetch latency, DuckDB query time) and counters (e.g. rate-limit hits).
+        self.metrics: dict[str, list[float]] = {}
+        self.counters: dict[str, int] = {}
+
+    def record_metric(self, name: str, value: float) -> None:
+        """Append a numeric observation to a named metric series."""
+        self.metrics.setdefault(name, []).append(float(value))
+
+    def increment(self, name: str, by: int = 1) -> None:
+        """Increment a named counter (e.g. api_rate_limit_hits)."""
+        self.counters[name] = self.counters.get(name, 0) + by
+
+    def metric_summary(self) -> dict:
+        """Aggregate each metric series into count/mean/max."""
+        out = {}
+        for name, vals in self.metrics.items():
+            if not vals:
+                continue
+            out[name] = {
+                "count": len(vals),
+                "mean": round(sum(vals) / len(vals), 3),
+                "max": round(max(vals), 3),
+            }
+        return out
 
     @contextmanager
     def step(self, name: str) -> Generator:
@@ -79,4 +104,6 @@ class ObservabilityCollector:
             "total_duration_ms": sum(s.get("duration_ms", 0) for s in self.steps),
             "steps": self.steps,
             "error_count": len([s for s in self.steps if s.get("status") == "error"]),
+            "metrics": self.metric_summary(),
+            "counters": self.counters,
         }

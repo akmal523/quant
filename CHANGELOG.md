@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.4.0] - 2026-09-13
+
+### Added - Institutional-Grade Elevation (Phases 1-5)
+
+Shift from *generating signals* to *guaranteeing reliability, execution reality,
+and risk survival*. Aligned with CFA Institute / Basel risk-framework practice.
+
+**Phase 1 - Data Trust & Bitemporal Integrity**
+
+1. **Corporate Actions Engine** - [`quant/data/corporate_actions.py`](quant/data/corporate_actions.py) *(new)*
+   - `detect_split` finds splits from the price/volume discontinuity (discrete
+     ratio set + volume confirmation); `apply_corporate_actions` restates
+     pre-split prices and volume; `adjust_cost_basis` fixes the portfolio entry
+     price. Wired into [`quant/data/data_updater.py`](quant/data/data_updater.py)
+     before features/scoring. Unadjusted data in a backtest guarantees false returns.
+2. **Hard Data Quality Assertions** - [`quant/data/assertions.py`](quant/data/assertions.py) *(new)*
+   - `run_assertions` is a HARD gate (raises `DataAssertionError`): duplicate
+     timestamps, >50% one-day drop without a split flag, and NaN/negative D/E for
+     profitable companies. `data_updater.py` aborts the whole run on violation.
+3. **Bitemporal PIT enforcement** - [`quant/data/fundamentals.py`](quant/data/fundamentals.py)
+   - `get_fundamentals` now persists a PIT snapshot (`as_of_date`/`published_date`);
+     new `get_fundamentals_pit` is the only accessor backtests should use (filters
+     `published_date <= as_of_date`, fail-closed). `market_history` gains
+     `ingested_at` for arrival-vs-valid-time audit.
+
+**Phase 2 - Execution Reality & TCA**
+
+4. **Implementation Shortfall** - [`quant/execution/tca.py`](quant/execution/tca.py) *(new)*
+   - `implementation_shortfall` (signal vs fill, bps), `estimate_slippage_bps`
+     (half-spread + square-root impact), `record_trade` -> new `trade_log` table,
+     `slippage_summary`.
+5. **Volatility-aware minimum trade size** - [`quant/portfolio/optimizer.py`](quant/portfolio/optimizer.py)
+   - `minimum_trade_size_vol_aware` scales the fee floor by asset volatility; the
+     1 EUR fee on a small trade is an instant loss. Wired into
+     [`quant/execution/routing.py`](quant/execution/routing.py).
+6. **Automated Broker Reconciliation** - [`quant/execution/reconciliation.py`](quant/execution/reconciliation.py) *(new)*,
+   [`scripts/reconcile_broker.py`](scripts/reconcile_broker.py) *(new)*
+   - Diffs the theoretical portfolio state against the TR CSV export; new
+     `portfolio_snapshot` table; flags divergence > 1 EUR.
+
+**Phase 3 - Institutional Risk & Capital Preservation**
+
+7. **Mean-CVaR Optimization** - [`quant/portfolio/optimizer.py`](quant/portfolio/optimizer.py)
+   - `optimize_portfolio_cvar` (Rockafellar-Uryasev LP) optimizes the average loss
+     in the worst 5% tail; `cvar_of_weights` verifies it. Robust to fat tails.
+8. **Hard Kill Switch** - [`quant/portfolio/risk_monitor.py`](quant/portfolio/risk_monitor.py)
+   - `check_kill_switch` emits `LIQUIDATE TO CASH` on >3% daily drawdown or
+     realized vol > 2x target; publishes `KILL_SWITCH` on the event bus.
+9. **Regime-Conditional Constraints** - [`quant/portfolio/regime_constraints.py`](quant/portfolio/regime_constraints.py) *(new)*
+   - Bear/Chop hard-caps single-stock weight at 2% and forbids leverage; applied
+     inside both optimizers via the `regime` parameter.
+
+**Phase 4 - Software Engineering & CI/CD Rigor**
+
+10. **Golden-File Snapshot Testing** - [`tests/test_golden_snapshot.py`](tests/test_golden_snapshot.py) *(new)*,
+    [`tests/golden_util.py`](tests/golden_util.py) *(new)*, [`scripts/make_golden.py`](scripts/make_golden.py) *(new)*
+    - Deterministic seeded backtest output; CI fails on >0.01% drift.
+11. **Event-Driven Architecture** - [`quant/infra/event_bus.py`](quant/infra/event_bus.py)
+    - New canonical events `market_close_data_ready`, `scoring_complete`,
+    `kill_switch`; `data_updater` publishes, scoring subscribes.
+12. **Structured Telemetry** - [`quant/infra/observability.py`](quant/infra/observability.py)
+    - `record_metric`/`increment` track fetch latency, DuckDB query time, and
+    rate-limit hits; persisted to `outputs/run_<ts>/telemetry.json`.
+13. **GitHub Actions CI** - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) *(new)*
+    - Runs the full suite + the golden snapshot gate on every push/PR.
+
+**Phase 5 - Advanced Alpha Metrics & Reporting**
+
+14. **Deflated Sharpe Ratio** - [`quant/analytics/metrics.py`](quant/analytics/metrics.py) *(new)*
+    - Bailey & Lopez de Prado DSR penalizes the Sharpe for trials + skew/kurtosis.
+15. **Alpha Decay (IC) Curves** - [`quant/analytics/metrics.py`](quant/analytics/metrics.py)
+    - `information_coefficient` + `alpha_decay_curve` at T+1/T+5/T+21.
+16. **Probabilistic Turnover** - [`quant/analytics/metrics.py`](quant/analytics/metrics.py)
+    - `turnover_stats` returns mean AND variance of turnover.
+17. **ALPHA QUALITY briefing section** - [`quant/reporting/reporting_advanced.py`](quant/reporting/reporting_advanced.py),
+    [`quant/main.py`](quant/main.py) - DSR, IC decay, and turnover variance in the
+    daily briefing.
+
+### Tests
+
+- [`tests/test_institutional.py`](tests/test_institutional.py) *(new)* - 11 tests
+  covering corporate actions, assertions, Mean-CVaR, kill switch, regime
+  constraints, TCA, vol-aware sizing, reconciliation, alpha metrics, events,
+  telemetry. Full suite green (18 suites).
+
+---
+
 ## [10.3.6] - 2026-09-13
 
 ### Fixed - Universe Cleanup & Single Funnel Run

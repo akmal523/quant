@@ -24,6 +24,18 @@ consistent across code, docs, and AI agents.
 | **Funnel** | Two-stage filter: Stage 1 liquidity/viability (price>$5, min $ volume) → ~300-500; Stage 2 trend/momentum → top ~24 survivors. |
 | **Broker-synced CSV** | `portfolio.csv` schema `Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR`. Invested = Value − Broker_PnL; PnL is broker truth, never price-guessed. |
 | **Reconciliation** | `System_Estimated_Value = shares × current_price_eur`; `[!]` flag when deviation > €1.00 (stale CSV / high spread). |
+| **Bitemporal PIT** | `as_of_date` (valid-for) + `published_date` (market saw it). Backtests filter `published_date <= as_of_date`; no lookahead. |
+| **Corporate Action** | Split/merger/dividend adjustment. `detect_split` -> `apply_corporate_actions` restates prices + cost basis. |
+| **Data Assertion** | Hard gate (`DataAssertionError`) that aborts the pipeline: duplicate timestamps, unexplained >50% drop, bad D/E. |
+| **Implementation Shortfall** | Signal price vs actual fill price, in bps. Positive = worse execution. Logged to `trade_log`. |
+| **Mean-CVaR** | Optimizes average loss in the worst `CVAR_ALPHA` (5%) tail (Expected Shortfall), not variance. |
+| **Kill Switch** | Hard stop: >3% daily drawdown or vol > 2x target -> `LIQUIDATE TO CASH` + pause scanner. |
+| **Regime Constraint** | HMM regime -> `(max_single_weight, max_leverage)`. Bear/Chop = 2% / 0x. |
+| **Deflated Sharpe Ratio** | Bailey & Lopez de Prado DSR: Sharpe penalized for trials + skew/kurtosis. |
+| **Alpha Decay (IC)** | Information Coefficient of a signal at T+1/T+5/T+21; smooth decay validates exits. |
+| **Golden File** | Saved deterministic backtest output; CI fails on >0.01% drift. |
+| **trade_log** | TCA table: `symbol, side, signal_price, fill_price, slippage_bps, fee_eur`. |
+| **portfolio_snapshot** | Daily theoretical portfolio state, diffed against the broker export. |
 
 ## Module Map (Callers)
 
@@ -55,6 +67,21 @@ quant.reporting.notifier ────> quant.config, quant.portfolio.risk
 | universe_status | VARCHAR | ACTIVE/WATCHLIST/CORE |
 | graduated_at | DATE | promotion date |
 | last_signal_date | DATE | last signal for demotion |
+
+## v10.4.0 Module Map (Institutional Layer)
+
+```
+quant.data.corporate_actions ─> quant.data.data_updater (adjust before ingest)
+quant.data.assertions ────────> quant.data.data_updater (hard gate, aborts run)
+quant.data.fundamentals ──────> fundamentals_history (PIT persist) + get_fundamentals_pit
+quant.execution.tca ──────────> trade_log (implementation shortfall)
+quant.execution.reconciliation > portfolio_snapshot + scripts/reconcile_broker.py
+quant.portfolio.optimizer ────> optimize_portfolio_cvar, minimum_trade_size_vol_aware
+quant.portfolio.regime_constraints ─> optimizer (regime caps)
+quant.portfolio.risk_monitor ─> check_kill_switch -> event_bus KILL_SWITCH
+quant.analytics.metrics ──────> reporting_advanced (DSR / IC / turnover)
+quant.infra.observability ────> telemetry.json (fetch latency, DuckDB ms, rate limits)
+```
 
 ## ADR Notes
 

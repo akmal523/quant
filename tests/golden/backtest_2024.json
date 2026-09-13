@@ -1,0 +1,20 @@
+{
+  "cost_aware": {
+    "CA_Cost_Drag_pct": 0.3,
+    "CA_Gross_PnL_pct": -0.29,
+    "CA_Net_PnL_pct": -0.59,
+    "CA_Trades": 40,
+    "CA_WinRate_pct": 27.5
+  },
+  "macro": {
+    "BT_Avg_PnL_pct": 0.16,
+    "BT_Trades": 21,
+    "BT_WinRate_pct": 42.9
+  },
+  "wfo": {
+    "wfo_oos_avg_pnl": -1.88,
+    "wfo_oos_trades": 5,
+    "wfo_oos_win_rate": 20.0,
+    "wfo_periods": 2
+  }
+}

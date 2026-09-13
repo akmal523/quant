@@ -1,5 +1,10 @@
 # Quant-AI v8.5 — Comprehensive Code Analysis & Optimization Report
 
+> **Historical document.** This review targets the v8.5 codebase and is retained
+> for reference only. Line numbers and findings are superseded by the current
+> v10.4.0 code. See [`CHANGELOG.md`](CHANGELOG.md) and [`CONTEXT.md`](CONTEXT.md)
+> for the current state.
+
 > Based on deep review of all 20+ source files, tests, config, and data files.
 
 ---

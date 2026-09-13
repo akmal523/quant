@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from quant.data.database import get_connection, init_db
 from quant.execution.taxonomy import resolve_broker, get_instrument_class
 from quant.data.yf_utils import history_with_timeout, rate_limited
+from quant.data.assertions import DataAssertionError
 
 OUTPUT_FILE = "market_data.parquet"
 # Spacing between the (batched-friendly) per-symbol fetches. yfinance 1.x rate
@@ -88,6 +89,17 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
         df = df[[c for c in cols_to_keep if c in df.columns]]
         df = df.dropna(subset=['Close'])
 
+        # ── v10.4.0 (Phase 1): Corporate Actions Engine ─────────────────────
+        # Unadjusted data in a backtest guarantees false returns. Detect splits
+        # from the price/volume discontinuity and restate pre-split prices so the
+        # series is continuous BEFORE features/scoring see it.
+        from quant.data.corporate_actions import apply_corporate_actions
+        df, split_events = apply_corporate_actions(df)
+        split_dates = {pd.Timestamp(e.date) for e in split_events}
+        if split_events:
+            print(f" [CA] {sym}: adjusted {len(split_events)} split(s): "
+                  f"{', '.join(f'{e.date.date()} x{e.ratio:g}' for e in split_events)}")
+
         # ── Part 3 (Gap #1): Data Quality Gate ──────────────────────────────
         # Validate before the data enters DuckDB. Auto-repair common issues;
         # skip the symbol entirely if issues are unfixable.
@@ -116,7 +128,16 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
                 return None
             df = repaired
 
+        # ── v10.4.0 (Phase 1): Hard Data Quality Assertions ─────────────────
+        # Unlike the soft repair above, a violation here ABORTS the pipeline.
+        # Split dates are passed so a legitimate split drop is not flagged.
+        from quant.data.assertions import run_assertions
+        run_assertions(df, sym, split_dates=split_dates)
+
         return df
+    except DataAssertionError:
+        # Hard gate: propagate so main() aborts the whole run.
+        raise
     except Exception as e:
         print(f" [!] Error {sym}: {e}")
         return None
@@ -184,6 +205,7 @@ def build_fetch_list() -> list[tuple[str, str, str]]:
 
 
 def main() -> None:
+    _t0 = time.time()
     # Progress output BEFORE the (potentially slow) funnel phase so the run is
     # never silent while build_fetch_list() fetches the broad universe.
     print("Building fetch list (CORE + ACTIVE + Portfolio + funnel)...")
@@ -213,7 +235,14 @@ def main() -> None:
 
         try:
             for i, future in enumerate(as_completed(futures, timeout=overall_timeout), 1):
-                result = future.result()
+                try:
+                    result = future.result()
+                except DataAssertionError as e:
+                    # Hard data-quality gate failed: abort the entire run rather
+                    # than ingesting corrupt data.
+                    print(f"\n [FATAL] Data assertion failed: {e}")
+                    print(" Pipeline aborted. Fix the data source before re-running.")
+                    return
                 if result is not None:
                     all_data.append(result)
                 print(f"  [{i}/{total}] Completed: {futures[future]}")
@@ -243,6 +272,25 @@ def main() -> None:
             conn.execute("INSERT INTO market_history SELECT * FROM final_df")
             print(f"\nWrite complete: {len(final_df)} rows saved to DuckDB "
                   f"({len(all_data)}/{total} tickers fetched).")
+
+        # ── v10.4.0 (Phase 4): structured telemetry + EDA event ─────────────
+        # Publish market_close_data_ready so subscribers (scoring) can react
+        # without a hard call chain. A Yahoo outage cannot cascade.
+        try:
+            from quant.infra.observability import ObservabilityCollector
+            from quant.infra.event_bus import EventBus, EVENTS
+            obs = ObservabilityCollector()
+            obs.record_metric("fetch_latency_s", time.time() - _t0)
+            obs.record_metric("tickers_fetched", len(all_data))
+            if rate_limited():
+                obs.increment("api_rate_limit_hits")
+            EventBus().publish(EVENTS["MARKET_CLOSE_DATA_READY"], {
+                "rows": len(final_df),
+                "tickers": len(all_data),
+                "telemetry": obs.to_json(),
+            })
+        except Exception:
+            pass
     else:
         print("\nFatal: No data acquired.")
 

@@ -112,6 +112,18 @@ def init_db() -> None:
         # Table may not exist yet on first run; non-fatal.
         pass
 
+    # v10.4.0 (Phase 1): ingested_at records WHEN a row entered the DB, distinct
+    # from the trading Date. Enables bitemporal audit (data-arrival vs valid-time).
+    try:
+        cols = {r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'market_history'"
+        ).fetchall()}
+        if "ingested_at" not in cols:
+            conn.execute("ALTER TABLE market_history ADD COLUMN ingested_at TIMESTAMP")
+    except Exception:
+        pass
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS fundamentals (
             symbol VARCHAR PRIMARY KEY,
@@ -255,5 +267,36 @@ def init_db() -> None:
             symbol VARCHAR PRIMARY KEY,
             score DOUBLE,
             updated_at DOUBLE
+        )
+    """)
+
+    # ── v10.4.0 (Phase 2): Trade log for Transaction Cost Analysis (TCA) ──────
+    # Records the signal price/time vs the actual fill price/time so the
+    # Implementation Shortfall (slippage in bps) can be measured per trade.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trade_log (
+            ts TIMESTAMP DEFAULT now(),
+            symbol VARCHAR,
+            side VARCHAR,
+            signal_price DOUBLE,
+            signal_ts TIMESTAMP,
+            fill_price DOUBLE,
+            fill_ts TIMESTAMP,
+            slippage_bps DOUBLE,
+            fee_eur DOUBLE
+        )
+    """)
+
+    # ── v10.4.0 (Phase 2): Daily theoretical portfolio snapshot ───────────────
+    # The reconciliation engine diffs this against the Trade Republic CSV export
+    # to detect divergence (missing dividend, unexecuted limit order).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_snapshot (
+            snapshot_date DATE,
+            symbol VARCHAR,
+            shares DOUBLE,
+            price_eur DOUBLE,
+            value_eur DOUBLE,
+            PRIMARY KEY (snapshot_date, symbol)
         )
     """)

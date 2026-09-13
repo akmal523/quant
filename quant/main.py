@@ -15,6 +15,7 @@ from quant import paths
 import hashlib
 import logging
 import multiprocessing
+import time
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -229,6 +230,17 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     risk_mon = RiskMonitor(value_series)
     risk_status = risk_mon.check_circuit_breakers()
 
+    # v10.4.0 (Phase 3): hard kill switch. On breach, emit LIQUIDATE TO CASH and
+    # publish the event so subscribers (scanner) can halt.
+    kill = risk_mon.check_kill_switch()
+    if kill["triggered"]:
+        print(f"\n[KILL SWITCH] {kill['signal']}: {kill['reason']}")
+        try:
+            from quant.infra.event_bus import EventBus, EVENTS
+            EventBus().publish(EVENTS["KILL_SWITCH"], kill)
+        except Exception:
+            pass
+
     # Strategy engine: ensemble scores per portfolio symbol.
     engine = StrategyEngine()
     regime = "bull_low_vol" if risk_status.get("drawdown", 0) > -0.05 else "bear"
@@ -291,6 +303,27 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
         if not ok:
             guardrail_blocks.append(f"{sym}: {reason}")
 
+    # v10.4.0 (Phase 5): advanced alpha metrics (DSR, IC decay, turnover variance).
+    alpha_metrics = None
+    try:
+        from quant.analytics.metrics import (
+            deflated_sharpe_ratio, alpha_decay_curve, turnover_stats,
+        )
+        port_ret = returns_matrix.mean(axis=1)
+        signals = returns_matrix.rolling(20).sum()
+        prices_proxy = (1.0 + returns_matrix.fillna(0.0)).cumprod()
+        eq_weights = pd.DataFrame(
+            1.0 / returns_matrix.shape[1],
+            index=returns_matrix.index, columns=returns_matrix.columns,
+        )
+        alpha_metrics = {
+            "dsr": deflated_sharpe_ratio(port_ret, n_trials=5),
+            "ic_curve": alpha_decay_curve(signals, prices_proxy),
+            "turnover": turnover_stats(eq_weights),
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Alpha metrics failed (non-fatal): %s", e)
+
     briefing = build_briefing(
         date_str="2026-09-09",
         portfolio_value=port_value,
@@ -310,6 +343,7 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
         harvest_opportunities=harvest,
         attribution_df=None,
         guardrail_blocks=guardrail_blocks,
+        alpha_metrics=alpha_metrics,
     )
     print(briefing)
 
@@ -328,7 +362,10 @@ def main() -> None:
     try:
         # Pillar 4: read DuckDB -> Polars natively (Rust, multi-core, no GIL).
         # .pl() avoids pandas intermediate, so no pyarrow dependency needed.
+        _q0 = time.perf_counter()
         pl_df = conn.execute("SELECT * FROM market_history ORDER BY Symbol ASC, Date ASC").pl()
+        # v10.4.0 (Phase 4): structured telemetry for DuckDB query time.
+        obs.record_metric("duckdb_query_ms", (time.perf_counter() - _q0) * 1000.0)
     except Exception:
         logger.error("market_history missing. Run data_updater.py.")
         return
@@ -691,6 +728,22 @@ def main() -> None:
 
     # ── Part 3 (Gap #3): Observability summary ──────────────────────────────
     print("\n" + obs.summary())
+
+    # ── v10.4.0 (Phase 4): persist telemetry + publish scoring_complete ─────
+    try:
+        import json
+        import os
+        from quant.reporting.artifacts import new_run_dir
+        run_dir = new_run_dir()
+        with open(os.path.join(run_dir, "telemetry.json"), "w") as f:
+            json.dump(obs.to_json(), f, indent=2, default=str)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Telemetry persist failed (non-fatal): %s", e)
+    try:
+        from quant.infra.event_bus import EventBus, EVENTS
+        EventBus().publish(EVENTS["SCORING_COMPLETE"], {"symbols": len(final_df)})
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

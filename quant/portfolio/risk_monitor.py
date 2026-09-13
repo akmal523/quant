@@ -19,6 +19,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from quant.config import (
+    MAX_DAILY_DRAWDOWN, VOL_KILL_MULTIPLIER, TARGET_VOLATILITY,
+)
+
 
 class RiskMonitor:
     """Portfolio-level circuit breakers that override all signals."""
@@ -102,4 +106,50 @@ class RiskMonitor:
             "drawdown": dd,
             "var_95": var,
             "vol": vol,
+        }
+
+    def compute_daily_drawdown(self) -> float:
+        """Single-day return of the portfolio value series (negative = loss).
+
+        Intent: the kill switch reacts to a fast, single-day loss, distinct from
+        the peak-to-trough drawdown used by the advisory circuit breakers.
+        Invariants: returns a fraction; 0.0 if insufficient data.
+        """
+        if self.returns is None or len(self.returns) < 2:
+            return 0.0
+        prev = float(self.returns.iloc[-2])
+        curr = float(self.returns.iloc[-1])
+        if prev <= 0:
+            return 0.0
+        return (curr - prev) / prev
+
+    def check_kill_switch(self) -> dict:
+        """Hard circuit breaker: LIQUIDATE TO CASH and pause the scanner.
+
+        Intent (v10.4.0, Phase 3): a hard stop, not an advisory status. If the
+        portfolio breaches MAX_DAILY_DRAWDOWN or realized vol exceeds
+        VOL_KILL_MULTIPLIER x target, the system must liquidate to cash and halt
+        new signals. Pure computation (no I/O); the caller publishes the event.
+        Invariants: returns dict with triggered (bool) and signal (str).
+        """
+        daily_dd = self.compute_daily_drawdown()
+        vol = self.compute_annualized_vol()
+        vol_limit = TARGET_VOLATILITY * VOL_KILL_MULTIPLIER
+
+        reasons = []
+        if daily_dd < -MAX_DAILY_DRAWDOWN:
+            reasons.append(
+                f"daily drawdown {daily_dd:.1%} < -{MAX_DAILY_DRAWDOWN:.1%}"
+            )
+        if vol > vol_limit:
+            reasons.append(f"realized vol {vol:.1%} > {vol_limit:.1%}")
+
+        triggered = len(reasons) > 0
+        return {
+            "triggered": triggered,
+            "signal": "LIQUIDATE TO CASH" if triggered else "HOLD",
+            "reason": "; ".join(reasons) if reasons else "within hard limits",
+            "daily_drawdown": daily_dd,
+            "vol": vol,
+            "vol_limit": vol_limit,
         }

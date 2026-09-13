@@ -189,3 +189,40 @@ MIN_TACT_GRADE_FOR_BUY   = 70
 # When no SEC/News data is available, the sentiment component is unreliable.
 # This penalty reduces the tactical grade to prevent false BUY signals.
 SENTIMENT_NO_DATA_PENALTY = 15.0  # max points deducted when NLP data is missing
+
+# ── v10.4.0: Bitemporal PIT (Phase 1) ─────────────────────────────────────────
+# Reporting lag: a fundamental with as_of_date D is only known to the market at
+# D + REPORTING_LAG_DAYS. Backtests must never see it earlier (no lookahead).
+REPORTING_LAG_DAYS = 45
+
+# ── v10.4.0: Data Quality Assertions (Phase 1) ────────────────────────────────
+# Hard CI/CD gate. A violation aborts the pipeline (unlike the soft repair in
+# data_quality.py). A >50% one-day drop without a split flag is corruption.
+ASSERT_MAX_DAILY_DROP = 0.50
+
+# ── v10.4.0: Mean-CVaR Optimization (Phase 3) ─────────────────────────────────
+# Optimize the average loss in the worst CVAR_ALPHA tail (Expected Shortfall).
+CVAR_ALPHA = 0.05
+
+# ── v10.4.0: Hard Circuit Breakers / Kill Switch (Phase 3) ────────────────────
+# If the portfolio breaches either limit, emit LIQUIDATE TO CASH and pause the
+# scanner. These are hard stops, not advisory statuses.
+MAX_DAILY_DRAWDOWN = 0.03        # 3% single-day drawdown -> kill switch
+VOL_KILL_MULTIPLIER = 2.0        # realized vol > 2x target -> kill switch
+
+# ── v10.4.0: Regime-Conditional Constraints (Phase 3) ─────────────────────────
+# Tie risk limits to the HMM regime. Bear/Chop caps single-stock weight at 2%
+# and forbids leverage; Bull uses the normal caps.
+REGIME_CONSTRAINTS = {
+    "bull": {"max_single_weight": MAX_POSITION_PCT, "max_leverage": 1.0},
+    "bear": {"max_single_weight": 0.02, "max_leverage": 0.0},
+    "chop": {"max_single_weight": 0.02, "max_leverage": 0.0},
+}
+
+# ── v10.4.0: Execution Reality / TCA (Phase 2) ────────────────────────────────
+# Volatility-aware minimum trade size: the fixed 1 EUR fee must be amortized over
+# a notional large enough relative to the asset's volatility. Higher vol -> larger
+# floor, because the expected edge is noisier.
+MIN_TRADE_VOL_MULT = 2.0
+# Default participation cap for TCA slippage estimation (fraction of ADV).
+TCA_PARTICIPATION_CAP = 0.01
