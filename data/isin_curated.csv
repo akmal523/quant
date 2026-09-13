@@ -1,0 +1,3 @@
+symbol,isin,verified_by,verified_at
+# One row per instrument. verified_by: free text (broker app, fund factsheet, exchange page).
+# verified_at: ISO date. Rows here override any live metadata forever.
