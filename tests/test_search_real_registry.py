@@ -70,3 +70,50 @@ def test_label_removes_duplicate_parens():
     assert label_for("MSCI World (IWDA.AS)", "IWDA.AS") == "MSCI World (IWDA.AS)"
     assert label_for("MSCI World", "IWDA.AS") == "MSCI World (IWDA.AS)"
     assert label_for("AMZN", "AMZN") == "AMZN"
+
+
+def test_label_for_cleans_ucits_etf_input():
+    # B2: the raw Yahoo longName must be cleaned even if the registry value is not.
+    label = label_for(
+        "iShares S&P 500 Information Technology Sector UCITS ETF USD (Acc)",
+        "QDVE.DE",
+    )
+    assert label == "iShares S&P 500 Information Technology Sector (QDVE.DE)"
+
+
+def test_startup_backfill_surfaces_friendly_name(monkeypatch):
+    """B1 regression: a pre-existing DB shows friendly names WITHOUT running update.
+
+    The dashboard entry runs the startup backfill on first render; Explore then
+    shows the cleaned friendly name for a fresh registry row.
+    """
+    import pytest as _pytest
+
+    _pytest.importorskip("streamlit")
+    from pathlib import Path as _Path
+
+    from streamlit.testing.v1 import AppTest
+
+    from quant.data import names as names_mod
+    from quant.data.database import get_connection
+
+    conn = get_connection()
+    conn.execute("DELETE FROM asset_registry WHERE symbol = 'AAPL'")
+    conn.execute(
+        "INSERT INTO asset_registry (symbol, name, display_name, instrument_class, "
+        "isin, currency, universe_status) VALUES ('AAPL','','','EQUITY',"
+        "'US0378331005','','ACTIVE')"
+    )
+    monkeypatch.setattr(names_mod, "_yahoo_identity", lambda _s: ("Apple Inc", "USD"))
+
+    dashboard = str(_Path(__file__).resolve().parents[1] / "quant" / "dashboard.py")
+    at = AppTest.from_file(dashboard, default_timeout=60)
+    at.run()  # entry runs the startup backfill for the pre-existing row
+    at.switch_page("pages/explore.py").run()
+    at.text_input[0].set_value("AAPL").run()
+    text = " ".join(
+        str(getattr(el, "value", ""))
+        for attr in ("subheader", "title", "caption", "markdown")
+        for el in getattr(at, attr, [])
+    )
+    assert "Apple" in text

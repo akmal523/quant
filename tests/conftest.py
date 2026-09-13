@@ -50,3 +50,13 @@ def isolated_db(tmp_path_factory):
 
     database._local.conn = None
     mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _offline_metadata(monkeypatch):
+    """Keep tests hermetic: stub network metadata (display names + ISINs)."""
+    import quant.data.names as names
+    import quant.data.registry_repair as registry_repair
+
+    monkeypatch.setattr(names, "_yahoo_identity", lambda _s: ("", ""), raising=False)
+    monkeypatch.setattr(registry_repair, "_yahoo_isin", lambda _s: None, raising=False)

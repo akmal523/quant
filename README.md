@@ -42,7 +42,9 @@ pip install -e .
 quant dash
 ```
 
-Open the address Streamlit prints (usually http://localhost:8501). On a phone on
+Open the address Streamlit prints (usually http://localhost:8501).
+Display names and ISINs are backfilled automatically the first time the
+app runs. On a phone on
 the same Wi-Fi, run `quant dash --lan` and open the printed LAN address.
 
 Everything else happens in the browser:

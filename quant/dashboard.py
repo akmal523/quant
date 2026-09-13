@@ -31,7 +31,23 @@ _NAV = [
 ]
 
 
+def _startup_backfill() -> None:
+    """B1/B4: one-time startup backfill for a pre-existing DB. Documented
+    write-enabled connection exception (app startup); later reads stay read-only.
+    """
+    if st.session_state.get("_names_ensured"):
+        return
+    try:
+        from quant.data.names import ensure_display_names
+
+        ensure_display_names()
+    except Exception:  # noqa: BLE001
+        pass
+    st.session_state["_names_ensured"] = True
+
+
 def main() -> None:
+    _startup_backfill()
     st.sidebar.title("Quant-AI")
     st.sidebar.caption("Daily portfolio management")
     st.sidebar.caption(f"Version {__version__}")

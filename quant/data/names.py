@@ -59,6 +59,44 @@ def load_curated_names(path: str | None = None) -> dict[str, str]:
     return out
 
 
+def _blank(v) -> bool:
+    return v is None or str(v).strip() == "" or str(v).strip().lower() == "nan"
+
+
+def ensure_display_names() -> dict:
+    """Startup backfill: migrate + fill missing names. Never raises.
+
+    The ONLY write-enabled connection outside quant update/run/publish (app
+    startup, spec B1/B4). Opens a short-lived connection and closes immediately;
+    later UI reads stay read_only. Idempotent: missing cells only.
+    """
+    try:
+        from quant.data.database import connect_with_retry, get_connection, migrate_registry_display_name
+    except Exception:  # noqa: BLE001
+        return {}
+    own = False
+    conn = None
+    try:
+        conn = connect_with_retry(attempts=2, delay=0.3)
+        own = True
+    except Exception:  # noqa: BLE001
+        try:
+            conn = get_connection()
+        except Exception:  # noqa: BLE001
+            return {}
+    try:
+        migrate_registry_display_name(conn)
+        return backfill_display_names(conn)
+    except Exception:  # noqa: BLE001
+        return {}
+    finally:
+        if own and conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _yahoo_identity(symbol: str) -> tuple[str, str]:
     """Best-effort (long_name, currency) from Yahoo metadata. Never raises."""
     try:
@@ -87,15 +125,18 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
         sym = str(sym or "")
         if not sym:
             continue
-        need_dn = not (dn and str(dn).strip())
-        need_nm = not (nm and str(nm).strip())
-        need_cur = not (cur and str(cur).strip())
+        need_dn = _blank(dn)
+        need_nm = _blank(nm)
+        need_cur = _blank(cur)
         if not (need_dn or need_nm or need_cur):
             continue
         long_name, meta_cur = "", ""
-        if need_dn or need_nm:
+        if need_dn or need_nm or need_cur:
             if sym in curated:
                 long_name = curated[sym]
+            elif not _blank(nm):
+                # Reuse whatever name we already have before touching the network.
+                long_name = str(nm)
             else:
                 long_name, meta_cur = metadata_source(sym)
         if need_dn:

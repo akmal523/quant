@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 
+from quant.data.names import clean_display_name
 from quant.data.universe_builder import BROAD_ETFS
 
 # Curated keyword tags per symbol (themes that do not appear in the name).
@@ -30,7 +31,8 @@ TAG_KEYWORDS: dict[str, list[str]] = {
 
 def label_for(name: str, symbol: str) -> str:
     """Return the canonical "Name (TICKER)" label with duplicate-paren removal."""
-    name = (name or "").strip()
+    # B2: never trust the registry value is pre-cleaned; clean at render time.
+    name = clean_display_name((name or "").strip(), symbol).strip()
     if not name or name.upper() == (symbol or "").upper():
         return symbol
     if re.search(rf"\({re.escape(symbol)}\)$", name, re.IGNORECASE):

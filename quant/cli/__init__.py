@@ -59,6 +59,16 @@ def _cmd_dash(args: argparse.Namespace) -> int:
     """
     from quant import paths
 
+    # B1/B4: backfill display names/ISINs before the app opens so a pre-existing
+    # DB shows friendly names without a manual update. The ONLY write-enabled
+    # connection outside update/run/publish (app startup).
+    try:
+        from quant.data.names import ensure_display_names
+
+        ensure_display_names()
+    except Exception:  # noqa: BLE001
+        pass
+
     dash = os.path.join(str(paths.PROJECT_ROOT), "quant", "dashboard.py")
     address = "0.0.0.0" if getattr(args, "lan", False) else "127.0.0.1"
     return subprocess.call(
