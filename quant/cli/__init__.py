@@ -50,6 +50,84 @@ def _cmd_publish(_args: argparse.Namespace) -> int:
     return publish()
 
 
+def _cmd_doctor(_args: argparse.Namespace) -> int:
+    """Read-only diagnosis. No writes, no secrets; safe to paste publicly."""
+    import json
+    import os
+    import time
+
+    from quant import paths
+    from quant.data.database import read_only_connection
+    from quant.data.names import probe_metadata, read_names_state
+
+    print(f"db: {paths.DB_FILE}")
+    try:
+        with read_only_connection() as conn:
+            def _count(sql: str) -> int:
+                try:
+                    return int(conn.execute(sql).fetchone()[0])
+                except Exception:  # noqa: BLE001
+                    return -1
+
+            total = _count("SELECT COUNT(*) FROM asset_registry")
+            miss_dn = _count("SELECT COUNT(*) FROM asset_registry "
+                             "WHERE display_name IS NULL OR trim(display_name) = ''")
+            miss_nm = _count("SELECT COUNT(*) FROM asset_registry "
+                             "WHERE name IS NULL OR trim(name) = ''")
+            miss_cur = _count("SELECT COUNT(*) FROM asset_registry "
+                              "WHERE currency IS NULL OR trim(currency) = ''")
+            miss_isin = _count("SELECT COUNT(*) FROM asset_registry "
+                               "WHERE isin IS NULL OR trim(isin) = ''")
+        print(f"registry rows: {total}")
+        print(f"missing display_name: {miss_dn}")
+        print(f"missing name: {miss_nm}")
+        print(f"missing currency: {miss_cur}")
+        print(f"missing isin: {miss_isin}")
+    except Exception as e:  # noqa: BLE001
+        print(f"registry: unreadable ({type(e).__name__}: {e})")
+
+    state = read_names_state()
+    if state:
+        print(f"names state: ts={state.get('ts')} rows={state.get('rows_total')} "
+              f"filled={state.get('filled')} still_missing={state.get('still_missing')} "
+              f"skipped={state.get('skipped_reason')}")
+    else:
+        print("names state: none (backfill has not run)")
+
+    for sym in ("AMZN", "AAPL", "EUNL.DE"):
+        pr = probe_metadata(sym)
+        if pr.get("error"):
+            print(f"probe {sym}: ERROR {pr['error']}")
+        else:
+            print(f"probe {sym}: longName={pr.get('long_name')!r} "
+                  f"currency={pr.get('currency')!r}")
+
+    try:
+        from quant.data import news as _news
+
+        cache_path = _news._cache_path()
+        if os.path.exists(cache_path):
+            data = json.load(open(cache_path, encoding="utf-8"))
+            ages = [time.time() - float(v.get("retrieved_at", 0)) for v in data.values()]
+            print(f"news cache: {len(data)} symbols, newest {min(ages) / 3600:.1f} h")
+        else:
+            print("news cache: none")
+    except Exception as e:  # noqa: BLE001
+        print(f"news cache: unreadable ({e})")
+
+    try:
+        lock_path = os.path.join(str(paths.OUTPUTS_DIR), ".runner.lock")
+        if os.path.exists(lock_path):
+            hb = json.load(open(lock_path, encoding="utf-8"))
+            age = time.time() - float(hb.get("ts", 0))
+            print(f"runner lock: present pid={hb.get('pid')} age={age:.0f}s")
+        else:
+            print("runner lock: none")
+    except Exception as e:  # noqa: BLE001
+        print(f"runner lock: unreadable ({e})")
+    return 0
+
+
 def _cmd_dash(args: argparse.Namespace) -> int:
     """Launch the local interactive workspace (Streamlit).
 
@@ -165,6 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("all", help="run update then run (full daily cycle)")
     sub.add_parser("publish", help="render the static Published Briefing")
+    sub.add_parser("doctor", help="read-only diagnosis (no writes, safe to paste)")
     dash = sub.add_parser("dash", help="launch the local interactive workspace")
     dash.add_argument(
         "--lan", action="store_true",
@@ -202,6 +281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "all": _cmd_all,
         "publish": _cmd_publish,
         "dash": _cmd_dash,
+        "doctor": _cmd_doctor,
     }
     try:
         return dispatch[args.command](args)

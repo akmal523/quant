@@ -1,0 +1,5 @@
+{
+  "AMZN": {"symbol": "AMZN", "long_name": "Amazon.com, Inc.", "currency": "USD", "error": null},
+  "AAPL": {"symbol": "AAPL", "long_name": "Apple Inc.", "currency": "USD", "error": null},
+  "EUNL.DE": {"symbol": "EUNL.DE", "long_name": "iShares Core MSCI World UCITS ETF USD (Acc)", "currency": "EUR", "error": null}
+}

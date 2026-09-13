@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 from quant import paths
 
@@ -59,6 +60,50 @@ def load_curated_names(path: str | None = None) -> dict[str, str]:
     return out
 
 
+def _state_path() -> str:
+    return os.path.join(str(paths.OUTPUTS_DIR), "names_state.json")
+
+
+def read_names_state() -> dict:
+    """Read outputs/names_state.json (the last backfill outcome). {} when absent."""
+    import json
+
+    try:
+        with open(_state_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _write_names_state(state: dict) -> None:
+    import json
+    import tempfile
+
+    try:
+        os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(paths.OUTPUTS_DIR), suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        os.replace(tmp, _state_path())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def probe_metadata(symbol: str) -> dict:
+    """Read-only metadata probe for quant doctor (raw longName or the exact error)."""
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(symbol).get_info()
+        return {"symbol": symbol,
+                "long_name": str(info.get("longName") or info.get("shortName") or ""),
+                "currency": str(info.get("currency") or ""),
+                "error": None}
+    except Exception as e:  # noqa: BLE001
+        return {"symbol": symbol, "long_name": "", "currency": "",
+                "error": f"{type(e).__name__}: {e}"}
+
+
 def _blank(v) -> bool:
     return v is None or str(v).strip() == "" or str(v).strip().lower() == "nan"
 
@@ -89,10 +134,29 @@ def ensure_display_names() -> dict:
 
             logging.getLogger("quant.ui").warning(
                 "display-name backfill skipped: database write lock busy")
-            return {}
+            _write_names_state({"ts": time.time(), "rows_total": 0, "filled": 0,
+                                "still_missing": 0, "skipped_reason": "lock",
+                                "unreachable_symbols": 0})
+            return {"skipped_reason": "lock"}
     try:
         migrate_registry_display_name(conn)
-        return backfill_display_names(conn)
+        summary = backfill_display_names(conn)
+        try:
+            rows_total = conn.execute("SELECT COUNT(*) FROM asset_registry").fetchone()[0]
+            still_missing = conn.execute(
+                "SELECT COUNT(*) FROM asset_registry "
+                "WHERE display_name IS NULL OR trim(display_name) = ''"
+            ).fetchone()[0]
+        except Exception:  # noqa: BLE001
+            rows_total = still_missing = 0
+        _write_names_state({
+            "ts": time.time(), "rows_total": int(rows_total),
+            "filled": summary.get("display_filled", 0),
+            "still_missing": int(still_missing),
+            "skipped_reason": "metadata_unreachable" if summary.get("unreachable") else None,
+            "unreachable_symbols": summary.get("unreachable", 0),
+        })
+        return summary
     except Exception:  # noqa: BLE001
         return {}
     finally:
@@ -127,6 +191,7 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
         "SELECT symbol, display_name, name, currency FROM asset_registry"
     ).fetchall()
     d_fill = n_fill = c_fill = 0
+    unreachable = 0
     for sym, dn, nm, cur in rows:
         sym = str(sym or "")
         if not sym:
@@ -145,6 +210,8 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
                 long_name = str(nm)
             else:
                 long_name, meta_cur = metadata_source(sym)
+                if not long_name:
+                    unreachable += 1
         if need_dn:
             conn.execute("UPDATE asset_registry SET display_name = ? WHERE symbol = ?",
                          [clean_display_name(long_name, sym), sym])
@@ -157,4 +224,5 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
             conn.execute("UPDATE asset_registry SET currency = ? WHERE symbol = ?",
                          [meta_cur, sym])
             c_fill += 1
-    return {"display_filled": d_fill, "name_filled": n_fill, "currency_filled": c_fill}
+    return {"display_filled": d_fill, "name_filled": n_fill,
+            "currency_filled": c_fill, "unreachable": unreachable}

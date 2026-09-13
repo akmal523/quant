@@ -282,6 +282,8 @@ MARKETS_CLOSED = "Markets were closed; prices through {date} close."
 # News outage (spec 6.3)
 HEALTH_NEWS_OUTAGE = ("News source unreachable since {since}. Scores use price history "
                       "and fundamentals only.")
+HEALTH_NAMES_MISSING = ("Display names missing for {n} instruments; metadata source "
+                        "unreachable. Search by symbol or ISIN still works.")
 
 
 def status_word(universe_status: str) -> str:

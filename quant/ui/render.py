@@ -511,6 +511,16 @@ def page_settings() -> None:
         st.write(f"Stale threshold: {STALE_DATA_DAYS} days")
         for row in as_dicts():
             st.caption(f"{row['effective_date']} · {row['apy']*100:.2f}% · {row['source_url']}")
+        try:
+            from quant.data.names import read_names_state
+
+            st_ns = read_names_state()
+            if st_ns:
+                st.caption(f"Names: filled {st_ns.get('filled', 0)}, "
+                           f"still missing {st_ns.get('still_missing', 0)}, "
+                           f"skipped {st_ns.get('skipped_reason') or 'no'}")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _health_problems() -> list[str]:
@@ -538,6 +548,14 @@ def _health_problems() -> list[str]:
         msg = outage_message()
         if msg:
             problems.append(msg)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from quant.data.names import read_names_state
+
+        ns = read_names_state()
+        if int(ns.get("still_missing", 0)) > 0 and ns.get("skipped_reason") == "metadata_unreachable":
+            problems.append(C.HEALTH_NAMES_MISSING.format(n=int(ns["still_missing"])))
     except Exception:  # noqa: BLE001
         pass
     return problems

@@ -49,4 +49,28 @@ def test_ensure_display_names_survives_write_lock(monkeypatch):
 
     monkeypatch.setattr(database, "connect_with_retry", _locked)
     monkeypatch.setattr(database, "get_connection", _locked)
-    assert names.ensure_display_names() == {}
+    result = names.ensure_display_names()  # must not raise
+    assert result.get("skipped_reason") == "lock"
+
+
+def test_ensure_display_names_writes_state_file(tmp_path, monkeypatch):
+    from quant import paths
+    from quant.data import database, names
+
+    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
+    conn = database.get_connection()
+    conn.execute("DELETE FROM asset_registry WHERE symbol = 'ZZTEST'")
+    conn.execute(
+        "INSERT INTO asset_registry (symbol, name, display_name, instrument_class, "
+        "isin, currency, universe_status) VALUES ('ZZTEST','','','EQUITY','','','ACTIVE')")
+    monkeypatch.setattr(names, "_yahoo_identity", lambda _s: ("Test Name", "USD"))
+    # Force the connect_with_retry path to fall back to the in-process connection.
+    monkeypatch.setattr(database, "connect_with_retry",
+                        lambda **_k: (_ for _ in ()).throw(TimeoutError("x")))
+
+    names.ensure_display_names()
+    state = names.read_names_state()
+    assert state
+    assert state["rows_total"] >= 1
+    assert state["filled"] >= 1
+    assert state["skipped_reason"] in (None, "metadata_unreachable", "lock")
