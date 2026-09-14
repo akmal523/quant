@@ -435,6 +435,24 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
 - `ERROR_RUNNING` copy is operation-agnostic; the only as-of string is
   `Scores as of {date}.` (no "From the review of" preamble).
 
+### Calendar lines and savings plan (R8)
+
+- `data/account.yaml` gains optional `savings_plan_day` (1-31). `AccountState`
+  reads it, clamps out-of-range/non-numeric to None, and persists it only when
+  set. README documents the key.
+- [`quant.ui.copy.savings_plan_line(today, day)`](quant/ui/copy.py) is the ONE
+  source of the Today sentence: same day -> `Savings plan executes today.`;
+  otherwise `Savings plan executes in {days} days ({date}); ...`. Pure datetime
+  (no `calendar` import); a day beyond the month clamps to the month's last day;
+  the date carries its weekday (`fmt_weekday_date`).
+- [`quant.execution.routing.holding_routes_to_savings_plan`](quant/execution/routing.py)
+  reuses `route_signal` (ETF/CASH, plain structure -> SPARPLAN) so the calendar
+  line and execution routing can never disagree.
+- Today renders the countdown under the actions block only when at least one
+  holding routes to a savings plan. The header gains the markets-closed
+  freshness line (`MARKETS_CLOSED`) when today is non-trading and the latest bar
+  is the previous session (Friday).
+
 ---
 
 ## v10.6.0 Cycle Ledger (V1-V8, R1-R9, H2-H3.8)
@@ -642,8 +660,16 @@ live doctor healthy: W=90, names clean, 18 non-routable ISINs explained, search
 probes correct, actions oracle 2, sentiment cache 30 default-scorer (legacy),
 cards correct.
 
-1. **R8** calendar lines (one commit): `savings_plan_day` countdown + same-day
-   variant, markets-closed freshness line, README key.
+1. **R8 — DONE** (`2022302`, feat(today)). Calendar lines: optional
+   `savings_plan_day` (1-31) in `data/account.yaml`; `copy.savings_plan_line`
+   (same day -> `SAVINGS_TODAY`; month wrap + month-end clamp; the date carries
+   its weekday per the audit rule); `routing.holding_routes_to_savings_plan`
+   reuses `route_signal`; Today shows the countdown under the actions block only
+   when a holding routes to a savings plan; the header gains the markets-closed
+   freshness line on a non-trading day after the previous session. README key
+   documented. Guard `tests/test_r8_calendar.py`.
+   Ruling R8-DATE: the explicit audit rule ("every rendered date carries its
+   weekday via `fmt_weekday_date`") as it applies to the savings date.
 2. **R9** release: CHANGELOG narrative, bump 10.6.0, `mkdocs --strict`, ruff gate
    per settled scope, checklist (D1 audit, names clean on fresh install, publish
    path assertion, CLI ≤20 lines per command, `git ls-files data/` audit, bounded
