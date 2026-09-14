@@ -263,6 +263,10 @@ SEARCH_HELPER = "Type a name, symbol, ISIN or theme to explore."
 NEWS_EARLIER = "Earlier items ({n} more)"
 # H3.4: one Diagnostics line when the sentiment model is absent.
 SENTIMENT_UNAVAILABLE = "Sentiment model not available; news shown without sentiment."
+# H3.5: discovery-universe loop closure (Explore zero-match + Portfolio add).
+DISCOVERY_NOT_TRACKED = ("{label} is in the discovery universe but not tracked. "
+                         "Add it in Portfolio to track it.")
+NOT_TRACKED_LABEL = "{label} - not tracked yet"
 
 # Portfolio (spec 2.3)
 VALIDATION_UNIVERSE = ("{n} holdings are not in the universe yet; they will be added "

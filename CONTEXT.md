@@ -374,3 +374,19 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
 - News rows render weekday dates ([`fmt_weekday_date`](quant/ui/copy.py)), cap at
   5 with an `Earlier items ({n} more)` expander, and drop the sentiment word with
   one Diagnostics line when the FinBERT stack is absent.
+
+### Explore card and the discovery loop (H3.5)
+
+- [`quant.ui.cards.explore_card_fields`](quant/ui/cards.py) is the ONE source for
+  the Explore card title / class / subtitle (registry values win; the CSV routing
+  metadata is the fallback). The doctor probes it
+  (`explore card {symbol}: title=… subtitle=…`), so a regression is diagnosable.
+- `label_for` never duplicates the base ticker: if the base (symbol before the
+  first dot) already appears in a name paren group, the name stands alone
+  ("Global Aero & Def (5J50)", not "... (5J50) (5J50.DE)").
+- Discovery loop: Explore's zero-match names a `universe_master` match
+  ("{label} is in the discovery universe but not tracked. Add it in Portfolio to
+  track it."); the Portfolio add-input also offers `universe_master` candidates
+  ("{label} - not tracked yet"). Selecting one adds a held row → enters `W` on
+  save, fetched at the next update. No `universe_master` row enters
+  `asset_registry` without being held or CORE/ACTIVE.

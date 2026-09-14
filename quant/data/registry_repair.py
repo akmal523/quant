@@ -360,15 +360,21 @@ def sync_registry_to_working_universe(conn, **kwargs) -> dict:
 
     added = 0
     if to_add:
+        from quant.data.universe_builder import BROAD_ETFS
         from quant.execution.taxonomy import classify_instrument
 
+        # H3.5 (F3): classify WITH a known name so keyword rules fire (e.g.
+        # SGLN.L "Silver ETF" -> COMMODITY). classify_instrument prefers the CSV
+        # class when a broker_registry row exists, else the taxonomy heuristics.
+        broad = {str(s).strip().upper(): n for n, s in BROAD_ETFS.items()}
         for sym in to_add:
+            nm = broad.get(sym, "") or None
             conn.execute(
                 """INSERT INTO asset_registry
-                       (symbol, instrument_class, currency, universe_status, updated_at)
-                   VALUES (?, ?, ?, 'WATCHLIST', ?)
+                       (symbol, name, instrument_class, currency, universe_status, updated_at)
+                   VALUES (?, ?, ?, ?, 'WATCHLIST', ?)
                    ON CONFLICT (symbol) DO NOTHING""",
-                [sym, classify_instrument(sym), _currency(sym), time.time()],
+                [sym, nm, classify_instrument(sym, nm or ""), _currency(sym), time.time()],
             )
             added += 1
 

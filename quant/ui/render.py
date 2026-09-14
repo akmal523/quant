@@ -27,8 +27,7 @@ from quant import __version__
 from quant.config import STALE_DATA_DAYS, RISK_PROFILES
 from quant.data.database import read_only_connection
 from quant.execution.taxonomy import (
-    resolve_broker, classify_instrument, get_structure,
-    INVERSE_STRUCTURE, LEVERAGED_STRUCTURE,
+    resolve_broker, get_structure, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE,
 )
 from quant.portfolio.account import load_account, save_account, AccountState
 from quant.portfolio.editor import validate_positions, save_portfolio
@@ -39,7 +38,8 @@ from quant.reporting.artifacts import (
 )
 from quant.ui import copy as C
 from quant.ui import runner
-from quant.ui.search import label_for, load_index, search
+from quant.ui.cards import explore_card_fields
+from quant.ui.search import discovery_candidates, label_for, load_index, search
 
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 _COLUMN_CONFIG = {
@@ -218,10 +218,21 @@ def page_portfolio() -> None:
     )
     if query:
         results = search(load_index(), query, 10)
-        if results:
-            labels = [r["label"] for r in results]
-            sym_by_label = {r["label"]: r["symbol"] for r in results}
-
+        # H3.5 (F5): also offer discovery-universe instruments (universe_master
+        # rows not yet tracked); selecting one adds a held row -> enters W on
+        # save, fetched at the next update.
+        disc = discovery_candidates(query, 10)
+        sym_by_label: dict[str, str] = {}
+        labels: list[str] = []
+        for r in results:
+            sym_by_label[r["label"]] = r["symbol"]
+            labels.append(r["label"])
+        for r in disc:
+            lbl = C.NOT_TRACKED_LABEL.format(label=r["label"])
+            if lbl not in sym_by_label:
+                sym_by_label[lbl] = r["symbol"]
+                labels.append(lbl)
+        if labels:
             def _add_selected() -> None:
                 sym = sym_by_label.get(st.session_state.get("add_choice"))
                 if not sym:
@@ -403,25 +414,28 @@ def page_explore() -> None:
         return
     if not matches:
         st.info(C.EMPTY_NO_MATCHES.format(query=query))
+        # H3.5 (F5): close the discovery loop — name a universe_master match.
+        _disc = discovery_candidates(query, 1)
+        if _disc:
+            _d = _disc[0]
+            st.caption(C.DISCOVERY_NOT_TRACKED.format(
+                label=label_for(_d.get("display_name") or _d.get("name"), _d["symbol"])))
         return
     options = [r["label"] for r in matches]
     choice = st.selectbox("Matches", options, key="ex_choice")
     symbol = next(r["symbol"] for r in matches if r["label"] == choice)
 
     broker = resolve_broker(symbol)
-    reg = q("SELECT COALESCE(display_name, name) AS nm, instrument_class, currency, "
-            "isin FROM asset_registry WHERE symbol = ?", [symbol])
-    name = str(reg["nm"].iloc[0]) if not reg.empty and reg["nm"].iloc[0] else symbol
-    cls = str(reg["instrument_class"].iloc[0]) if not reg.empty else \
-        classify_instrument(symbol)
+    # H3.5 (F1-F3): title/class/subtitle come from ONE helper the doctor probes,
+    # so the page and the probe can never diverge. Registry values win over CSV.
+    card = explore_card_fields(symbol)
+    name = card["name"]
+    cls = card["class"]
 
     st.subheader(name)
     st.caption(symbol)
-    _subtitle = " · ".join(
-        p for p in (C.class_word(cls), broker.get("currency", ""), broker.get("isin", "")) if p
-    )
-    if _subtitle:
-        st.caption(_subtitle)
+    if card["subtitle"]:
+        st.caption(card["subtitle"])
     structure = get_structure(symbol)
     if structure in (INVERSE_STRUCTURE, LEVERAGED_STRUCTURE):
         st.warning("This product is leveraged or inverse. It can lose value quickly.")

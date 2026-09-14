@@ -27,6 +27,9 @@ BANNED = [
     r"quant_update", r"\bquant run\b", r"WATCHLIST", r"\bPLAIN\b",
     r"factor_scores", r"advice below", r"Fix in Portfolio",
     r"\(\w+\) \(\w+\)", r"\u00b7\s*$", r"·\s*$",
+    # H3.5 (F4): the dotted-ticker double-paren shape ("Global Aero & Def
+    # (5J50) (5J50.DE)") the original pattern missed.
+    r"\(\w+\) \([\w.]+\)",
 ]
 
 _TEXTLIKE = ("markdown", "info", "warning", "error", "caption", "text",

@@ -155,6 +155,17 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"search probes: unreadable ({e})")
 
+    # H3.5 (F1-F3): the Explore card fields, read through the SAME helper the
+    # page uses, so a title/subtitle regression is diagnosable forever.
+    try:
+        from quant.ui.cards import explore_card_fields
+
+        for sym in ("AMZN", "5J50.DE", "SGLN.L"):
+            f = explore_card_fields(sym)
+            print(f"explore card {sym}: title={f['name']!r} subtitle={f['subtitle']!r}")
+    except Exception as e:  # noqa: BLE001
+        print(f"explore cards: unreadable ({e})")
+
     try:
         with read_only_connection() as conn:
             for sym in ("AMZN", "AAPL", "EUNL.DE"):

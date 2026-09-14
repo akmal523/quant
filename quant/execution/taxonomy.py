@@ -108,8 +108,8 @@ def sync_broker_registry(path: str = BROKER_REGISTRY_PATH) -> int:
             if not sym:
                 continue
             isin = str(r.get("isin", "") or "")
-            if isin == "nan":
-                isin = ""
+            if isin in ("", "nan"):
+                isin = None            # H3.5 (F2): missing cells are NULL, never ''
             tr_ticker = str(r.get("tr_ticker", "") or sym)
             if tr_ticker == "nan":
                 tr_ticker = sym
@@ -117,8 +117,8 @@ def sync_broker_registry(path: str = BROKER_REGISTRY_PATH) -> int:
             if exchange == "nan":
                 exchange = "LS Exchange"
             currency = str(r.get("currency", "") or "")
-            if currency == "nan":
-                currency = ""
+            if currency in ("", "nan"):
+                currency = None        # H3.5 (F2): missing cells are NULL, never ''
             instrument_class = str(r.get("instrument_class", "") or "EQUITY")
             if instrument_class == "nan":
                 instrument_class = "EQUITY"
@@ -230,10 +230,10 @@ def _upsert_registry(symbol: str, name: str, instrument_class: str) -> None:
                 """INSERT INTO asset_registry (symbol, name, instrument_class, universe_status, updated_at)
                    VALUES (?, ?, ?, 'WATCHLIST', ?)
                    ON CONFLICT (symbol) DO UPDATE SET
-                     name = excluded.name,
+                     name = COALESCE(excluded.name, name),
                      instrument_class = excluded.instrument_class,
                      updated_at = excluded.updated_at""",
-                [symbol, name, instrument_class, time.time()],
+                [symbol, (name or None), instrument_class, time.time()],
             )
     except Exception:
         # Registry table may not exist yet (init_db not called). Non-fatal.

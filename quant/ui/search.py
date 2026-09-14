@@ -34,12 +34,20 @@ TAG_KEYWORDS: dict[str, list[str]] = {
 
 
 def label_for(name: str, symbol: str) -> str:
-    """Return the canonical "Name (TICKER)" label with duplicate-paren removal."""
+    """Return the canonical "Name (TICKER)" label without duplicate parens.
+
+    H3.5 (F4): if the BASE ticker (symbol before the first dot) already appears
+    in a paren group inside the name, the name stands alone — appending the
+    symbol would duplicate it ("Global Aero & Def (5J50) (5J50.DE)").
+    """
     # B2: never trust the registry value is pre-cleaned; clean at render time.
     name = clean_display_name((name or "").strip(), symbol).strip()
     if not name or name.upper() == (symbol or "").upper():
         return symbol
     if re.search(rf"\({re.escape(symbol)}\)$", name, re.IGNORECASE):
+        return name
+    base = (symbol or "").split(".")[0]
+    if base and re.search(rf"\({re.escape(base)}\)", name, re.IGNORECASE):
         return name
     return f"{name} ({symbol})"
 
@@ -195,6 +203,37 @@ def load_index() -> list[dict]:
     except Exception:  # noqa: BLE001
         pass
     return list(records.values())
+
+
+def load_universe_index() -> list[dict]:
+    """universe_master records NOT already in the working universe (H3.5, F5).
+
+    These are discovery-pool instruments a user may choose to track. They are
+    NOT in asset_registry; selecting one adds a held row that enters W on save.
+    """
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            w = {str(r[0]).strip().upper()
+                 for r in conn.execute("SELECT symbol FROM asset_registry").fetchall()
+                 if r[0]}
+            rows = conn.execute("SELECT symbol, name FROM universe_master").fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict] = []
+    for sym, nm in rows:
+        s = (sym or "").strip().upper()
+        if not s or s in w:
+            continue
+        nm = (nm or s).strip()
+        out.append(_record(s, nm, display_name=nm))
+    return out
+
+
+def discovery_candidates(query: str, limit: int = 10) -> list[dict]:
+    """universe_master-only matches for the discovery loop (H3.5, F5)."""
+    return search(load_universe_index(), query, limit)
 
 
 def resolve(query: str, limit: int = 10) -> list[dict]:
