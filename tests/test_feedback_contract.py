@@ -105,7 +105,7 @@ def test_open_today_gated_on_success(monkeypatch):
 
 def _settings_stub(monkeypatch):
     monkeypatch.setattr(render, "read_history", lambda: pd.DataFrame())
-    monkeypatch.setattr(render, "latest_review", lambda: {})
+    monkeypatch.setattr(render, "latest_review", lambda ok_only=False: {})
     monkeypatch.setattr(render, "read_regime", lambda: {"state": "insufficient_history"})
     monkeypatch.setattr(render, "read_actions", lambda: [])
     monkeypatch.setattr(render, "load_portfolio",

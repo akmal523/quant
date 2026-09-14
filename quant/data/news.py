@@ -88,8 +88,43 @@ def fetch_news_items(symbol: str, fetcher=None, timeout: int = 10) -> list[dict]
             "headline": str(entry.get("title", "")),
             "published_at": str(entry.get("published", "")),
             "score": 0.0,
+            # H3.6 (N3): provenance. The fetch path does NOT score, so the word
+            # is only rendered for scorer == "model" (never a silent default).
+            "scorer": "default",
         })
     return items
+
+
+def _normalize_items(items: list[dict]) -> list[dict]:
+    """Read-side migration: entries lacking `scorer` are `default` (H3.6, N3)."""
+    for it in items:
+        if isinstance(it, dict):
+            it.setdefault("scorer", "default")
+    return items
+
+
+def cache_scorer_stats() -> dict:
+    """Distribution of news-cache entries by scorer (H3.6, N3). {} when absent."""
+    cache = _read_cache()
+    stats = {"entries": 0, "model": 0, "default": 0, "pos": 0, "neg": 0, "neu": 0}
+    for entry in cache.values():
+        items = entry.get("items", []) if isinstance(entry, dict) else []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            stats["entries"] += 1
+            if it.get("scorer") == "model":
+                stats["model"] += 1
+            else:
+                stats["default"] += 1
+            s = it.get("score", 0) or 0
+            if s > 0:
+                stats["pos"] += 1
+            elif s < 0:
+                stats["neg"] += 1
+            else:
+                stats["neu"] += 1
+    return stats
 
 
 def load_news(symbol: str, fetcher=None, now: float | None = None,
@@ -99,13 +134,13 @@ def load_news(symbol: str, fetcher=None, now: float | None = None,
     cache = _read_cache()
     entry = cache.get(symbol)
     if entry and (now - float(entry.get("retrieved_at", 0))) < ttl_hours * 3600:
-        return entry.get("items", [])
+        return _normalize_items(entry.get("items", []))
     items = fetch_news_items(symbol, fetcher=fetcher)
     if items is None:
         return []
     cache[symbol] = {"retrieved_at": now, "items": items}
     _write_cache(cache)
-    return items
+    return _normalize_items(items)
 
 
 def fetch_news_headlines(symbol: str) -> str:

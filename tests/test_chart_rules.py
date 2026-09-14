@@ -28,7 +28,8 @@ def _all_text(at: AppTest) -> str:
 
 def _today(monkeypatch, hist) -> AppTest:
     monkeypatch.setattr(render, "read_history", lambda: hist)
-    monkeypatch.setattr(render, "latest_review", lambda: {"review_ts": "2026-09-11"})
+    monkeypatch.setattr(render, "latest_review",
+                        lambda ok_only=False: {"review_ts": "2026-09-11"})
     monkeypatch.setattr(render, "read_regime",
                         lambda: {"state": "estimated", "label": "rising", "confidence": "high"})
     monkeypatch.setattr(render, "read_actions", lambda: [])

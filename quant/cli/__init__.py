@@ -142,6 +142,16 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"news cache: unreadable ({e})")
 
+    # H3.6 (N3): sentiment provenance distribution over the news cache.
+    try:
+        from quant.data.news import cache_scorer_stats
+
+        _st = cache_scorer_stats()
+        print(f"sentiment cache: {_st['entries']} entries, scorer model {_st['model']} / "
+              f"default {_st['default']}, pos {_st['pos']} neg {_st['neg']} neu {_st['neu']}")
+    except Exception as e:  # noqa: BLE001
+        print(f"sentiment cache: unreadable ({e})")
+
     try:
         from quant.ui.search import load_index, search
 

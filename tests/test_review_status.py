@@ -29,7 +29,7 @@ def _all_text(at: AppTest) -> str:
 
 
 def _page(monkeypatch, page, review, history):
-    monkeypatch.setattr(render, "latest_review", lambda: review)
+    monkeypatch.setattr(render, "latest_review", lambda ok_only=False: review)
     monkeypatch.setattr(render, "read_history", lambda: history)
     monkeypatch.setattr(render, "read_regime", lambda: {"state": "insufficient_history"})
     monkeypatch.setattr(render, "read_actions", lambda: [])

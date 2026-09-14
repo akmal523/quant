@@ -35,7 +35,7 @@ def _all_text(at: AppTest) -> str:
 
 def _today(monkeypatch, *, history, review, regime, actions, portfolio) -> AppTest:
     monkeypatch.setattr(render, "read_history", lambda: history)
-    monkeypatch.setattr(render, "latest_review", lambda: review)
+    monkeypatch.setattr(render, "latest_review", lambda ok_only=False: review)
     monkeypatch.setattr(render, "read_regime", lambda: regime)
     monkeypatch.setattr(render, "read_actions", lambda: actions)
     monkeypatch.setattr(render, "load_portfolio", lambda: portfolio)

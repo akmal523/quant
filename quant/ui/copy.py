@@ -255,6 +255,8 @@ CHART_NO_HISTORY = "No price history for {name} yet. Refresh market data in Sett
 
 # Explore (spec 2.2)
 SCORES_NONE = "No scores for {name} yet. Scores appear after the next review."
+# H3.6 (N1): freshness line when the shown scores are not from the latest attempt.
+SCORES_AS_OF = "Scores as of {date}."
 NEWS_CHECKING = "Checking news..."
 HOW_TO_BUY_ISIN_MISSING = "ISIN missing for {name}. Repair it in Settings."
 # H3.4: empty-query helper (distinct from the zero-match sentence).
@@ -304,18 +306,47 @@ def status_word(universe_status: str) -> str:
     return STATUS_WORDS.get(str(universe_status).upper(), "Watching")
 
 
+def _parse_dt(value: date | datetime | str | None) -> datetime | None:
+    """Parse ISO-8601 (with offset) or RFC-2822 into a datetime; None on failure.
+
+    H3.6 (N2): the live news cache stores RFC-2822 ("Mon, 14 Sep 2026 14:41:24
+    +0000"); the formatter must never return a raw timestamp.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+
+        return parsedate_to_datetime(s)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def fmt_weekday_date(value: date | datetime | str | None) -> str:
-    """Format a date as 'Friday 11 Sep 2026' (spec 7.1). Empty on bad input."""
-    if value is None:
+    """Format a date as 'Friday 11 Sep 2026'. Empty on bad input (H3.6, N2)."""
+    dt = _parse_dt(value)
+    if dt is None:
         return ""
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value)
-        except ValueError:
-            return value
-    if not isinstance(value, (date, datetime)):
+    return f"{_WEEKDAYS[dt.weekday()]} {fmt_date(dt)}"
+
+
+def fmt_weekday_ts(value: date | datetime | str | None) -> str:
+    """Format a timestamp as 'Sunday 13 Sep 2026, 23:23' (H3.6, N1)."""
+    dt = _parse_dt(value)
+    if dt is None:
         return ""
-    return f"{_WEEKDAYS[value.weekday()]} {fmt_date(value)}"
+    return f"{_WEEKDAYS[dt.weekday()]} {fmt_date(dt)}, {fmt_time(dt)}"
 
 
 def status_for(

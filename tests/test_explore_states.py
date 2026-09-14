@@ -34,7 +34,8 @@ def _explore(monkeypatch, scores, broker) -> str:
     monkeypatch.setattr(render, "load_index", lambda: [])
     monkeypatch.setattr(render, "search", lambda idx, q, n=10: [
         {"symbol": "AMZN", "label": "Amazon (AMZN)", "name": "Amazon", "isin": ""}])
-    monkeypatch.setattr(render, "latest_review", lambda: {"review_ts": "2026-09-13"})
+    monkeypatch.setattr(render, "latest_review",
+                        lambda ok_only=False: {"review_ts": "2026-09-13"})
     monkeypatch.setattr(render, "read_scores", lambda sym: scores)
     monkeypatch.setattr(render, "resolve_broker", lambda sym: broker)
     at = AppTest.from_file(DASHBOARD, default_timeout=60)

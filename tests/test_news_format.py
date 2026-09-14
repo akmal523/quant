@@ -34,7 +34,8 @@ def _all_text(at: AppTest) -> str:
 
 def _items(n: int):
     return [{"source": "Yahoo Finance", "headline": f"H{i}",
-             "published_at": "2026-09-13T10:00:00+00:00", "score": 0.0}
+             "published_at": "2026-09-13T10:00:00+00:00", "score": 0.0,
+             "scorer": "model"}
             for i in range(n)]
 
 
@@ -44,7 +45,8 @@ def _explore_with_news(monkeypatch, items, sentiment_available):
         {"symbol": "AMZN", "label": "Amazon (AMZN)", "name": "Amazon", "isin": ""}])
     monkeypatch.setattr(render, "load_news", lambda sym: items)
     monkeypatch.setattr(render, "_sentiment_available", lambda: sentiment_available)
-    monkeypatch.setattr(render, "latest_review", lambda: {"review_ts": "2026-09-13"})
+    monkeypatch.setattr(render, "latest_review",
+                        lambda ok_only=False: {"review_ts": "2026-09-13"})
     monkeypatch.setattr(render, "read_scores",
                         lambda sym: {"structural_grade": None, "tactical_grade": None,
                                      "active_score": None})

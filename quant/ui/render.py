@@ -462,10 +462,15 @@ def page_explore() -> None:
 
     # Why these scores.
     st.subheader(C.SEC_WHY_SCORES)
-    review = latest_review()
-    review_date = C.fmt_ts(review.get("review_ts")) if review.get("review_ts") else ""
-    if review_date:
-        st.caption(f"From the review of {review_date}")
+    # H3.6 (N1): scores come from the most recent SUCCESSFUL review; if the
+    # latest attempt failed, one freshness line says so (no silent staleness).
+    ok_review = latest_review(ok_only=True)
+    latest_attempt = latest_review()
+    ok_ts = ok_review.get("review_ts")
+    if ok_ts:
+        st.caption(f"From the review of {C.fmt_ts(ok_ts)}")
+    if latest_attempt.get("review_status") == "failed" and ok_ts:
+        st.caption(C.SCORES_AS_OF.format(date=C.fmt_weekday_ts(ok_ts)))
     sc = read_scores(symbol)
     has_scores = sc.get("structural_grade") is not None
     if has_scores:
@@ -495,7 +500,9 @@ def page_explore() -> None:
             when = (C.fmt_weekday_date(it.get("published_at"))
                     or C.fmt_date(it.get("published_at")))
             line = f"{when} · {it.get('source', '')} · {it.get('headline', '')}"
-            if _has_senti:
+            # H3.6 (N3): the word is shown only for a real model score, never a
+            # silent default.
+            if _has_senti and it.get("scorer") == "model":
                 senti = ("positive" if it.get("score", 0) > 0
                          else "negative" if it.get("score", 0) < 0 else "neutral")
                 line += f" · {senti}"

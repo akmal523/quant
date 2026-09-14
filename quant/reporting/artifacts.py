@@ -110,9 +110,37 @@ _REGIME_DEFAULT: dict = {
 }
 
 
-def latest_review() -> dict:
-    """Return the latest run's metrics.json as a dict ({} when absent)."""
-    run = latest_run_dir()
+def latest_ok_run_dir() -> str | None:
+    """Newest run dir whose metrics.json is NOT a failed review (H3.6, N1).
+
+    Intent: a failed review must not shadow the data pages. Data reads use the
+    most recent SUCCESSFUL review; the S4 card / Health read the latest attempt.
+    """
+    if not os.path.isdir(OUTPUTS_DIR):
+        return None
+    runs = sorted((d for d in os.listdir(OUTPUTS_DIR) if d.startswith("run_")),
+                  reverse=True)
+    for d in runs:
+        path = os.path.join(OUTPUTS_DIR, d, "metrics.json")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                m = json.load(f)
+        except Exception:  # noqa: BLE001
+            continue
+        if m.get("review_status") != "failed":
+            return os.path.join(OUTPUTS_DIR, d)
+    return None
+
+
+def latest_review(ok_only: bool = False) -> dict:
+    """Return the latest run's metrics.json as a dict ({} when absent).
+
+    H3.6 (N1): ok_only=True returns the most recent SUCCESSFUL review
+    (review_status != 'failed'), so a failed run cannot shadow data pages.
+    """
+    run = latest_ok_run_dir() if ok_only else latest_run_dir()
     if not run:
         return {}
     path = os.path.join(run, "metrics.json")
@@ -126,8 +154,11 @@ def latest_review() -> dict:
 
 
 def read_regime() -> dict:
-    """Return the regime block (spec 1.2). Neutral default when absent."""
-    review = latest_review()
+    """Return the regime block (spec 1.2). Neutral default when absent.
+
+    H3.6 (N1): reads the most recent SUCCESSFUL review (ok_only).
+    """
+    review = latest_review(ok_only=True)
     regime = review.get("regime")
     if isinstance(regime, dict):
         return {**_REGIME_DEFAULT, **regime}
@@ -212,7 +243,8 @@ def read_scores(symbol: str) -> dict:
     Invariants: returns the keys with None when nothing is known.
     """
     keys = {"structural_grade": None, "tactical_grade": None, "active_score": None}
-    run = latest_run_dir()
+    # H3.6 (N1): read the most recent SUCCESSFUL review, not the latest attempt.
+    run = latest_ok_run_dir()
     if run:
         path = os.path.join(run, "scores.parquet")
         if os.path.exists(path):

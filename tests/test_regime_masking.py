@@ -65,6 +65,7 @@ def test_review_regime_is_displayed(tmp_path, monkeypatch):
                                                "confidence": "high", "as_of": "2026-09-13"},
                                        "review_ts": "2026-09-13"})
     monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
+    monkeypatch.setattr(artifacts, "latest_ok_run_dir", lambda: run_dir)
 
     text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND.format(label="rising", confidence="high") in text
@@ -77,6 +78,7 @@ def test_regime_failure_is_health_not_missing_history(tmp_path, monkeypatch):
                                               "as_of": "2026-09-13"},
                                        "review_ts": "2026-09-13"})
     monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
+    monkeypatch.setattr(artifacts, "latest_ok_run_dir", lambda: run_dir)
 
     today_text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND_FAILED in today_text

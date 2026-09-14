@@ -390,3 +390,16 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
   ("{label} - not tracked yet"). Selecting one adds a held row → enters `W` on
   save, fetched at the next update. No `universe_master` row enters
   `asset_registry` without being held or CORE/ACTIVE.
+
+### Failed-review shadowing, news dates, sentiment provenance (H3.6)
+
+- Data reads (`read_scores`, `read_regime`) use the most recent **successful**
+  review: `latest_review(ok_only=True)` / `latest_ok_run_dir()`. The Today S4
+  card and Settings Health read the latest attempt of any status; when the two
+  differ, Explore shows one line `Scores as of {weekday d mon, hh:mm}.`
+- `fmt_weekday_date` / `fmt_weekday_ts` parse ISO-8601 **and** RFC-2822, so the
+  live news cache (RFC-2822) never renders a raw timestamp.
+- Each news cache entry carries `scorer: model | default`. The sentiment word is
+  rendered only for `scorer: model`; entries lacking the field migrate to
+  `default` on read. The doctor prints the distribution
+  (`sentiment cache: … scorer model a / default b, pos p neg q neu r`).
