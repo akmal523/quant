@@ -354,3 +354,23 @@ No path bulk-inserts `universe_master` into `asset_registry` — that caused the
 1090-row explosion. `ensure_registry_rows` refuses a bulk source with a logged
 warning. `tests/test_registry_bounded.py` enforces: `asset_registry == W`,
 idempotent membership, the CSV ceiling, and the bulk-source refusal.
+
+---
+
+## v10.6.0 Domain Additions (H3.4)
+
+### Themes (Explore search)
+
+- `data/themes.csv` (`theme,symbols`) maps **prose theme tags** to symbols and/or
+  other themes. Themes are human labels, **NOT financial identifiers** — F1 does
+  not apply; the file is user-editable.
+- Rows are unquoted; the `symbols` column is a comma list parsed on the first
+  comma. A token that names another theme links to it (theme-to-theme), so
+  `space -> aerospace -> 5J50.DE` and `space -> defence -> DFEN`.
+- Search corpus = display_name + name + symbol + ISIN + themes, all
+  case-insensitive substring ([`quant/ui/search.py`](quant/ui/search.py)). An
+  empty query renders the helper line; a non-empty query with no match renders
+  the exact zero-match sentence.
+- News rows render weekday dates ([`fmt_weekday_date`](quant/ui/copy.py)), cap at
+  5 with an `Earlier items ({n} more)` expander, and drop the sentiment word with
+  one Diagnostics line when the FinBERT stack is absent.

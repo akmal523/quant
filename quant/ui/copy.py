@@ -53,7 +53,9 @@ BTN_OPEN_TODAY = "Open Today"
 # computation that ran and failed is a Health item, never an empty state.
 EMPTY_NOTHING_TO_DO = "Nothing to do today. The next review runs after the next market close."
 EMPTY_NO_NEWS = "No recent news for {name}. Scores use price history and fundamentals only."
-EMPTY_NO_MATCHES = "No instrument matches {query}."
+# H3.4: exact zero-match sentence (distinct from the empty-query helper).
+EMPTY_NO_MATCHES = ("No instrument matches {query}. Try a company or fund name, "
+                    "a symbol, an ISIN, or a theme such as gold or defence.")
 EMPTY_REGIME = "Market trend: not enough history yet."
 EMPTY_REGIME_ERROR = "Market trend: unavailable (see Health)."
 EMPTY_NO_MARKET_DATA = "No market data yet. Press Refresh market data to start."
@@ -255,6 +257,12 @@ CHART_NO_HISTORY = "No price history for {name} yet. Refresh market data in Sett
 SCORES_NONE = "No scores for {name} yet. Scores appear after the next review."
 NEWS_CHECKING = "Checking news..."
 HOW_TO_BUY_ISIN_MISSING = "ISIN missing for {name}. Repair it in Settings."
+# H3.4: empty-query helper (distinct from the zero-match sentence).
+SEARCH_HELPER = "Type a name, symbol, ISIN or theme to explore."
+# H3.4: news display — cap the visible rows, expand the rest.
+NEWS_EARLIER = "Earlier items ({n} more)"
+# H3.4: one Diagnostics line when the sentiment model is absent.
+SENTIMENT_UNAVAILABLE = "Sentiment model not available; news shown without sentiment."
 
 # Portfolio (spec 2.3)
 VALIDATION_UNIVERSE = ("{n} holdings are not in the universe yet; they will be added "

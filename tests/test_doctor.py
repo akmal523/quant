@@ -26,8 +26,10 @@ def test_doctor_output_shape(tmp_path, monkeypatch, capsys):
     assert rc == 0
     assert "db:" in out
     assert "registry rows:" in out
+    assert "(working universe)" in out
     assert "missing display_name:" in out
     assert "probe AMZN:" in out
     assert "Amazon.com, Inc." in out
+    assert "search space:" in out
     assert "names state:" in out
     assert "runner lock:" in out

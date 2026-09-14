@@ -382,17 +382,31 @@ def _read_log(path: str) -> str:
 
 # ── Page: Explore (P6) ────────────────────────────────────────────────────────
 
+def _sentiment_available() -> bool:
+    """True when the FinBERT stack (transformers + torch) is importable."""
+    try:
+        import importlib.util
+
+        return (importlib.util.find_spec("transformers") is not None
+                and importlib.util.find_spec("torch") is not None)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def page_explore() -> None:
     st.title(C.PAGE_EXPLORE)
 
     query = st.text_input("Search a name, symbol or ISIN", key="ex_q")
-    options = [r["label"] for r in search(load_index(), query, 10)] if query else []
-    if not options:
-        st.caption("Type a name, symbol or ISIN to explore.")
+    matches = search(load_index(), query, 10) if query else []
+    if not query:
+        st.caption(C.SEARCH_HELPER)
         return
+    if not matches:
+        st.info(C.EMPTY_NO_MATCHES.format(query=query))
+        return
+    options = [r["label"] for r in matches]
     choice = st.selectbox("Matches", options, key="ex_choice")
-    symbol = next(r["symbol"] for r in search(load_index(), query, 10)
-                  if r["label"] == choice)
+    symbol = next(r["symbol"] for r in matches if r["label"] == choice)
 
     broker = resolve_broker(symbol)
     reg = q("SELECT COALESCE(display_name, name) AS nm, instrument_class, currency, "
@@ -453,17 +467,34 @@ def page_explore() -> None:
     else:
         st.info(C.SCORES_NONE.format(name=name))
 
-    # News and filings (on-demand, 24 h cache; spinner on a cache miss).
+    # News and filings (on-demand, 24 h cache). H3.4: weekday dates, cap at 5
+    # visible rows with an "Earlier items" expander, and sentiment honesty.
     st.subheader(C.SEC_NEWS)
     _items = load_news(symbol)
     if not _items:
         st.info(C.EMPTY_NO_NEWS.format(name=name))
     else:
-        for it in _items:
-            senti = ("positive" if it.get("score", 0) > 0
-                     else "negative" if it.get("score", 0) < 0 else "neutral")
-            when = C.fmt_weekday_date(it.get("published_at")) or C.fmt_date(it.get("published_at"))
-            st.write(f"{when} · {it.get('source', '')} · {it.get('headline', '')} · {senti}")
+        _has_senti = _sentiment_available()
+        _visible, _rest = _items[:5], _items[5:]
+
+        def _row(it: dict) -> str:
+            when = (C.fmt_weekday_date(it.get("published_at"))
+                    or C.fmt_date(it.get("published_at")))
+            line = f"{when} · {it.get('source', '')} · {it.get('headline', '')}"
+            if _has_senti:
+                senti = ("positive" if it.get("score", 0) > 0
+                         else "negative" if it.get("score", 0) < 0 else "neutral")
+                line += f" · {senti}"
+            return line
+
+        for it in _visible:
+            st.write(_row(it))
+        if _rest:
+            with st.expander(C.NEWS_EARLIER.format(n=len(_rest))):
+                for it in _rest:
+                    st.write(_row(it))
+        if not _has_senti:
+            st.caption(C.SENTIMENT_UNAVAILABLE)
 
     # How to buy.
     st.subheader(C.SEC_HOW_TO_BUY)

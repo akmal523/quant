@@ -1,0 +1,31 @@
+# themes.csv — prose theme tags for Explore search (H3.4).
+#
+# Columns: theme,symbols
+#   theme   — a human label ("gold", "space"). NOT a financial identifier; F1
+#             does not apply. User-editable.
+#   symbols — a comma list of tickers AND/OR other theme names. A theme name in
+#             this column links to that theme (theme-to-theme), so "space"
+#             resolves through "aerospace"/"defence".
+#
+# Search matches a typed query as a case-insensitive substring of a symbol's
+# display name, name, symbol, ISIN, or any theme that (transitively) includes it.
+theme,symbols
+gold,GLD,GDX,GDXJ
+silver,SLV
+uranium,URA,URNM
+lithium,LIT,BATT
+batteries,lithium
+oil,XLE
+energy,oil
+aerospace,5J50.DE
+defence,aerospace,DFEN
+space,aerospace,defence
+water,PHO
+semiconductors,SOXX
+cyber,BUG,CIBR
+banks,KBE
+real estate,VNQI,IPRP.L
+dividends,SXRV.DE
+world,EUNL.DE,IWDA.AS,SWRD.L
+emerging,EIMI.L
+healthcare,IHF

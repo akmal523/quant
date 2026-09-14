@@ -32,3 +32,6 @@ DATA_ACCOUNT: str = str(DATA_DIR / "account.yaml")
 DATA_ISIN_CURATED: str = str(DATA_DIR / "isin_curated.csv")
 # v10.5.3: user-curated friendly display names (symbol, display_name).
 DATA_NAMES_CURATED: str = str(DATA_DIR / "names_curated.csv")
+# v10.6.0 (H3.4): prose theme tags for Explore search (theme,symbols). Themes are
+# human labels, NOT financial identifiers (F1 does not apply). User-editable.
+DATA_THEMES: str = str(DATA_DIR / "themes.csv")
