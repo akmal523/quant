@@ -608,6 +608,7 @@ is the navigation entry only.
 | CU-1 | SGLN.L "Stock", missing currency/ISIN | taxonomy over CSV; empty strings | CSV class precedence; NULL not ''; named classification | test_h3_5 |
 | CU-2 | cannot track Apple (closed universe) | W prune correct; no UI path | discovery sentence + Portfolio add-input candidates "- not tracked yet"; RESOLVED LIVE 14 Sep: AAPL tracked via discovery loop, fetched, charted (registry 89) | test_h3_5 |
 | IS-1 | 5J50.DE held but unroutable; false remedy | no registry row; remedy lied | `ensure_registry_rows`; curated ingest; repair single-home Settings | test_registry_repair |
+| NW-2 | model available yet every news entry `scorer: default`; no word ever shown | the fetch write path never invoked the scorer | `load_news` gains an injectable scorer/scorer_factory, batch-scores headlines per symbol: model -> `scorer: model`, absent/failure/timeout -> `default` + one log line | test_h4 |
 | EX-1 | external URL printed; deprecation warnings | bind default; old API | localhost default, `--lan`, README proxy warning; `width="stretch"` | manual + lint |
 | OB-1 | Open Today dead; leftover progress; "advice below" empty | session-state advice | artifact advice + `st.switch_page`; container cleared | test_feedback_contract |
 
@@ -653,11 +654,13 @@ cards correct.
    evidence accepted via `test_chart_rules` (Ruling B). Item 8 FAILED -> H4.
    Live: `Scores as of Monday 14 Sep 2026.` with AMZN/GDX bars after the 14 Sep
    review (N1 verified).
-4. **H4 (from item 8): scoring write path unwired.** Fresh cache still `scorer
-   model 0 / default 30`; `fetch_news_items` hardcodes `default` and never calls
-   the scorer. Fixed BEFORE R8: injectable scorer boundary in `load_news`, batch
-   per symbol, model available -> `scorer: model`, failure/timeout -> `default`
-   + one log line; recorded-source tests with a boundary stub.
+4. **H4 — DONE** (`441271a`, fix(news)). Scoring write path was unwired:
+   `fetch_news_items` hardcoded `default` and `load_news` (the only cache writer)
+   never called the scorer. Fixed: injectable scorer boundary in `load_news`,
+   batch per symbol, model available -> `scorer: model`, absent/failure/timeout
+   -> `default` + one log line. Guard `tests/test_h4.py` (model/absent/timeout/
+   cache-hit). Remains: live manual verify (Explore AMZN words after cache
+   expiry; doctor `scorer model > 0`).
 5. Follow-up issues (non-gating): capture `docs/assets/today.png`; curated ISINs
    beyond 5J50.DE; legacy ruff E/I/N; PyPI name + Trusted Publishing; GitHub
    topics; `.rooignore` manual entries; coverage ratchet toward 80.
