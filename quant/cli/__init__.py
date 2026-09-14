@@ -195,6 +195,25 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001
         print("sentiment model: not available")
 
+    # H3.8 (M4): the advice engine, diagnosable like everything else.
+    try:
+        import pandas as _pd
+
+        from quant.reporting.actions import build_actions
+
+        _fix = _pd.DataFrame([
+            {"Symbol": "EUNL.DE", "Tier": "CORE", "Drift": "-16.1%",
+             "Target_Weight": "50.0%",
+             "Recommendation": "BUY 150 EUR (CORE drift -16.1% exceeds 10.0% threshold)"},
+            {"Symbol": "SXRV.DE", "Tier": "SATELLITE", "Drift": "10.5%",
+             "Target_Weight": "20.0%",
+             "Recommendation": "SELL 100 EUR (SATELLITE drift 10.5% exceeds 5.0% threshold)"},
+        ])
+        _acts = [a for a in build_actions(_fix) if not a.get("blocked")]
+        print(f"actions oracle: {len(_acts)} actions on fixture")
+    except Exception as e:  # noqa: BLE001
+        print(f"actions oracle: unreadable ({e})")
+
     try:
         lock_path = os.path.join(str(paths.OUTPUTS_DIR), ".runner.lock")
         if os.path.exists(lock_path):

@@ -417,3 +417,20 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
   rows). `fmt_review_ts` omits a bogus `00:00` for a date-only source.
 - The value-chart annotation sits in the top margin on a white box; sub-3-day
   ranges label the x-axis by `hh:mm`.
+
+### Advice engine, legacy runs, discovery names (H3.8)
+
+- **One drift calculation.** The advice is driven by drift vs the tier threshold
+  — shared by the holdings table, the engine, statuses, and the S3 footnote. An
+  over-threshold drift is never "On track". The rebalance time gate only sets a
+  cooldown → `Waiting until {date}` + footnote, never silence; `Cooldown_Until`
+  rides on the audit row.
+- A review lives in a timestamped dir with metrics.json; legacy reviews (no
+  `review_status`) count as ok. The Today header reads ONE artifact (never a
+  borrowed close date). The Reviews list keeps legacy rows and hides phantoms.
+- `read_history` / Explore charts read DuckDB (`portfolio_history` /
+  `market_history`), never run-dir snapshots.
+- `universe_master` names are backfilled (bounded, cached in
+  `outputs/universe_names.json`) so the discovery index resolves a company query.
+- `ERROR_RUNNING` copy is operation-agnostic; the only as-of string is
+  `Scores as of {date}.` (no "From the review of" preamble).

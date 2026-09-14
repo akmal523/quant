@@ -359,9 +359,21 @@ def enhanced_portfolio_audit(
         current_weight = current_value_eur / total_value if total_value > 0 else 0.0
         drift = current_weight - target_weight
 
-        should_rebalance, rebalance_reason = should_rebalance_asset(
-            symbol, current_weight, target_weight, tier, current_date,
-        )
+        # H3.8 (M4): the ADVICE is driven by drift vs the tier threshold; the
+        # time gate only sets a cooldown (surfaced as Waiting + footnote), never
+        # silence. Drift is the ONE calculation shared with the holdings table.
+        threshold = REBALANCE_DRIFT_TIERS.get(tier, REBALANCE_DRIFT_TIERS["ACTIVE"])
+        min_days = REBALANCE_FREQUENCY_DAYS.get(tier, 7)
+        last = get_last_rebalance(symbol)     # BEFORE the first-run baseline write
+        actionable = abs(drift) >= threshold
+        cooldown_until = None
+        if actionable and last is not None and tier != "ACTIVE":
+            days_since = (pd.to_datetime(current_date) - pd.to_datetime(last)).days
+            if days_since < min_days:
+                cooldown_until = (pd.to_datetime(last)
+                                  + pd.Timedelta(days=min_days)).date().isoformat()
+        if last is None:
+            set_last_rebalance(symbol, current_date)   # first-run baseline
 
         structural_grade = float(s.get("Structural_Grade", 50) or 50)
         tactical_grade = float(s.get("Tactical_Grade", 50) or 50)
@@ -371,27 +383,27 @@ def enhanced_portfolio_audit(
             tier, current_weight, target_weight,
         )
 
-        if should_rebalance:
+        if actionable and cooldown_until:
+            recommendation = (f"WAIT: {tier} drift {abs(drift):.1%} exceeds "
+                              f"{threshold:.1%} threshold (cooldown until {cooldown_until})")
+        elif actionable:
             min_trade = calculate_min_trade_size(
                 target_weight, current_weight, total_value,
             )
             drift_value_eur = abs(drift) * total_value
             trade_size_eur = max(drift_value_eur, min_trade)
-
+            direction = "BUY" if drift < 0 else "SELL"
+            reco_reason = f"{tier} drift {drift:.1%} exceeds {threshold:.1%} threshold"
             if market_data and symbol in market_data:
                 is_valid, vol_reason = check_volume_liquidity(
                     symbol, trade_size_eur, market_data[symbol],
                 )
-                if not is_valid:
-                    recommendation = f"SKIP: {vol_reason}"
-                else:
-                    direction = "BUY" if drift < 0 else "SELL"
-                    recommendation = f"{direction} {trade_size_eur:.0f} EUR ({rebalance_reason})"
+                recommendation = (f"SKIP: {vol_reason}" if not is_valid
+                                  else f"{direction} {trade_size_eur:.0f} EUR ({reco_reason})")
             else:
-                direction = "BUY" if drift < 0 else "SELL"
-                recommendation = f"{direction} {trade_size_eur:.0f} EUR ({rebalance_reason})"
+                recommendation = f"{direction} {trade_size_eur:.0f} EUR ({reco_reason})"
         else:
-            recommendation = f"HOLD: {rebalance_reason}"
+            recommendation = f"HOLD: {tier} drift {abs(drift):.1%} < {threshold:.1%} threshold"
 
         rows.append({
             "Symbol": symbol,
@@ -414,6 +426,7 @@ def enhanced_portfolio_audit(
             "Signal": signal,
             "Horizon": horizon,
             "Recommendation": recommendation,
+            "Cooldown_Until": cooldown_until,
             # Backward-compat aliases (tax optimizer, briefing, effectiveness).
             "PnL_pct": round(real_pnl_pct, 2),
             "PnL_EUR": round(real_pnl_eur, 2),

@@ -64,6 +64,76 @@ def _state_path() -> str:
     return os.path.join(str(paths.OUTPUTS_DIR), "names_state.json")
 
 
+def _universe_names_path() -> str:
+    return os.path.join(str(paths.OUTPUTS_DIR), "universe_names.json")
+
+
+def read_universe_names() -> dict:
+    """Read outputs/universe_names.json (symbol -> longName). {} when absent.
+
+    H3.8 (M5): the discovery index needs real names to match a company query.
+    """
+    import json
+
+    try:
+        with open(_universe_names_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _write_universe_names(cache: dict) -> None:
+    import json
+    import tempfile
+
+    try:
+        os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(paths.OUTPUTS_DIR), suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        os.replace(tmp, _universe_names_path())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def backfill_universe_names(conn=None, limit: int = 200, source=None) -> dict:
+    """Fill universe_master.name with real longNames (H3.8, M5).
+
+    Bounded per call and cached in outputs/universe_names.json, so repeated
+    updates progress without refetching. Only symbol-valued/empty cells change.
+    """
+    source = source or _yahoo_identity
+    if conn is None:
+        from quant.data.database import get_connection
+
+        conn = get_connection()
+    cache = read_universe_names()
+    try:
+        rows = conn.execute(
+            "SELECT symbol, name FROM universe_master "
+            "WHERE name IS NULL OR trim(name) = '' OR upper(name) = upper(symbol)"
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return {"filled": 0, "remaining": 0}
+    filled = 0
+    for sym, _nm in rows[:limit]:
+        s = str(sym or "").strip()
+        if not s:
+            continue
+        long_name = cache.get(s, "")
+        if not long_name:
+            long_name, _cur = source(s)
+            long_name = str(long_name or "").strip()
+            if long_name:
+                cache[s] = long_name
+        if long_name and long_name.upper() != s.upper():
+            conn.execute("UPDATE universe_master SET name = ? WHERE symbol = ?",
+                         [long_name, s])
+            filled += 1
+    _write_universe_names(cache)
+    return {"filled": filled, "remaining": max(0, len(rows) - limit)}
+
+
 def read_names_state() -> dict:
     """Read outputs/names_state.json (the last backfill outcome). {} when absent."""
     import json

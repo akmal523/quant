@@ -87,7 +87,8 @@ def test_explore_shows_scores_as_of_when_latest_failed(monkeypatch):
     assert SCORES_AS_OF.format(date="Sunday 13 Sep 2026, 23:23") in text
 
 
-def test_explore_no_as_of_line_when_latest_ok(monkeypatch):
+def test_explore_shows_catalogue_as_of_when_latest_ok(monkeypatch):
+    # H3.8 (M9): the catalogue as-of line is always shown, one variant only.
     def _lr(ok_only=False):
         return {"review_status": "ok", "review_ts": "2026-09-13T23:23:00"}
 
@@ -95,7 +96,7 @@ def test_explore_no_as_of_line_when_latest_ok(monkeypatch):
                     {"structural_grade": 70.0, "tactical_grade": 60.0, "active_score": 67.0},
                     [])
     assert "Overall score: 67 / 100" in text
-    assert "Scores as of" not in text
+    assert SCORES_AS_OF.format(date="Sunday 13 Sep 2026, 23:23") in text
 
 
 # ── N2: news date parsing ────────────────────────────────────────────────────

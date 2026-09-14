@@ -18,8 +18,8 @@ pytest.importorskip("streamlit")
 
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
+import quant.ui.render as render  # noqa: E402
 from quant.portfolio import history  # noqa: E402
-from quant.reporting import artifacts  # noqa: E402
 from quant.ui import copy as C  # noqa: E402
 
 DASHBOARD = str(Path(__file__).resolve().parents[1] / "quant" / "dashboard.py")
@@ -64,7 +64,10 @@ def test_review_regime_is_displayed(tmp_path, monkeypatch):
     payload = {"regime": {"state": "estimated", "label": "rising",
                           "confidence": "high", "as_of": "2026-09-13"},
                "review_ts": "2026-09-13"}
-    monkeypatch.setattr(artifacts, "latest_review", lambda ok_only=False: payload)
+    monkeypatch.setattr(render, "latest_review", lambda ok_only=False: payload)
+    monkeypatch.setattr(render, "read_regime",
+                        lambda: {"state": "estimated", "label": "rising",
+                                 "confidence": "high"})
 
     text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND.format(label="rising", confidence="high") in text
@@ -75,7 +78,8 @@ def test_regime_failure_is_health_not_missing_history(tmp_path, monkeypatch):
                           cash_eur=100.0, pnl_eur=100.0)
     payload = {"regime": {"state": "failed", "error": "boom", "as_of": "2026-09-13"},
                "review_ts": "2026-09-13"}
-    monkeypatch.setattr(artifacts, "latest_review", lambda ok_only=False: payload)
+    monkeypatch.setattr(render, "latest_review", lambda ok_only=False: payload)
+    monkeypatch.setattr(render, "read_regime", lambda: {"state": "failed"})
 
     today_text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND_FAILED in today_text

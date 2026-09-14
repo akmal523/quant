@@ -258,6 +258,15 @@ def build_universe_master() -> int:
     except Exception as e:  # noqa: BLE001
         print(f"  [NAMES] backfill skipped: {e}")
 
+    # H3.8 (M5): real universe_master names for the discovery loop (bounded+cached).
+    try:
+        from quant.data.names import backfill_universe_names
+
+        _un = backfill_universe_names(conn, limit=200)
+        print(f"  [NAMES] universe names +{_un['filled']} (remaining {_un['remaining']})")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [NAMES] universe names skipped: {e}")
+
     print(f"  [UNIVERSE] universe_master: {count} symbols upserted")
     return count
 

@@ -78,6 +78,10 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
 
         action = "BUY MORE" if direction == "BUY" else "TRIM"
         reason = f"drift {drift} vs {tier} target {target} (threshold {threshold:.1%})"
+        try:
+            drift_frac = float(str(drift).rstrip("%") or 0) / 100.0
+        except (TypeError, ValueError):
+            drift_frac = 0.0
         actions.append({
             "symbol": sym,
             "action": action,
@@ -89,7 +93,8 @@ def build_actions(audit_df: pd.DataFrame | None) -> list[dict]:
             "drift": drift,
             "blocked": False,
             "min_trade_eur": MIN_TRADE_SIZE_EUR,
-            "status": ui_copy.status_for(rec, cooldown_until=cooldown_until),
+            "status": ui_copy.status_for(rec, cooldown_until=cooldown_until,
+                                         drift_frac=drift_frac, threshold=threshold),
             "remedy": None,
         })
 

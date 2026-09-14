@@ -128,12 +128,16 @@ def page_today() -> None:
         st.info(C.GUIDE_NO_REVIEW)
     else:
         prepared = C.fmt_review_ts(review.get("review_ts"))
-        # H3.7: a metrics latest_bar of "unknown" is not a date; fall back live.
+        # H3.8 (M1): BOTH header fields come from the SAME review artifact; a
+        # legacy artifact with no close date renders only the prepared line
+        # (never a borrowed live close date).
         _bar = review.get("latest_bar")
-        if not _bar or str(_bar).strip().lower() in ("unknown", "nan", "none"):
-            _bar = latest_bar_date()
-        bar = C.fmt_date(_bar)
-        st.write(C.HEADER_REVIEW.format(date=bar, prepared=prepared))
+        bar = C.fmt_date(_bar) if (_bar and str(_bar).strip().lower()
+                                   not in ("unknown", "nan", "none")) else ""
+        if bar:
+            st.write(C.HEADER_REVIEW.format(date=bar, prepared=prepared))
+        else:
+            st.write(C.HEADER_REVIEW_PREPARED.format(prepared=prepared))
         reg = read_regime()
         if reg.get("state") == "estimated":
             st.write(C.MARKET_TREND.format(label=reg.get("label"),
@@ -466,14 +470,11 @@ def page_explore() -> None:
 
     # Why these scores.
     st.subheader(C.SEC_WHY_SCORES)
-    # H3.6 (N1): scores come from the most recent SUCCESSFUL review; if the
-    # latest attempt failed, one freshness line says so (no silent staleness).
+    # H3.8 (M9): ONE catalogue as-of line derived from the ok review; no variants
+    # (no "From the review of" preamble).
     ok_review = latest_review(ok_only=True)
-    latest_attempt = latest_review()
     ok_ts = ok_review.get("review_ts")
     if ok_ts:
-        st.caption(f"From the review of {C.fmt_review_ts(ok_ts)}")
-    if latest_attempt.get("review_status") == "failed" and ok_ts:
         st.caption(C.SCORES_AS_OF.format(date=C.fmt_review_ts(ok_ts)))
     sc = read_scores(symbol)
     has_scores = sc.get("structural_grade") is not None
@@ -552,6 +553,11 @@ def page_settings() -> None:
                      f"refreshed {C.fmt_ts(us.get('ts'))}.")
         else:
             st.write(f"{m} instruments, prices through {C.fmt_date(bar)}.")
+    elif us.get("instruments") and us.get("ts"):
+        # H3.8 (M6): a transient locked read must not erase state.
+        st.write(f"{us['instruments']} instruments, prices through "
+                 f"{C.fmt_date(us.get('prices_through'))}, "
+                 f"refreshed {C.fmt_ts(us.get('ts'))}.")
     else:
         st.info(C.EMPTY_NO_MARKET_DATA)
     _run_operation(C.BTN_REFRESH, C.BTN_REFRESHING, runner.REFRESH, "refresh")
@@ -563,7 +569,9 @@ def page_settings() -> None:
     _ok_cutoff = latest_ok_review_ts()
     if _ok_cutoff is not None and not history.empty:
         _ts = pd.to_datetime(history["review_ts"], errors="coerce")
-        history = history[_ts <= _ok_cutoff]
+        # H3.8 (M7): legacy NaT timestamps are kept; only rows newer than the
+        # last ok review (phantoms) are hidden.
+        history = history[(_ts <= _ok_cutoff) | _ts.isna()]
     if history.empty:
         st.info(C.EMPTY_NO_REVIEWS)
     else:
@@ -702,16 +710,22 @@ def _rebase(values):
     return values / base * 100.0
 
 
-def _range_annotation(df: "pd.DataFrame") -> str:
-    """`+4.2% since 1 Jun 2026 (34.80 EUR)` from the range endpoints."""
+def _range_annotation(df: "pd.DataFrame", growth: bool = False) -> str:
+    """`+4.2% since 1 Jun 2026 (34.80 EUR)` from the range endpoints.
+
+    H3.8 (M3): Growth mode is percent-only (no EUR parenthetical).
+    """
     if df.empty or len(df) < 2:
         return ""
     first, last = df.iloc[0], df.iloc[-1]
     if not first["value_eur"]:
         return ""
     pct = (last["value_eur"] / first["value_eur"] - 1.0) * 100.0
-    abs_ = last["value_eur"] - first["value_eur"]
     sign = "+" if pct >= 0 else ""
+    if growth:
+        return C.CHART_SINCE_PCT.format(sign=sign, pct=f"{pct:.1f}",
+                                        date=C.fmt_date(first["review_ts"]))
+    abs_ = last["value_eur"] - first["value_eur"]
     return C.CHART_SINCE.format(sign=sign, pct=f"{pct:.1f}",
                                 date=C.fmt_date(first["review_ts"]), amount=f"{abs_:.2f}")
 
@@ -790,7 +804,7 @@ def _render_value_chart(history, holdings) -> None:
 
     base = 100.0 if growth else float(df["value_eur"].iloc[0])
     fig.add_hline(y=base, line_dash="dot", line_color="#888")
-    ann = _range_annotation(df)
+    ann = _range_annotation(df, growth)
     if ann:
         fig.add_annotation(**_annotation_kwargs(ann))     # H3.7 (L5)
     fig.update_layout(height=280, margin=dict(l=8, r=8, t=30, b=8),

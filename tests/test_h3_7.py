@@ -25,6 +25,7 @@ from quant.data.database import get_connection  # noqa: E402
 from quant.reporting import artifacts  # noqa: E402
 from quant.ui.copy import (  # noqa: E402
     GUIDE_NO_REVIEW,
+    HEADER_REVIEW_PREPARED,
     PAGE_SETTINGS,
     PAGE_TODAY,
     fmt_review_ts,
@@ -75,7 +76,8 @@ def test_today_renders_header_on_legacy_artifact(tmp_path, monkeypatch):
     _legacy_outputs(tmp_path)
     text = _all_text(_page(PAGE_TODAY))
     assert GUIDE_NO_REVIEW not in text
-    assert "Review of" in text
+    # H3.8 (M1): a legacy artifact with no close date renders the prepared line.
+    assert HEADER_REVIEW_PREPARED.format(prepared="Sunday 13 Sep 2026") in text
 
 
 # ─ L3: phantom-row filter ───────────────────────────────────────────────────

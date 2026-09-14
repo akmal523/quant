@@ -256,7 +256,8 @@ def read_actions() -> list[dict]:
         cooldown = r.get("Cooldown_Until")
         if isinstance(cooldown, float) and cooldown != cooldown:
             cooldown = None
-        status = a.get("status") or ui_copy.status_for(rec, cooldown_until=cooldown)
+        status = a.get("status") or ui_copy.status_for(
+            rec, cooldown_until=cooldown, drift_frac=drift_frac, threshold=threshold)
         suppressed = None
         # S3: over threshold but the move is below the minimum order size.
         if not a.get("action") and not a.get("blocked") and abs(drift_frac) > threshold:

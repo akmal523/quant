@@ -82,7 +82,8 @@ ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open.
 ERROR_REFRESH_FAILED = "Refresh failed. Open View log for details, or try again."
 ERROR_STALE_PRICES = "Prices are {n} days old. Refresh market data."
 ERROR_ALREADY_RUNNING = "A review is already running in another tab."
-ERROR_RUNNING = "A review is already running."
+# H3.8 (M8): own-session copy is operation-agnostic (refresh or review).
+ERROR_RUNNING = "An operation is already running."
 
 # ── Helper texts (spec 3.2) ───────────────────────────────────────────────────
 HELP_CASH_APY = ("Uninvested cash earns {apy} percent per year at Trade Republic "
@@ -175,9 +176,19 @@ def fmt_pct(fraction: float | None, decimals: int = 0) -> str:
     return f"{fraction * 100:.{decimals}f}%"
 
 
+def _is_missing(value) -> bool:
+    """True for None or a NaN/NaT-like value (value != value)."""
+    if value is None:
+        return True
+    try:
+        return bool(value != value)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def fmt_date(value: date | datetime | str | None) -> str:
     """Format a date as '13 Sep 2026'."""
-    if value is None:
+    if _is_missing(value):
         return ""
     if isinstance(value, str):
         try:
@@ -191,7 +202,7 @@ def fmt_date(value: date | datetime | str | None) -> str:
 
 def fmt_time(value: datetime | str | None) -> str:
     """Format a time as '17:43'."""
-    if value is None:
+    if _is_missing(value):
         return ""
     if isinstance(value, str):
         try:
@@ -230,6 +241,8 @@ def regime_word(regime: str) -> str:
 # Today (spec 2.1)
 GUIDE_NO_REVIEW = "No review yet. Save and review from Portfolio to get your first advice."
 HEADER_REVIEW = "Review of {date} close, prepared {prepared}."
+# H3.8 (M1): a legacy artifact with no close date renders only the prepared line.
+HEADER_REVIEW_PREPARED = "Review prepared {prepared}."
 MARKET_TREND = "Market trend: {label} ({confidence} confidence)."
 MARKET_TREND_INSUFFICIENT = "Market trend: not enough history yet."
 MARKET_TREND_FAILED = "Market trend: unavailable (see Health)."
@@ -245,6 +258,8 @@ FOOTNOTE_COOLDOWN_ONE = "1 position is outside target and in its cooldown until 
 # Charts (spec 3)
 CHART_BUILDING = "The value chart builds up after a few reviews."
 CHART_SINCE = "{sign}{pct}% since {date} ({amount} EUR)"
+# H3.8 (M3): Growth mode annotation is percent-only.
+CHART_SINCE_PCT = "{sign}{pct}% since {date}"
 LABEL_RANGE = "Range"
 LABEL_VIEW = "View"
 VALUE = "Value"
@@ -366,6 +381,8 @@ def status_for(
     recommendation: str,
     blocked: bool = False,
     cooldown_until: date | datetime | str | None = None,
+    drift_frac: float | None = None,
+    threshold: float | None = None,
 ) -> str:
     """Map an audit recommendation to the ONE canonical status word (A3).
 
@@ -381,10 +398,17 @@ def status_for(
         return STATUS_BLOCKED
     rec = str(recommendation or "")
     actionable = rec.startswith("BUY") or rec.startswith("SELL")
+    # H3.8 (M4): an over-threshold drift is actionable even when the time gate
+    # delays the order — so "On track" for a 7.5-point overshoot is impossible.
+    if drift_frac is not None and threshold is not None and abs(drift_frac) >= threshold:
+        actionable = True
     if actionable and cooldown_until is not None:
         return STATUS_WAITING.format(date=fmt_date(cooldown_until))
     if rec.startswith("BUY"):
         return STATUS_ADD
     if rec.startswith("SELL"):
         return STATUS_TRIM
+    if actionable and drift_frac is not None:
+        # Over threshold with no explicit rec: use the drift sign.
+        return STATUS_ADD if drift_frac < 0 else STATUS_TRIM
     return STATUS_ON_TRACK

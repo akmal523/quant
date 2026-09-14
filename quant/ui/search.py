@@ -221,12 +221,20 @@ def load_universe_index() -> list[dict]:
             rows = conn.execute("SELECT symbol, name FROM universe_master").fetchall()
     except Exception:  # noqa: BLE001
         return []
+    # H3.8 (M5): prefer real longNames (cache) so a company query ("apple")
+    # resolves to a discovery symbol, not just the symbol itself.
+    try:
+        from quant.data.names import read_universe_names
+
+        names = read_universe_names()
+    except Exception:  # noqa: BLE001
+        names = {}
     out: list[dict] = []
     for sym, nm in rows:
         s = (sym or "").strip().upper()
         if not s or s in w:
             continue
-        nm = (nm or s).strip()
+        nm = (names.get(s) or nm or s).strip()
         out.append(_record(s, nm, display_name=nm))
     return out
 

@@ -30,6 +30,9 @@ BANNED = [
     # H3.5 (F4): the dotted-ticker double-paren shape ("Global Aero & Def
     # (5J50) (5J50.DE)") the original pattern missed.
     r"\(\w+\) \([\w.]+\)",
+    # H3.8 (M9): the non-catalogue as-of preamble; the only as-of string is
+    # "Scores as of {date}."
+    r"From the review of",
 ]
 
 _TEXTLIKE = ("markdown", "info", "warning", "error", "caption", "text",
