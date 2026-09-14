@@ -314,12 +314,43 @@ the same headlines for a symbol on the same day; a source-outage counter
 failures. The **DuckDB `nlp_evidence` / `nlp_scores`** tables keep their distinct
 role: scored sentiment inputs consumed by the scoring pipeline, not display.
 
-### Registry write paths (H3-fix)
+### Registry write paths and the working universe (H3-fix)
 
-`data/broker_registry.csv` is written by exactly two bounded paths:
-`quant.data.registry_repair.ensure_registry_rows` (adds rows for HELD or
-CORE/ACTIVE symbols only; refuses to grow past `portfolio + CORE_ETFS + 20`) and
-`repair_isins` (fills missing ISIN cells only). `sync_broker_registry` READS the
-CSV into `asset_registry`; it never writes the CSV. No path may use
-`universe_master` (1000+ symbols) as a registry source — that caused the 1090-row
-explosion. `tests/test_registry_bounded.py` enforces the ceiling.
+**Working universe (canonical).** `W` is the single source of the term:
+
+```
+W = funnel survivors (cached)
+  ∪ CORE ∪ ACTIVE (asset_registry.universe_status)
+  ∪ portfolio.csv symbols
+  ∪ broker_registry.csv symbols
+  ∪ curated ISIN/name symbols
+  ∪ BROAD_ETFS (the always-tracked constant)
+```
+
+`asset_registry` holds **exactly** `W`, nothing else. `universe_master` (1000+
+symbols) is excluded everywhere.
+`quant.data.registry_repair.working_universe()` recomputes `W` from the live
+inputs at run time (never hardcoded); the doctor prints
+`registry rows: {n} (working universe)`.
+
+**Two stores, two roles.** `data/broker_registry.csv` is user-owned routing input
+(ISIN / venue / class per routable symbol); its ceiling is
+`portfolio + CORE_ETFS + 20`. `asset_registry` (DuckDB) is the working universe.
+
+**Writers (audit).** Every writer of `asset_registry` and its source set:
+
+| Writer | Source set |
+|--------|-----------|
+| `registry_repair.sync_registry_to_working_universe` | `W` (insert missing, prune outside; blank cells healed) |
+| `registry_repair.ensure_registry_rows` | portfolio + CORE/ACTIVE (broker_registry.csv rows) |
+| `registry_repair.repair_isins` | missing ISIN cells only (curated > existing > live) |
+| `taxonomy.sync_broker_registry` | reads broker_registry.csv (never writes it) |
+| `taxonomy.set_core` / `set_structure` / `add_to_watchlist` / `mark_delisted` | individual, explicit calls |
+| `taxonomy._upsert_registry` (via `get_instrument_class`) | the fetch list, which is a subset of `W` |
+| `discovery.graduate` | one symbol, with a universe event |
+| `discovery.run_discovery` (fetch-failure counter) | **updates tracked rows only** — never inserts a `universe_master` symbol |
+
+No path bulk-inserts `universe_master` into `asset_registry` — that caused the
+1090-row explosion. `ensure_registry_rows` refuses a bulk source with a logged
+warning. `tests/test_registry_bounded.py` enforces: `asset_registry == W`,
+idempotent membership, the CSV ceiling, and the bulk-source refusal.

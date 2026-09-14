@@ -341,6 +341,22 @@ def main() -> int:
     except Exception:
         pass
 
+    # ── H3-fix part 2: heal missing cells over the working universe ─────────
+    # Names/currency via the R5 backfill (live metadata, missing cells only);
+    # ISINs via curated > cache > live (every value is_valid_isin). Per-symbol
+    # failures stay silent; the doctor surfaces remaining counts. The registry
+    # was synced to W at init_db (membership-only, idempotent).
+    try:
+        from quant.data.names import backfill_display_names
+        from quant.data.registry_repair import heal_registry_isins
+
+        _nm = backfill_display_names(conn, fill_currency=True)
+        _ic = heal_registry_isins(conn)
+        reporter.detail(f"registry heal: names {_nm['display_filled']}, "
+                        f"currency {_nm['currency_filled']}, isin {_ic['filled']}")
+    except Exception as _e:  # noqa: BLE001
+        reporter.detail(f"registry heal skipped: {_e}")
+
     # ── Terse aggregate summary (spec 3.2, max 20 lines) ────────────────────
     latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
     reporter.line(f"  universe {meta['universe']} symbols; funnel survivors {meta['survivors']}")

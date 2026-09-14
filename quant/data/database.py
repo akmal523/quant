@@ -406,3 +406,15 @@ def init_db() -> None:
             pnl_eur DOUBLE
         )
     """)
+
+    # ─ H3-fix part 2: heal a stale registry to the working universe ──────────
+    # Membership-only two-way sync against W (see quant.data.registry_repair).
+    # No-op on a fresh (empty) registry, so a brand-new DB and the isolated test
+    # DB are untouched; a stale local DB is pruned/repopulated once here.
+    # Idempotent; never raises (heal must not break startup).
+    try:
+        from quant.data.registry_repair import sync_registry_to_working_universe
+
+        sync_registry_to_working_universe(conn)
+    except Exception:  # noqa: BLE001
+        pass

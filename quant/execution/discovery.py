@@ -224,18 +224,20 @@ def run_discovery() -> dict:
 
         df = fetch_recent(sym)
         if df is None:
-            # Consecutive fetch failure tracking -> DELISTED after MAX_FETCH_FAILURES.
+            # H3-fix part 2: NEVER materialize a universe_master symbol into
+            # asset_registry. Fetch-failure tracking updates tracked rows only;
+            # an unknown (broad-pool) symbol is skipped, not inserted. This is
+            # the defect class that bloated the registry to 1090 rows.
             failures = conn.execute(
                 "SELECT fetch_failures FROM asset_registry WHERE symbol = ?", [sym]
             ).fetchone()
-            count = (failures[0] if failures else 0) + 1
+            if failures is None:
+                continue
+            count = (failures[0] or 0) + 1
             conn.execute(
-                """INSERT INTO asset_registry (symbol, fetch_failures, updated_at)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT (symbol) DO UPDATE SET
-                     fetch_failures = excluded.fetch_failures,
-                     updated_at = excluded.updated_at""",
-                [sym, count, time.time()],
+                "UPDATE asset_registry SET fetch_failures = ?, updated_at = ? "
+                "WHERE symbol = ?",
+                [count, time.time(), sym],
             )
             if count >= MAX_FETCH_FAILURES:
                 mark_delisted(sym, "possibly delisted (consecutive fetch failures)")

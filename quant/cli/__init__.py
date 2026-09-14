@@ -73,6 +73,8 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     from quant.data.database import read_only_connection
     from quant.data.names import probe_metadata, read_names_state
 
+    _verbose = bool(getattr(_args, "verbose", False)) if _args is not None else False
+
     print(f"db: {paths.DB_FILE}")
     try:
         with read_only_connection() as conn:
@@ -91,7 +93,19 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
                               "WHERE currency IS NULL OR trim(currency) = ''")
             miss_isin = _count("SELECT COUNT(*) FROM asset_registry "
                                "WHERE isin IS NULL OR trim(isin) = ''")
-        print(f"registry rows: {total}")
+            if _verbose:
+                try:
+                    from quant.data.registry_repair import working_universe_sources
+
+                    bd = working_universe_sources(conn)
+                    for _name in ("broad_etfs", "core_active", "portfolio",
+                                  "broker_registry", "curated", "survivors"):
+                        print(f"  {_name}: {len(bd.get(_name, set()))}")
+                    print(f"  working universe: "
+                          f"{len(set().union(*bd.values())) if bd else 0}")
+                except Exception:  # noqa: BLE001
+                    pass
+        print(f"registry rows: {total} (working universe)")
         print(f"missing display_name: {miss_dn}")
         print(f"missing name: {miss_nm}")
         print(f"missing currency: {miss_cur}")
