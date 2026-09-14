@@ -125,8 +125,11 @@ class _Feed:
 
 
 def test_cache_entries_are_scorer_default(tmp_path, monkeypatch):
+    # H4: inject a model-absent boundary so the default path is exercised
+    # without loading FinBERT. Model-present behaviour lives in test_h4.py.
     monkeypatch.setattr(newsmod.paths, "OUTPUTS_DIR", tmp_path)
-    items = newsmod.load_news("AAPL", fetcher=lambda s, t=10: _Feed(["H"]))
+    items = newsmod.load_news("AAPL", fetcher=lambda s, t=10: _Feed(["H"]),
+                              scorer_factory=lambda: None)
     assert items[0]["scorer"] == "default"
     st = newsmod.cache_scorer_stats()
     assert st["entries"] == 1 and st["default"] == 1 and st["model"] == 0

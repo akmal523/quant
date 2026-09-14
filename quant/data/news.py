@@ -88,8 +88,9 @@ def fetch_news_items(symbol: str, fetcher=None, timeout: int = 10) -> list[dict]
             "headline": str(entry.get("title", "")),
             "published_at": str(entry.get("published", "")),
             "score": 0.0,
-            # H3.6 (N3): provenance. The fetch path does NOT score, so the word
-            # is only rendered for scorer == "model" (never a silent default).
+            # H3.6 (N3) + H4: provenance. The fetch path itself does not score;
+            # load_news() scores headlines and upgrades this to "model" when a
+            # scorer is available, else it stays "default" (never a silent score).
             "scorer": "default",
         })
     return items
@@ -101,6 +102,71 @@ def _normalize_items(items: list[dict]) -> list[dict]:
         if isinstance(it, dict):
             it.setdefault("scorer", "default")
     return items
+
+
+# ── H4: sentiment scoring boundary ───────────────────────────────────────────
+# Intent: the news cache must carry honest scorer provenance. The fetch path
+# never invents a sentiment; load_news() scores headlines through FinBERT when
+# the stack is importable, batching per symbol, and downgrades to "default" on
+# any failure or timeout (P4: no silent score, one log line).
+# Invariants: a "model" entry always carries a real model score; a "default"
+# entry always has score 0.0 and renders no word. Scoring is injectable so tests
+# stub the model at the boundary (D1 recorded-source style).
+_default_scorer_value = None
+_default_scorer_resolved = False
+
+
+def _build_default_scorer():
+    """Construct a FinBERTBatchScorer when transformers+torch are importable."""
+    try:
+        import importlib.util
+
+        if (importlib.util.find_spec("transformers") is None
+                or importlib.util.find_spec("torch") is None):
+            return None
+        from quant.analytics.sentiment import FinBERTBatchScorer
+
+        return FinBERTBatchScorer()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("news scorer unavailable; entries stay default: %s", e)
+        return None
+
+
+def _default_scorer_cached():
+    """Resolve the default scorer once per process (model load is expensive)."""
+    global _default_scorer_value, _default_scorer_resolved
+    if not _default_scorer_resolved:
+        _default_scorer_value = _build_default_scorer()
+        _default_scorer_resolved = True
+    return _default_scorer_value
+
+
+def _score_items(items: list[dict], scorer, timeout: float) -> None:
+    """Batch-score headlines in place. Any failure keeps entries at default."""
+    if scorer is None or not items:
+        return
+    headlines = [str(it.get("headline", "")) for it in items]
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _FutTimeout
+
+    ex = ThreadPoolExecutor(max_workers=1)
+    try:
+        scores = ex.submit(scorer.score_texts, headlines).result(timeout=timeout)
+    except _FutTimeout:
+        logger.warning("news scoring timed out after %ss; entries stay default", timeout)
+        ex.shutdown(wait=False)
+        return
+    except Exception as e:  # noqa: BLE001
+        logger.warning("news scoring failed; entries stay default: %s", e)
+        ex.shutdown(wait=False)
+        return
+    ex.shutdown(wait=False)
+    if not isinstance(scores, list) or len(scores) != len(items):
+        logger.warning("news scoring returned unexpected shape; entries stay default")
+        return
+    for it, s in zip(items, scores):
+        it["score"] = float(s)
+        it["scorer"] = "model"
 
 
 def cache_scorer_stats() -> dict:
@@ -128,8 +194,15 @@ def cache_scorer_stats() -> dict:
 
 
 def load_news(symbol: str, fetcher=None, now: float | None = None,
-              ttl_hours: float = 24.0) -> list[dict]:
-    """Return cached-or-fetched news. A fetch failure yields [] and stores nothing."""
+              ttl_hours: float = 24.0, scorer=None, scorer_factory=None,
+              score_timeout: float = 10.0) -> list[dict]:
+    """Return cached-or-fetched news. A fetch failure yields [] and stores nothing.
+
+    H4: on a cache miss the freshly fetched headlines are scored through the
+    model when one is available (``scorer`` explicit, else ``scorer_factory``,
+    else the cached default built from the installed stack). Scoring failures or
+    a timeout leave every entry at ``scorer: "default"`` with one log line.
+    """
     now = time.time() if now is None else now
     cache = _read_cache()
     entry = cache.get(symbol)
@@ -138,6 +211,10 @@ def load_news(symbol: str, fetcher=None, now: float | None = None,
     items = fetch_news_items(symbol, fetcher=fetcher)
     if items is None:
         return []
+    if scorer is None:
+        scorer = (scorer_factory() if scorer_factory is not None
+                  else _default_scorer_cached())
+    _score_items(items, scorer, score_timeout)
     cache[symbol] = {"retrieved_at": now, "items": items}
     _write_cache(cache)
     return _normalize_items(items)
