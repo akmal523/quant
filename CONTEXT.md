@@ -434,3 +434,234 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
   `outputs/universe_names.json`) so the discovery index resolves a company query.
 - `ERROR_RUNNING` copy is operation-agnostic; the only as-of string is
   `Scores as of {date}.` (no "From the review of" preamble).
+
+---
+
+## v10.6.0 Cycle Ledger (V1-V8, R1-R9, H2-H3.8)
+
+Purpose: everything built, decided, broken, and fixed since 10.5.2, so a
+continuation can resume from this file alone. All unreleased work since tag
+10.5.2 ships as **10.6.0**.
+
+### Version timeline
+
+| Version | Content |
+|---|---|
+| 10.4.0 | Starting point: 3-page Streamlit dashboard, requirements.txt, failing CI test |
+| 10.4.2 | Professional transformation: pyproject/hatchling, `quant` CLI, conftest isolation, mkdocs, ruff/pre-commit, release workflows, community files, ADRs |
+| 10.5.0 | Polish v2/v3 first pass: four-page workspace, copy module, concurrency fix, cash-rate schedule |
+| 10.5.1 | P1-P10 polish: read-only connections, retry, runner mutex, copy catalog + banned-token test, portfolio_history, names/search, workspace rebuild |
+| 10.5.2 | Punchlist v3: empty states, regime masking guard, status single mapper, visuals, autocomplete, ISIN repair infrastructure |
+| 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). HEAD `5844631`, suite **304 passed**, version string still 10.5.2 |
+
+Unreleased commit chain: `00ecd8e` → `570f875` → `981c65f`, `1074e0d` → `1d527ee`
+→ `707a1b6` → `3292226` → `caff829`, `2ea724d` → `3aff21d`, `79c2821` → `2e6e1b3`
+→ `70d8c44` → `b929ae9` → `6affffc` → `352065f` → `d6e95f4` → `5c15c9e`
+→ `b26a864` → `5844631`.
+
+### Product identity
+
+- **Daily portfolio manager, not a trading terminal**: one snapshot after market
+  close, plain-language add/trim/leave advice, orders in the broker app.
+- **Browser-first**: `quant dash` is the product; the terminal is an optional
+  power tool (three commands: `update`, `run`, `publish`).
+- **No paid server**: hosted surface = static Published Briefing on GitHub Pages
+  via free Actions cron; the interactive workspace runs locally.
+- **Read-only UI for derived data**: the app writes only input files; the single
+  documented exception is the startup names backfill (`ensure_display_names`),
+  which opens one short-lived write connection and skips on lock contention.
+- Once-daily cadence, long-horizon resource management; no urgency language.
+
+### Doctrine (binding)
+
+P1-P14 (P1 action/trust test; P2 no internal identifiers; P3 no per-line
+provenance; P4 no silent defaults + explicit empty states; P5 verb-phrase
+buttons; P6 plain error + remedy, raw text only in log/View log; P7 technical
+data collapsed in Diagnostics; P8 one accent, semantic colors, no emoji/exclaims;
+P9 mobile-first single column, tables ≤5 columns, full-width primary buttons;
+P10 units inline, human dates, scores "67 / 100"; P11 friendly names primary;
+P12 one job per page; P13 empty states guide the next step; P14 all strings in
+[`quant/ui/copy.py`](quant/ui/copy.py), guarded by `tests/test_ui_copy.py`).
+F1 (no synthesized identifiers; sources user files / validated live metadata /
+curated files; `isin_source` provenance; `is_valid_isin` ISO 6166 gate). D1
+(recorded-source tests: production default path against a checked-in fixture,
+source stubbed at the boundary). Single-home rule (one message home per surface).
+
+**Status vocabulary** from [`copy.status_for`](quant/ui/copy.py): On track /
+Add / Trim / Waiting until {date} / Below minimum order / Blocked / Not reviewed
+yet. Drift is computed once and shared by table, engine, statuses, and the S3
+footnote; a cooldown surfaces (never silences); over-threshold drift is never
+"On track".
+
+**State machines**: Today S0-S4 and Explore states with exact catalog copy. Data
+reads use `latest_review(ok_only=True)` (legacy artifacts without `review_status`
+count as ok; only explicit "failed" excludes); S4/Health read the latest attempt
+of any status; review dirs are timestamped dirs containing `metrics.json`.
+
+**Feedback contract**: disabled verb-ing buttons; dedicated progress container
+cleared on completion; one numbered outcome sentence; plain failure + collapsed
+View log; `Open Today` only after success via `st.switch_page`.
+
+**Mutex**: one acquisition per update+run sequence; `outputs/.runner.lock`
+heartbeat refreshed every 30 s; stale after 600 s with auto-release; foreign live
+heartbeat → other-tab sentence; own session → generic `An operation is already
+running.`
+
+### Governance
+
+- **Commit discipline**: one commit per step, conventional messages; checkpoint
+  per step with hash + `git diff --stat`; git-based evidence only.
+- **Ruling protocol**: stop and report spec contradictions with a proposed ruling
+  instead of improvising (recorded rulings: build on `b929ae9`; BROAD_ETFS in W;
+  curated ISIN ingest; ruff scope).
+- **Coverage ratchet**: floor 42.39% baseline, raise-only, target 80%
+  ([`.coveragerc`](.coveragerc)).
+- **Ruff gate (R9)**: zero new findings on changed files plus repo-wide F-codes
+  fixed; legacy E/I/N deferred to a tracked issue.
+- **Manual passes gate the next step**; user-reported deviations become hotfixes.
+- **Golden-file policy**: regenerate only for intentional backtest changes;
+  schema additions default so the golden payload never moves.
+- **No fabrication**: screenshots, ISINs, names, test vectors only from real or
+  recorded sources.
+
+### Architecture and stores
+
+Modules added this cycle: [`quant/ui/{copy,render,cards,search,runner}.py`](quant/ui/),
+[`quant/pages/{today,portfolio,explore,settings}.py`](quant/pages/),
+[`quant/data/{names,identifiers,registry_repair,news}.py`](quant/data/),
+[`quant/reporting/{artifacts,actions,web}.py`](quant/reporting/),
+[`quant/portfolio/{history,cash_rate}.py`](quant/portfolio/),
+[`quant/cli/output.py`](quant/cli/output.py); [`quant/dashboard.py`](quant/dashboard.py)
+is the navigation entry only.
+
+- **Five artifact accessors** (the only UI read path): `latest_review(ok_only)`,
+  `read_regime`, `read_actions`, `read_scores`, `read_history`.
+- Stores: DuckDB (`market_history`, `asset_registry`, `portfolio_history`, nlp
+  tables); `outputs/run_<ts>/` review dirs gated by `metrics.json`;
+  `outputs/{update_state,names_state,news_state}.json`; news cache JSON (atomic
+  temp + `os.replace`); `.runner.lock`.
+- **Working universe W** (canonical; see "Registry write paths"): funnel
+  survivors ∪ CORE ∪ ACTIVE ∪ portfolio ∪ broker_registry ∪ curated ∪ BROAD_ETFS;
+  `universe_master` excluded everywhere; `sync_registry_to_working_universe`
+  inserts missing W and prunes outside W (idempotent); bulk universe_master
+  inserts refused; `discovery.run_discovery` no longer inserts the pool.
+- Registry class precedence: CSV `instrument_class` wins over taxonomy; W inserts
+  are classified with known names so keyword rules fire.
+- Cells: NULL never empty string; symbol-valued display_name/name = missing and
+  repaired.
+- `quant doctor`: db/registry/missing counts, names state, metadata probes, news
+  cache age + sentiment distribution, search probes (apple/amazon/gold/space/
+  samsung), history bar probes, explore-card probes, actions oracle, runner lock
+  with stale detection.
+
+### Input file contracts
+
+- [`data/portfolio.csv`](data/portfolio.csv): broker truth (value, PnL; invested
+  derived).
+- [`data/account.yaml`](data/account.yaml): `base_currency`, `cash_eur`,
+  `risk_profile` (conservative/balanced/aggressive), optional `savings_plan_day`
+  (R8, pending).
+- [`data/broker_registry.csv`](data/broker_registry.csv): routing (bounded;
+  ceiling guard; `isin_source` provenance).
+- [`data/isin_curated.csv`](data/isin_curated.csv),
+  [`data/names_curated.csv`](data/names_curated.csv),
+  [`data/themes.csv`](data/themes.csv): curated inputs with audit trail; all
+  un-ignored in [`.gitignore`](.gitignore).
+- Cash rate: dated schedule in [`quant/portfolio/cash_rate.py`](quant/portfolio/cash_rate.py)
+  (2.25% from 2024-01-01, 2.50% from 2026-09-16), injectable live fetch with
+  schedule fallback.
+
+### Bug ledger (symptom → root cause → fix → guard)
+
+| ID | Symptom | Root cause | Fix | Guard |
+|---|---|---|---|---|
+| CI-1 | test_cache CatalogException | schema never initialized in tests | conftest init_db fixture + ephemeral DB patching both path bindings | conftest |
+| LK-1 | update fails: DuckDB lock held by UI | UI held persistent write connection | read-only short-lived connections, writer retry, runner mutex | test_ui_connections |
+| RG-1 | regime 0.50/unknown silent | fallback prior shown as measurement | unconditional regime block with states | test_regime_masking |
+| CP-1 | "(source: csv)", "Regime Regime:", daily PnL 0.00, bucket banner | spec-first widgets, dual truths | copy catalog, single sources, deletions | test_ui_copy |
+| VS-1 | red primary, donut semantic colors, clipped legends | palette misuse | primaryColor #1F3B73, categorical palette, ≥5% labels, legend rules | chart tests |
+| DP-1 | "Gold Miners (GDX) (GDX)" | formatter appended ticker already present | `label_for` dedup (incl. dotted base) ; banned tokens | test_ui_copy |
+| SR-1 | "amazon"/"apple" no matches live | names empty in live registry; backfill only at update | startup `ensure_display_names`, clean at render | test_search_real_registry |
+| PS-1 | names populated but tickers shown | 25 rows poisoned display_name==symbol | symbol-valued = missing + repair; D1 recorded test | test_names_recorded_source |
+| RG-2 | registry 1090 rows, 1000 blank | bulk universe_master insert | W sync + prune + bounded test; discovery root cause | test_registry_bounded |
+| RG-3 | registry under-inclusive (32) | rollback pruned to CSV set only | sync both directions to W; ISIN/currency heal over W | test_registry_bounded |
+| CL-1 | progress-line leaks, header not first | unguided prints | reporter.detail, TTY-gated progress, header-first | test_cli_hygiene |
+| PB-1 | "published X" then X missing | run_latest link not verified | publish verifies + prints real path, exit 1 on failure | test_publish |
+| RV-1 | phantom history row; Today S4 vs Settings silence | status not persisted; history written on failure | `review_status` artifact; no history on failure | test_review_status |
+| NW-1 | news dead; review/Explore divergence; corruption risk | no coverage; two paths; non-atomic writes | shared `load_news`, atomic writes, outage counter + Health line | test_explore_news |
+| NT-1 | raw tz timestamps in news rows | formatter missed RFC-2822/ISO | `fmt_weekday_ts` both formats | test_news_format |
+| SN-1 | all rows "neutral" | no scorer provenance | per-entry `scorer: model|default`; word only for model; doctor distribution | test_h3_6 |
+| SH-1 | scores vanished after a failed review | latest-dir shadowing | `latest_review(ok_only=True)` + as-of line | test_h3_6 |
+| LG-1 | Today S0 with six reviews | ok_only excluded legacy artifacts | missing status = legacy ok; unified reads | test_h3_7 |
+| ST-1 | Settings line stale after refresh | read review-era state | `update_state.json` + live compose | test_h3_7 |
+| PH-1 | failed row still listed | pre-H3.3 DB row | read-side filter to ok rows | test_h3_7 |
+| AO-1 | "From the review of …, 00:00" | bogus time, non-catalog string | `fmt_review_ts`, single catalog as-of string, banned token | test_h3_7/8 |
+| CH-1 | illegible annotation; "13 Sep" x5 | in-plot gray text; day-only ticks | top-margin white box; hh:mm under 3 days | test_h3_7 |
+| SF-1 | Settings "No market data" mid-refresh | transient locked read erased state | fallback to update_state | test_h3_8 |
+| RV-2 | Reviews list empty | legacy ts parsing in L3 filter | parsing fix | test_h3_8 |
+| OC-1 | "A review is already running" during refresh | operation-specific copy | generic operation copy | test_h3_8 |
+| AC-1 | zero actions on a drifting portfolio (core value) | time gate silenced advice; drift/base inconsistency | drift-driven advice; cooldown → Waiting + footnote; shared drift; doctor actions oracle | test_h3_8 recorded oracle |
+| HD-1 | "Review of 14 Sep close, prepared 13 Sep" | header from two runs | single-artifact header; legacy renders prepared line | test_h3_8 |
+| GR-1 | Growth annotation "(0.00 EUR)" | mode-confused | percent-only in Growth | test_h3_8 |
+| DS-1 | discovery sentence dead live | index lacked names | cached universe_master name backfill feeding index | test_h3_8 |
+| MH-1 | "No price history" suspicion | hypothesis | disproven (charts read market_history); regression test | test_h3_8 |
+| CU-1 | SGLN.L "Stock", missing currency/ISIN | taxonomy over CSV; empty strings | CSV class precedence; NULL not ''; named classification | test_h3_5 |
+| CU-2 | cannot track Apple (closed universe) | W prune correct; no UI path | discovery sentence + Portfolio add-input candidates "- not tracked yet" | test_h3_5 |
+| IS-1 | 5J50.DE held but unroutable; false remedy | no registry row; remedy lied | `ensure_registry_rows`; curated ingest; repair single-home Settings | test_registry_repair |
+| EX-1 | external URL printed; deprecation warnings | bind default; old API | localhost default, `--lan`, README proxy warning; `width="stretch"` | manual + lint |
+| OB-1 | Open Today dead; leftover progress; "advice below" empty | session-state advice | artifact advice + `st.switch_page`; container cleared | test_feedback_contract |
+
+### Feature contracts shipped
+
+- **Charts**: 1M/3M/1Y/Max (default Max), dotted baseline, mode-aware annotation
+  (percent-only in Growth), 3-point rule, Value|Growth rebase-to-100, holdings
+  multi-select ≤3, benchmark IWDA toggle default off, hh:mm axis under 3 days.
+- **News**: review covers holdings via the shared path; Explore on-demand 24 h
+  cache (spinner, 10 s timeout); cap 5 + `Earlier items ({n} more)`; weekday
+  dates; scorer provenance; outage Health line after three consecutive failures.
+- **Search**: corpus display_name + name + symbol + ISIN + themes; `data/themes.csv`
+  prose tags with theme-to-theme links; exact zero-match sentence; discovery
+  sentence for universe_master matches.
+- **Evidence**: per-symbol news list; review evidence summary; glossary expander
+  only with scores.
+
+### Test suite evolution
+
+145 → … → 262 → 273 → 278 → 286 → 294 → **304 passed**. Golden
+[`tests/golden/backtest_2024.json`](tests/golden/backtest_2024.json) unmoved
+throughout. Key guards: `test_run_to_ui`, `test_ui_copy`, `test_registry_bounded`,
+`test_names_recorded_source` (D1), `test_feedback_contract`, `test_review_status`,
+`test_explore_news`, `test_chart_rules`, `test_themes`, `test_news_format`,
+`test_h3_5/6/7/8`, `test_doctor`, `test_golden_snapshot`.
+
+### Current state and open items
+
+HEAD `5844631`; version string 10.5.2; suite 304; ruff zero new on changed files;
+live doctor healthy: W=90, names clean, 18 non-routable ISINs explained, search
+probes correct, actions oracle 2, sentiment cache 30 default-scorer (legacy),
+cards correct.
+
+1. **R8** calendar lines (one commit): `savings_plan_day` countdown + same-day
+   variant, markets-closed freshness line, README key.
+2. **R9** release: CHANGELOG narrative, bump 10.6.0, `mkdocs --strict`, ruff gate
+   per settled scope, checklist (D1 audit, names clean on fresh install, publish
+   path assertion, CLI ≤20 lines per command, `git ls-files data/` audit, bounded
+   test, codecov badge either uploading or removed), tag `v10.6.0`.
+3. **H3.8 manual-pass matrix** (gates R8): Today cards or cooldown footnote on the
+   live portfolio; Growth IWDA line + percent-only annotation; 5J50.DE history;
+   Settings line stable during refresh; Reviews six ok rows; apple discovery
+   sentence.
+4. **Verify post-H3.6 fetches write `scorer: model`** (live cache still all
+   default; if new fetches stay default, the scoring write path is unwired).
+5. Follow-up issues (non-gating): capture `docs/assets/today.png`; curated ISINs
+   beyond 5J50.DE; legacy ruff E/I/N; PyPI name + Trusted Publishing; GitHub
+   topics; `.rooignore` manual entries; coverage ratchet toward 80.
+6. Launch sequence post-tag: topics, launch post, demo, the two issues above.
+
+### Continuation protocol
+
+Checkpoint format (changed/verified/remains with hashes + diffstat); one commit
+per step; ruling protocol for contradictions; manual passes gate steps; doctor
+first for any live anomaly; never fabricate identifiers, names, screenshots, or
+test vectors; doctrine P1-P14, F1, D1 binding; the W definition is immutable
+without a recorded ruling.
