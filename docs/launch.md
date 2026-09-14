@@ -14,8 +14,8 @@ portfolio-optimization  cvar  backtesting  algorithmic-trading  python
 
 Description:
 
-> Institutional-grade systematic equity pipeline: bitemporal PIT data,
-> Mean-CVaR tail-risk optimization, broker-synced PnL, DuckDB + Polars.
+> Daily portfolio manager for a solo family office: one snapshot after the
+> close, plain-language add/trim advice, broker-synced PnL, DuckDB + Polars.
 
 ## 2. Launch post (draft)
 
@@ -46,8 +46,9 @@ Channels: r/algotrading, r/quant, Hacker News (Show HN), X/Twitter.
 | 0:15-0:35 | `quant update` running | "Fetches 1000+ tickers, adjusts splits, hard data gate." |
 | 0:35-1:00 | `quant run` output | "Scores, audits the broker-synced portfolio, reports." |
 | 1:00-1:20 | `quant reconcile` | "Diffs the book against the broker export." |
-| 1:20-1:40 | Streamlit dashboard | "Three-page dashboard reads straight from DuckDB." |
-| 1:40-2:00 | CI + golden gate | "Every change is verified; backtest drift fails CI." |
+| 1:20-1:40 | Four-page workspace | "Today decides, Portfolio edits, Explore explains, Settings maintains." |
+| 1:40-1:55 | `quant doctor` | "One read-only diagnosis: registry, names, news, search, advice." |
+| 1:55-2:10 | `quant publish` + CI | "Static briefing for the web; every change verified, backtest drift fails CI." |
 
 ## 4. Engagement
 

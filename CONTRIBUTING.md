@@ -21,6 +21,23 @@ pre-commit install
 - **Types:** [pyright](https://github.com/microsoft/pyright) in `basic` mode
   ([`pyrightconfig.json`](pyrightconfig.json)). Fix type errors before pushing.
 - **Formatting is mandatory:** run `pre-commit run --all-files` before committing.
+- **Ruff scope (release gate):** zero new findings on changed files, plus all
+  repo-wide `F` (correctness) codes fixed. Legacy `E`/`I`/`N` findings are
+  deferred to a tracked issue with a per-module ratchet.
+
+## Doctrine & copy
+
+The product doctrine (P1-P14, F1, D1) is binding and recorded in
+[`CONTEXT.md`](CONTEXT.md). Two rules bite most often:
+
+- **P14 — one copy home.** Every user-facing string lives in
+  [`quant/ui/copy.py`](quant/ui/copy.py) and is guarded by
+  [`tests/test_ui_copy.py`](tests/test_ui_copy.py). Change copy there, never
+  inline; no internal identifiers (run ids, paths, column names, enum values) in
+  UI text.
+- **D1 — recorded-source tests.** A feature whose data comes from a live source
+  must have a test that runs the production default path against a checked-in
+  fixture, with the source stubbed at the boundary (never our own functions).
 
 ## Comments & docstrings
 

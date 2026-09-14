@@ -29,16 +29,44 @@ file for the whole session:
 **Determinism:** seed all randomness (`np.random.default_rng(SEED)`). Unseeded
 `np.random.normal` makes statistical assertions flaky.
 
+## Recorded-source tests (D1)
+
+Any feature whose data comes from a live external source (Yahoo metadata, news,
+FX) must have at least one test that runs the **production default source path**
+against a checked-in recorded fixture, with the source stubbed at the boundary
+(e.g. `yfinance.Ticker`), never our own functions. Injected-fetcher tests prove
+logic; recorded-source tests prove wiring. See
+[`tests/test_names_recorded_source.py`](test_names_recorded_source.py) and
+[`tests/fixtures/`](fixtures/).
+
 ## Coverage
 
 Coverage floor lives in [`.coveragerc`](../.coveragerc) as `fail_under`. The
-v10.4.2 baseline is **42%**; the target is **80%**.
+v10.4.2 baseline is **42.39%**; the target is **80%**.
 
 Ratchet policy:
 
 1. Never lower `fail_under`.
 2. When coverage improves, raise the floor in the same PR.
 3. New modules must ship with tests.
+
+## Contract guards (v10.6.0)
+
+The suite is **304 passed** (golden unmoved). The load-bearing guards:
+
+- [`test_run_to_ui.py`](test_run_to_ui.py) — the run→UI wire class.
+- [`test_ui_copy.py`](test_ui_copy.py) — banned tokens on every page (P2/P14).
+- [`test_registry_bounded.py`](test_registry_bounded.py) — `asset_registry == W`,
+  idempotent membership, CSV ceiling, bulk-source refusal.
+- [`test_names_recorded_source.py`](test_names_recorded_source.py) — D1.
+- [`test_feedback_contract.py`](test_feedback_contract.py),
+  [`test_review_status.py`](test_review_status.py),
+  [`test_explore_news.py`](test_explore_news.py),
+  [`test_chart_rules.py`](test_chart_rules.py),
+  [`test_themes.py`](test_themes.py), [`test_news_format.py`](test_news_format.py),
+  [`test_h3_5.py`](test_h3_5.py), [`test_h3_6.py`](test_h3_6.py),
+  [`test_h3_7.py`](test_h3_7.py), [`test_h3_8.py`](test_h3_8.py),
+  [`test_doctor.py`](test_doctor.py).
 
 ## Golden snapshot
 

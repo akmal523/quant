@@ -16,7 +16,25 @@ tool.
 Live briefing: https://akmal523.github.io/quant/
 
 > **New here?** Read [`CONTEXT.md`](CONTEXT.md) for the domain vocabulary, data
-> contracts, and architecture map.
+> contracts, architecture map, and the full **v10.6.0 cycle ledger** (every
+> decision, bug, and guard since 10.5.2).
+
+---
+
+## What's new in 10.6.0
+
+- **Four-page workspace** — Today decides, Portfolio edits, Explore explains,
+  Settings maintains — with one central copy module and a banned-token test.
+- **Working universe** — `asset_registry` holds exactly the tracked set
+  (funnel survivors ∪ CORE ∪ ACTIVE ∪ portfolio ∪ broker registry ∪ curated ∪
+  broad ETFs); the 1000+ discovery pool never leaks in.
+- **Explore search** by name, symbol, ISIN, or **theme** (`data/themes.csv`),
+  plus a discovery loop that can bring a universe instrument into tracking.
+- **`quant doctor`** — one read-only diagnosis: registry counts, names state,
+  metadata probes, news/sentiment distribution, search probes, explore-card
+  probes, and an advice-engine oracle.
+- **Honest advice** — drift vs target drives add/trim; a rebalance cooldown
+  surfaces as "Waiting until {date}" plus a footnote, never silence.
 
 ---
 
@@ -64,6 +82,7 @@ The terminal is optional. Three commands cover the daily cycle:
 | `quant update` | Refresh market data (step 1) |
 | `quant run` | Review the portfolio and write the briefing (step 2) |
 | `quant publish` | Render the static Published Briefing for the web |
+| `quant doctor` | Read-only diagnosis (registry, names, news, search, advice) |
 
 Add `--verbose` for per-symbol detail. Logs live under `outputs/run_*/`.
 
@@ -130,7 +149,17 @@ universe.
 | [`quant/portfolio/portfolio.py`](quant/portfolio/portfolio.py) | Broker-synced audit, EUR PnL, reconciliation |
 | [`quant/portfolio/optimizer.py`](quant/portfolio/optimizer.py) | cvxpy Mean-Variance + Mean-CVaR with bucket constraints |
 | [`quant/execution/tca.py`](quant/execution/tca.py) | Implementation Shortfall (TCA) + `trade_log` |
-| [`quant/cli/__init__.py`](quant/cli/__init__.py) | `quant` console command |
+| [`quant/cli/__init__.py`](quant/cli/__init__.py) | `quant` console command + `doctor` |
+| [`quant/ui/copy.py`](quant/ui/copy.py) | Every user-facing string + formatter (P14) |
+| [`quant/ui/render.py`](quant/ui/render.py) | The four page renderers |
+| [`quant/ui/cards.py`](quant/ui/cards.py) | Explore card fields (one source) |
+| [`quant/ui/search.py`](quant/ui/search.py) | Instrument + theme search index |
+| [`quant/reporting/artifacts.py`](quant/reporting/artifacts.py) | The five UI artifact accessors |
+| [`quant/data/names.py`](quant/data/names.py) | Display-name cleaning + backfill |
+| [`quant/data/registry_repair.py`](quant/data/registry_repair.py) | Working-universe sync + ISIN heal |
+| [`quant/data/news.py`](quant/data/news.py) | News fetch + 24 h cache + outage counter |
+| [`quant/portfolio/history.py`](quant/portfolio/history.py) | Portfolio value history |
+| [`quant/portfolio/cash_rate.py`](quant/portfolio/cash_rate.py) | Dated cash-rate schedule |
 | [`quant/paths.py`](quant/paths.py) | CWD-independent path resolver |
 
 ---

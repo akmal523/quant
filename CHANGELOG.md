@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.6.0] - unreleased
+
+The R1-R9 program and the H2/H3 hotfix cycles. The product is repositioned and
+hardened as a daily portfolio manager; every change below is guarded by a test.
+
+### Added
+
+- **Four-page workspace** (`quant/pages/{today,portfolio,explore,settings}.py`)
+  over `st.Page`/`st.navigation`, with renderers in `quant/ui/render.py` and one
+  central copy module `quant/ui/copy.py` (P14, banned-token test).
+- **`quant doctor`** — read-only diagnosis: registry counts, names state,
+  metadata probes, news cache age + sentiment distribution, search probes,
+  explore-card probes, and an advice-engine oracle.
+- **Working universe** (`quant/data/registry_repair.py`): `asset_registry` holds
+  exactly W (survivors ∪ CORE ∪ ACTIVE ∪ portfolio ∪ broker registry ∪ curated ∪
+  broad ETFs); two-way sync (insert missing, prune outside), idempotent; bulk
+  `universe_master` inserts refused.
+- **Explore search** (`quant/ui/search.py`): name + symbol + ISIN + themes
+  (`data/themes.csv`, prose tags with theme-to-theme links); exact zero-match
+  sentence; discovery loop (universe_master candidates + Portfolio add-input).
+- **News** (`quant/data/news.py`): shared fetch + 24 h JSON cache (atomic
+  writes), weekday dates, cap 5 + `Earlier items ({n} more)`, per-entry
+  `scorer: model|default`, source-outage Health line.
+- **Charts**: range selector, dotted baseline, mode-aware annotation
+  (percent-only in Growth), Value|Growth rebase, benchmark toggle, hh:mm axis
+  under three days.
+- **Curated inputs**: `data/isin_curated.csv`, `data/names_curated.csv`,
+  `data/themes.csv` (all un-ignored in `.gitignore`).
+
+### Changed
+
+- **Advice engine** (`quant/portfolio/portfolio.py`): advice is driven by drift
+  vs the tier threshold; the rebalance time gate only sets a cooldown, surfaced
+  as `Waiting until {date}` + footnote, never silence; drift is computed once and
+  shared by the table, engine, statuses, and footnote.
+- **Data reads** use `latest_review(ok_only=True)` (legacy artifacts without
+  `review_status` count as ok); review dirs are timestamped dirs with
+  `metrics.json`; `run_latest`/update-only dirs never shadow a review.
+- **Registry cells** are NULL, never empty string; symbol-valued display names
+  are treated as missing and repaired; CSV `instrument_class` wins over taxonomy.
+- **CLI**: header first, terse default output (≤20 lines), TTY-gated progress,
+  `publish` verifies the written path.
+
+### Fixed
+
+- Registry explosion (1090 → W) and its root cause in `discovery.py`.
+- Failed-review shadowing of scores; stale Settings status line; phantom review
+  rows; bogus `00:00` review times; illegible chart annotation.
+- Zero actions on a drifting portfolio (time-gate silence); mixed-run Today
+  header; Growth annotation carrying EUR; dead discovery sentence; Settings
+  "No market data" mid-refresh; operation-specific own-session copy.
+
+### Tests
+
+- Suite grew 145 → **304 passed**; golden `tests/golden/backtest_2024.json`
+  unmoved. New guards: `test_registry_bounded`, `test_names_recorded_source`
+  (D1), `test_themes`, `test_news_format`, `test_h3_5/6/7/8`, `test_doctor`,
+  `test_feedback_contract`, `test_review_status`, `test_explore_news`.
+
+---
+
 ## [10.5.2] - 2026-09-13
 
 ### Changed - Quant-AI Polish Punch List v3 (pre-launch)
