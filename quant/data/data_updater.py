@@ -357,6 +357,17 @@ def main() -> int:
     except Exception as _e:  # noqa: BLE001
         reporter.detail(f"registry heal skipped: {_e}")
 
+    # ── H3.7 (L2): record the successful update so the Settings status line can
+    # compose live values (instrument count, prices-through, refreshed-at).
+    try:
+        from quant.reporting.artifacts import write_update_state
+
+        _lb = final_df["Date"].max() if "Date" in final_df.columns else ""
+        write_update_state({"ts": dt.datetime.now().isoformat(timespec="seconds"),
+                            "instruments": len(all_data), "prices_through": str(_lb)})
+    except Exception as _e:  # noqa: BLE001
+        reporter.detail(f"update state skipped: {_e}")
+
     # ── Terse aggregate summary (spec 3.2, max 20 lines) ────────────────────
     latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
     reporter.line(f"  universe {meta['universe']} symbols; funnel survivors {meta['survivors']}")

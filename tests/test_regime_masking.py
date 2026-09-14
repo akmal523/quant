@@ -61,11 +61,10 @@ def _metrics_run(tmp_path, payload: dict) -> str:
 def test_review_regime_is_displayed(tmp_path, monkeypatch):
     history.record_review(value_eur=1000.0, invested_eur=900.0,
                           cash_eur=100.0, pnl_eur=100.0)
-    run_dir = _metrics_run(tmp_path, {"regime": {"state": "estimated", "label": "rising",
-                                               "confidence": "high", "as_of": "2026-09-13"},
-                                       "review_ts": "2026-09-13"})
-    monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
-    monkeypatch.setattr(artifacts, "latest_ok_run_dir", lambda: run_dir)
+    payload = {"regime": {"state": "estimated", "label": "rising",
+                          "confidence": "high", "as_of": "2026-09-13"},
+               "review_ts": "2026-09-13"}
+    monkeypatch.setattr(artifacts, "latest_review", lambda ok_only=False: payload)
 
     text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND.format(label="rising", confidence="high") in text
@@ -74,11 +73,9 @@ def test_review_regime_is_displayed(tmp_path, monkeypatch):
 def test_regime_failure_is_health_not_missing_history(tmp_path, monkeypatch):
     history.record_review(value_eur=1000.0, invested_eur=900.0,
                           cash_eur=100.0, pnl_eur=100.0)
-    run_dir = _metrics_run(tmp_path, {"regime": {"state": "failed", "error": "boom",
-                                              "as_of": "2026-09-13"},
-                                       "review_ts": "2026-09-13"})
-    monkeypatch.setattr(artifacts, "latest_run_dir", lambda: run_dir)
-    monkeypatch.setattr(artifacts, "latest_ok_run_dir", lambda: run_dir)
+    payload = {"regime": {"state": "failed", "error": "boom", "as_of": "2026-09-13"},
+               "review_ts": "2026-09-13"}
+    monkeypatch.setattr(artifacts, "latest_review", lambda ok_only=False: payload)
 
     today_text = _all_text(_run_page(C.PAGE_TODAY))
     assert C.MARKET_TREND_FAILED in today_text

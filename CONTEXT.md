@@ -403,3 +403,17 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
   rendered only for `scorer: model`; entries lacking the field migrate to
   `default` on read. The doctor prints the distribution
   (`sentiment cache: … scorer model a / default b, pos p neg q neu r`).
+
+### Legacy artifacts, update freshness, chart legibility (H3.7)
+
+- A review lives in a TIMESTAMPED run dir carrying `metrics.json`; `run_latest`
+  and update-only dirs never shadow a review. A review without `review_status`
+  is legacy and counts as ok; only `"failed"` excludes it. Data reads use
+  `latest_review(ok_only=True)`; the S4 card / Health read the latest attempt.
+- `quant update` writes `outputs/update_state.json`; the Settings status line
+  composes live values (instrument count, prices-through) with the update
+  timestamp.
+- The Reviews list drops rows newer than the last ok review (legacy phantom
+  rows). `fmt_review_ts` omits a bogus `00:00` for a date-only source.
+- The value-chart annotation sits in the top margin on a white box; sub-3-day
+  ranges label the x-axis by `hh:mm`.

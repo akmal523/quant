@@ -13,6 +13,7 @@ from quant import paths
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -110,40 +111,86 @@ _REGIME_DEFAULT: dict = {
 }
 
 
-def latest_ok_run_dir() -> str | None:
-    """Newest run dir whose metrics.json is NOT a failed review (H3.6, N1).
+# H3.7 (L1): a review lives in a TIMESTAMPED dir that carries metrics.json.
+# outputs/run_latest and update-only dirs must never shadow a review.
+_RUN_RE = re.compile(r"^run_\d{4}-\d{2}-\d{2}_\d{6}$")
 
-    Intent: a failed review must not shadow the data pages. Data reads use the
-    most recent SUCCESSFUL review; the S4 card / Health read the latest attempt.
-    """
+
+def _review_run_dirs() -> list[str]:
+    """Timestamped run dirs carrying metrics.json, newest first (H3.7, L1)."""
     if not os.path.isdir(OUTPUTS_DIR):
-        return None
-    runs = sorted((d for d in os.listdir(OUTPUTS_DIR) if d.startswith("run_")),
+        return []
+    runs = sorted((d for d in os.listdir(OUTPUTS_DIR) if _RUN_RE.match(d)),
                   reverse=True)
-    for d in runs:
-        path = os.path.join(OUTPUTS_DIR, d, "metrics.json")
-        if not os.path.exists(path):
-            continue
-        try:
-            with open(path, encoding="utf-8") as f:
-                m = json.load(f)
-        except Exception:  # noqa: BLE001
-            continue
-        if m.get("review_status") != "failed":
-            return os.path.join(OUTPUTS_DIR, d)
-    return None
+    return [os.path.join(OUTPUTS_DIR, d) for d in runs
+            if os.path.exists(os.path.join(OUTPUTS_DIR, d, "metrics.json"))]
+
+
+def _read_metrics(run: str) -> dict | None:
+    path = os.path.join(run, "metrics.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def latest_review(ok_only: bool = False) -> dict:
-    """Return the latest run's metrics.json as a dict ({} when absent).
+    """Return the latest review's metrics.json as a dict ({} when absent).
 
-    H3.6 (N1): ok_only=True returns the most recent SUCCESSFUL review
-    (review_status != 'failed'), so a failed run cannot shadow data pages.
+    H3.6/H3.7 (N1/L1): reads only timestamped dirs that carry metrics.json, so
+    an update-only dir or outputs/run_latest cannot shadow a review. A review
+    without `review_status` is legacy and counts as ok; only "failed" excludes.
     """
-    run = latest_ok_run_dir() if ok_only else latest_run_dir()
+    for run in _review_run_dirs():
+        m = _read_metrics(run)
+        if m is None:
+            continue
+        if ok_only and m.get("review_status") == "failed":
+            continue
+        return m
+    return {}
+
+
+def latest_ok_run_dir() -> str | None:
+    """Newest timestamped review dir that is ok under the L1 rule (else None)."""
+    for run in _review_run_dirs():
+        m = _read_metrics(run)
+        if m is not None and m.get("review_status") != "failed":
+            return run
+    return None
+
+
+def latest_ok_review_ts() -> datetime | None:
+    """Timestamp parsed from the newest ok review dir name (H3.7, L3)."""
+    run = latest_ok_run_dir()
     if not run:
-        return {}
-    path = os.path.join(run, "metrics.json")
+        return None
+    name = os.path.basename(run)                 # run_YYYY-MM-DD_HHMMSS
+    try:
+        return datetime.strptime(name[4:], "%Y-%m-%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def _update_state_path() -> str:
+    return os.path.join(OUTPUTS_DIR, "update_state.json")
+
+
+def write_update_state(payload: dict) -> None:
+    """Persist the last successful update's timestamp/counts (H3.7, L2)."""
+    try:
+        with open(_update_state_path(), "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def read_update_state() -> dict:
+    """Read outputs/update_state.json ({} when absent)."""
+    path = _update_state_path()
     if not os.path.exists(path):
         return {}
     try:

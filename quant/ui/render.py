@@ -34,7 +34,8 @@ from quant.portfolio.editor import validate_positions, save_portfolio
 from quant.data.news import load_news
 from quant.portfolio.cash_rate import current_cash_apy, current_rate
 from quant.reporting.artifacts import (
-    latest_review, read_actions, read_history, read_regime, read_scores,
+    latest_ok_review_ts, latest_review, read_actions, read_history, read_regime,
+    read_scores, read_update_state,
 )
 from quant.ui import copy as C
 from quant.ui import runner
@@ -110,25 +111,28 @@ def page_today() -> None:
 
     portfolio = load_portfolio()
     history = read_history()
-    review = latest_review()
+    # H3.7 (L1): the header/tables/regime read the most recent SUCCESSFUL
+    # review; the S4 card reads the latest review attempt of any status.
+    attempt = latest_review()
+    review = latest_review(ok_only=True)
     has_review = bool(review)
 
-    # S0 (spec 2.1): no review yet -> guidance card, no header, no trend line.
-    review_status = review.get("review_status")
-    if review_status == "failed":
+    if attempt.get("review_status") == "failed":
         # S4: the review ran and failed (single source: the run artifact).
         if not history.empty:
             last_ts = history.iloc[-1]["review_ts"]
             st.write(C.HEADER_REVIEW.format(date=C.fmt_date(latest_bar_date()),
-                                            prepared=C.fmt_ts(last_ts)))
+                                            prepared=C.fmt_review_ts(last_ts)))
         st.warning(C.LAST_REVIEW_FAILED)
-    elif not has_review and history.empty:
-        st.info(C.GUIDE_NO_REVIEW)
     elif not has_review:
         st.info(C.GUIDE_NO_REVIEW)
     else:
-        prepared = C.fmt_ts(review.get("review_ts"))
-        bar = C.fmt_date(review.get("latest_bar") or latest_bar_date())
+        prepared = C.fmt_review_ts(review.get("review_ts"))
+        # H3.7: a metrics latest_bar of "unknown" is not a date; fall back live.
+        _bar = review.get("latest_bar")
+        if not _bar or str(_bar).strip().lower() in ("unknown", "nan", "none"):
+            _bar = latest_bar_date()
+        bar = C.fmt_date(_bar)
         st.write(C.HEADER_REVIEW.format(date=bar, prepared=prepared))
         reg = read_regime()
         if reg.get("state") == "estimated":
@@ -468,9 +472,9 @@ def page_explore() -> None:
     latest_attempt = latest_review()
     ok_ts = ok_review.get("review_ts")
     if ok_ts:
-        st.caption(f"From the review of {C.fmt_ts(ok_ts)}")
+        st.caption(f"From the review of {C.fmt_review_ts(ok_ts)}")
     if latest_attempt.get("review_status") == "failed" and ok_ts:
-        st.caption(C.SCORES_AS_OF.format(date=C.fmt_weekday_ts(ok_ts)))
+        st.caption(C.SCORES_AS_OF.format(date=C.fmt_review_ts(ok_ts)))
     sc = read_scores(symbol)
     has_scores = sc.get("structural_grade") is not None
     if has_scores:
@@ -540,12 +544,14 @@ def page_settings() -> None:
     m = int(instruments["n"].iloc[0]) if not instruments.empty else 0
     bar = latest_bar_date()
     history = read_history()
-    if m > 0 and bar and not history.empty:
-        refreshed = C.fmt_ts(history.iloc[-1]["review_ts"])
-        st.write(f"{m} instruments, prices through {C.fmt_date(bar)}, "
-                 f"refreshed {refreshed}.")
-    elif m > 0 and bar:
-        st.write(f"{m} instruments, prices through {C.fmt_date(bar)}.")
+    # H3.7 (L2): refreshed-at comes from the update artifact; count/date are live.
+    us = read_update_state()
+    if m > 0 and bar:
+        if us.get("ts"):
+            st.write(f"{m} instruments, prices through {C.fmt_date(bar)}, "
+                     f"refreshed {C.fmt_ts(us.get('ts'))}.")
+        else:
+            st.write(f"{m} instruments, prices through {C.fmt_date(bar)}.")
     else:
         st.info(C.EMPTY_NO_MARKET_DATA)
     _run_operation(C.BTN_REFRESH, C.BTN_REFRESHING, runner.REFRESH, "refresh")
@@ -553,6 +559,11 @@ def page_settings() -> None:
 
     # Reviews (last ten). The value-chart sentence belongs to Today only (A2).
     st.subheader(C.SEC_REVIEWS)
+    # H3.7 (L3): drop rows newer than the last OK review (legacy phantom rows).
+    _ok_cutoff = latest_ok_review_ts()
+    if _ok_cutoff is not None and not history.empty:
+        _ts = pd.to_datetime(history["review_ts"], errors="coerce")
+        history = history[_ts <= _ok_cutoff]
     if history.empty:
         st.info(C.EMPTY_NO_REVIEWS)
     else:
@@ -705,6 +716,23 @@ def _range_annotation(df: "pd.DataFrame") -> str:
                                 date=C.fmt_date(first["review_ts"]), amount=f"{abs_:.2f}")
 
 
+def _axis_tickformat(df) -> str:
+    """H3.7 (L5): sub-3-day ranges label by hh:mm, else by day."""
+    try:
+        span = (df["review_ts"].max() - df["review_ts"].min()).days
+    except Exception:  # noqa: BLE001
+        return "%d %b"
+    return "%H:%M" if span < 3 else "%d %b"
+
+
+def _annotation_kwargs(text: str) -> dict:
+    """H3.7 (L5): the in-plot annotation, in the top margin on a white box."""
+    return dict(xref="paper", yref="paper", x=0.0, y=1.0, xanchor="left",
+                yanchor="bottom", text=text, showarrow=False, align="left",
+                font=dict(size=12, color="#1F2937"),
+                bgcolor="rgba(255,255,255,0.85)")
+
+
 def _render_value_chart(history, holdings) -> None:
     """Today value chart: range selector, baseline, annotation, Value|Growth."""
     import plotly.graph_objects as go
@@ -764,10 +792,9 @@ def _render_value_chart(history, holdings) -> None:
     fig.add_hline(y=base, line_dash="dot", line_color="#888")
     ann = _range_annotation(df)
     if ann:
-        fig.add_annotation(xref="paper", yref="paper", x=0.01, y=0.98, text=ann,
-                           showarrow=False, align="left", font=dict(size=12))
-    fig.update_layout(height=280, margin=dict(l=8, r=8, t=8, b=8),
-                      xaxis=dict(tickformat="%d %b"), showlegend=True,
+        fig.add_annotation(**_annotation_kwargs(ann))     # H3.7 (L5)
+    fig.update_layout(height=280, margin=dict(l=8, r=8, t=30, b=8),
+                      xaxis=dict(tickformat=_axis_tickformat(df)), showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
                                   xanchor="left", x=0))
     st.plotly_chart(fig, width="stretch")

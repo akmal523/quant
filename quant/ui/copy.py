@@ -349,6 +349,19 @@ def fmt_weekday_ts(value: date | datetime | str | None) -> str:
     return f"{_WEEKDAYS[dt.weekday()]} {fmt_date(dt)}, {fmt_time(dt)}"
 
 
+def fmt_review_ts(value: date | datetime | str | None) -> str:
+    """Review timestamp (H3.7, L4): include a time only when the source has one.
+
+    A date-only review_ts renders 'Sunday 13 Sep 2026' (never a bogus '00:00');
+    a real timestamp renders 'Sunday 13 Sep 2026, 23:23'.
+    """
+    if isinstance(value, datetime):
+        return fmt_weekday_ts(value)
+    if isinstance(value, str) and ("T" in value or ":" in value):
+        return fmt_weekday_ts(value)
+    return fmt_weekday_date(value)
+
+
 def status_for(
     recommendation: str,
     blocked: bool = False,
