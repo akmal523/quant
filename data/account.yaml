@@ -1,3 +1,6 @@
 base_currency: EUR
 cash_eur: 10400.0
 risk_profile: balanced
+# Optional: day of month your Trade Republic savings plan executes (1-31).
+# When set, Today shows the countdown under the actions block.
+# savings_plan_day: 1

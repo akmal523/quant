@@ -309,6 +309,36 @@ SAVINGS_COUNTDOWN = ("Savings plan executes in {days} days ({date}); additions b
 SAVINGS_TODAY = "Savings plan executes today."
 MARKETS_CLOSED = "Markets were closed; prices through {date} close."
 
+
+def _days_in_month(year: int, month: int) -> int:
+    """Days in a month (leap-aware). Keeps copy.py datetime-only (no calendar)."""
+    if month == 2:
+        leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+        return 29 if leap else 28
+    return 30 if month in (4, 6, 9, 11) else 31
+
+
+def savings_plan_line(today: date, day: int) -> str:
+    """Exact Today sentence for the savings-plan day (R8). Pure, no I/O.
+
+    Invariants: day in 1..31; a day beyond the month's length clamps to that
+    month's last day. Same day -> SAVINGS_TODAY; otherwise the countdown
+    sentence. The date carries its weekday (audit rule: every rendered date
+    uses fmt_weekday_date).
+    """
+    if day == today.day:
+        return SAVINGS_TODAY
+    y, m = today.year, today.month
+    if day > today.day:
+        target = date(y, m, min(day, _days_in_month(y, m)))
+    else:
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+        target = date(y, m, min(day, _days_in_month(y, m)))
+    days = (target - today).days
+    return SAVINGS_COUNTDOWN.format(days=days, date=fmt_weekday_date(target))
+
 # News outage (spec 6.3)
 HEALTH_NEWS_OUTAGE = ("News source unreachable since {since}. Scores use price history "
                       "and fundamentals only.")

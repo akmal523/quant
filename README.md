@@ -109,11 +109,17 @@ is broker truth, never price-guessed. Comments after `#` are stripped.
 base_currency: EUR
 cash_eur: 10400.0
 risk_profile: balanced
+savings_plan_day: 1   # optional, 1-31
 ```
 
 `risk_profile` is one of `conservative` / `balanced` / `aggressive`. The selected
 profile in `data/account.yaml` overrides the bucket defaults in
 [`quant/config.py`](quant/config.py).
+
+`savings_plan_day` is optional (1-31). When set and at least one holding routes to
+a savings plan, Today shows the countdown under the actions block
+(`Savings plan executes in {n} days ({date}); additions before that date apply
+this month.`), or `Savings plan executes today.` on the day itself.
 
 ---
 

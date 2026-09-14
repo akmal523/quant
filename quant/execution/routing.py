@@ -61,6 +61,18 @@ def route_signal(
     return "HOLD"
 
 
+def holding_routes_to_savings_plan(instrument_class: str,
+                                   structure: str = PLAIN_STRUCTURE) -> bool:
+    """True when a holding's route is SPARPLAN (R8).
+
+    Intent: Today shows the savings-plan countdown only when at least one
+    holding actually routes to a savings plan. Uses the SAME route_signal as
+    execution, so the calendar line and the routing can never disagree.
+    Invariants: ETF/CASH with a plain structure -> True; else False.
+    """
+    return route_signal(0.0, 0.0, instrument_class, structure) == "SPARPLAN"
+
+
 def minimum_capital_for_alpha(expected_alpha_bps: float) -> float:
     """Alias for optimizer.minimum_trade_size (fee hurdle)."""
     return minimum_trade_size(expected_alpha_bps, ROUND_TRIP_FEE_EUR)

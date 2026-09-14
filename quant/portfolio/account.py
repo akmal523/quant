@@ -33,6 +33,8 @@ class AccountState:
     cash_eur: float | None
     risk_profile: str
     loaded: bool
+    # R8: optional savings-plan day of month (1-31); None when unset.
+    savings_plan_day: int | None = None
 
     def risk_limits(self) -> tuple[float, float, float, float, float]:
         """Return (safety_min, core_min, alpha_max, max_position, cash_floor)."""
@@ -64,7 +66,16 @@ def load_account(path: str | None = None) -> AccountState:
     if profile not in RISK_PROFILES:
         profile = DEFAULT_RISK_PROFILE
     base = str(data.get("base_currency", BASE_CURRENCY))
-    return AccountState(base, cash_eur, profile, loaded=True)
+
+    # R8: optional savings-plan day; out-of-range or non-numeric -> None.
+    spd = data.get("savings_plan_day")
+    try:
+        spd = int(spd) if spd is not None else None
+        if spd is not None and not 1 <= spd <= 31:
+            spd = None
+    except (TypeError, ValueError):
+        spd = None
+    return AccountState(base, cash_eur, profile, loaded=True, savings_plan_day=spd)
 
 
 def save_account(state: AccountState, path: str | None = None) -> None:
@@ -75,6 +86,9 @@ def save_account(state: AccountState, path: str | None = None) -> None:
         "cash_eur": state.cash_eur,
         "risk_profile": state.risk_profile,
     }
+    # R8: only persist the optional key when set (keeps the file minimal).
+    if state.savings_plan_day is not None:
+        payload["savings_plan_day"] = state.savings_plan_day
     directory = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:

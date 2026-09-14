@@ -19,6 +19,8 @@ from quant import paths
 import os
 import threading
 import time
+from datetime import date as _date
+from datetime import datetime as _dt
 
 import pandas as pd
 import streamlit as st
@@ -29,6 +31,7 @@ from quant.data.database import read_only_connection
 from quant.execution.taxonomy import (
     resolve_broker, get_structure, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE,
 )
+from quant.execution.routing import holding_routes_to_savings_plan
 from quant.portfolio.account import load_account, save_account, AccountState
 from quant.portfolio.editor import validate_positions, save_portfolio
 from quant.data.news import load_news
@@ -78,6 +81,39 @@ def latest_bar_date() -> str:
     if df.empty or df["d"].iloc[0] is None:
         return ""
     return str(df["d"].iloc[0])
+
+
+def _markets_closed_line(today: _date | None = None) -> str:
+    """R8: markets-closed freshness line.
+
+    Intent: when today is non-trading (weekend) and the latest bar is the
+    previous trading session (Friday), the Today header states the close date
+    instead of implying stale data. Invariants: empty string when the bar is
+    missing, unparseable, or today is a trading day.
+    """
+    bar = latest_bar_date()
+    if not bar:
+        return ""
+    try:
+        bd = _dt.fromisoformat(str(bar)).date()
+    except ValueError:
+        return ""
+    today = today or _date.today()
+    if today.weekday() >= 5 and bd < today and bd.weekday() == 4:
+        return C.MARKETS_CLOSED.format(date=C.fmt_weekday_date(bd))
+    return ""
+
+
+def _any_savings_plan_holding(portfolio) -> bool:
+    """R8: True when at least one holding routes to a savings plan."""
+    if portfolio is None or portfolio.empty:
+        return False
+    for sym in portfolio["Symbol"].astype(str):
+        broker = resolve_broker(sym) or {}
+        if holding_routes_to_savings_plan(broker.get("instrument_class", ""),
+                                          get_structure(sym)):
+            return True
+    return False
 
 
 # ── Shared renderers ──────────────────────────────────────────────────────────
@@ -147,6 +183,11 @@ def page_today() -> None:
         else:
             st.write(C.MARKET_TREND_INSUFFICIENT)
 
+    # R8: markets-closed freshness line (header-level, independent of review).
+    _closed = _markets_closed_line()
+    if _closed:
+        st.write(_closed)
+
     holdings = read_actions()
 
     # 2. Portfolio value chart (spec 3.1).
@@ -203,6 +244,10 @@ def page_today() -> None:
         st.subheader(C.SEC_WHAT_TO_DO)
         render_action_cards(holdings)
         _render_suppression_footnotes(holdings)
+        # R8: savings-plan countdown under the actions block, only when a
+        # holding actually routes to a savings plan.
+        if account.savings_plan_day and _any_savings_plan_holding(portfolio):
+            st.write(C.savings_plan_line(_date.today(), account.savings_plan_day))
 
     # 6. Needs attention first (sentence only; Repair lives in Settings Health).
     blockers = [h for h in holdings if h["blocked"]]
@@ -296,7 +341,8 @@ def page_portfolio() -> None:
                 st.error(e)
             return
         save_portfolio(cleaned, paths.DATA_PORTFOLIO)
-        save_account(AccountState(account.base_currency, float(cash), profile, True))
+        save_account(AccountState(account.base_currency, float(cash), profile, True,
+                                  account.savings_plan_day))
         st.session_state["_extra"] = []
         st.session_state["_saved_unknown"] = len(warnings)
 
