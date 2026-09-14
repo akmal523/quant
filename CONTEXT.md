@@ -452,12 +452,12 @@ continuation can resume from this file alone. All unreleased work since tag
 | 10.5.0 | Polish v2/v3 first pass: four-page workspace, copy module, concurrency fix, cash-rate schedule |
 | 10.5.1 | P1-P10 polish: read-only connections, retry, runner mutex, copy catalog + banned-token test, portfolio_history, names/search, workspace rebuild |
 | 10.5.2 | Punchlist v3: empty states, regime masking guard, status single mapper, visuals, autocomplete, ISIN repair infrastructure |
-| 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). HEAD `5844631`, suite **304 passed**, version string still 10.5.2 |
+| 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). Last code commit: 5844631; docs commits: 738f3d4, 9e88de5; HEAD at cycle close: 9e88de5. Suite **304 passed**, version string still 10.5.2 |
 
 Unreleased commit chain: `00ecd8e` → `570f875` → `981c65f`, `1074e0d` → `1d527ee`
 → `707a1b6` → `3292226` → `caff829`, `2ea724d` → `3aff21d`, `79c2821` → `2e6e1b3`
 → `70d8c44` → `b929ae9` → `6affffc` → `352065f` → `d6e95f4` → `5c15c9e`
-→ `b26a864` → `5844631`.
+→ `b26a864` → `5844631` (last code) → `738f3d4` → `9e88de5` (docs).
 
 ### Product identity
 
@@ -594,7 +594,7 @@ is the navigation entry only.
 | SH-1 | scores vanished after a failed review | latest-dir shadowing | `latest_review(ok_only=True)` + as-of line | test_h3_6 |
 | LG-1 | Today S0 with six reviews | ok_only excluded legacy artifacts | missing status = legacy ok; unified reads | test_h3_7 |
 | ST-1 | Settings line stale after refresh | read review-era state | `update_state.json` + live compose | test_h3_7 |
-| PH-1 | failed row still listed | pre-H3.3 DB row | read-side filter to ok rows | test_h3_7 |
+| PH-1 | failed row still listed (amended, Ruling A) | false S4 card pre-H3.3; NO phantom row existed (the 23:24 review was genuine ok) | H3.3 no-history-on-failure prevents future phantoms; L3 keeps legacy ok rows; read-side filter | test_h3_7 |
 | AO-1 | "From the review of …, 00:00" | bogus time, non-catalog string | `fmt_review_ts`, single catalog as-of string, banned token | test_h3_7/8 |
 | CH-1 | illegible annotation; "13 Sep" x5 | in-plot gray text; day-only ticks | top-margin white box; hh:mm under 3 days | test_h3_7 |
 | SF-1 | Settings "No market data" mid-refresh | transient locked read erased state | fallback to update_state | test_h3_8 |
@@ -606,7 +606,7 @@ is the navigation entry only.
 | DS-1 | discovery sentence dead live | index lacked names | cached universe_master name backfill feeding index | test_h3_8 |
 | MH-1 | "No price history" suspicion | hypothesis | disproven (charts read market_history); regression test | test_h3_8 |
 | CU-1 | SGLN.L "Stock", missing currency/ISIN | taxonomy over CSV; empty strings | CSV class precedence; NULL not ''; named classification | test_h3_5 |
-| CU-2 | cannot track Apple (closed universe) | W prune correct; no UI path | discovery sentence + Portfolio add-input candidates "- not tracked yet" | test_h3_5 |
+| CU-2 | cannot track Apple (closed universe) | W prune correct; no UI path | discovery sentence + Portfolio add-input candidates "- not tracked yet"; RESOLVED LIVE 14 Sep: AAPL tracked via discovery loop, fetched, charted (registry 89) | test_h3_5 |
 | IS-1 | 5J50.DE held but unroutable; false remedy | no registry row; remedy lied | `ensure_registry_rows`; curated ingest; repair single-home Settings | test_registry_repair |
 | EX-1 | external URL printed; deprecation warnings | bind default; old API | localhost default, `--lan`, README proxy warning; `width="stretch"` | manual + lint |
 | OB-1 | Open Today dead; leftover progress; "advice below" empty | session-state advice | artifact advice + `st.switch_page`; container cleared | test_feedback_contract |
@@ -636,7 +636,7 @@ throughout. Key guards: `test_run_to_ui`, `test_ui_copy`, `test_registry_bounded
 
 ### Current state and open items
 
-HEAD `5844631`; version string 10.5.2; suite 304; ruff zero new on changed files;
+HEAD `9e88de5`; version string 10.5.2; suite 304; ruff zero new on changed files;
 live doctor healthy: W=90, names clean, 18 non-routable ISINs explained, search
 probes correct, actions oracle 2, sentiment cache 30 default-scorer (legacy),
 cards correct.
@@ -647,12 +647,17 @@ cards correct.
    per settled scope, checklist (D1 audit, names clean on fresh install, publish
    path assertion, CLI ≤20 lines per command, `git ls-files data/` audit, bounded
    test, codecov badge either uploading or removed), tag `v10.6.0`.
-3. **H3.8 manual-pass matrix** (gates R8): Today cards or cooldown footnote on the
-   live portfolio; Growth IWDA line + percent-only annotation; 5J50.DE history;
-   Settings line stable during refresh; Reviews six ok rows; apple discovery
-   sentence.
-4. **Verify post-H3.6 fetches write `scorer: model`** (live cache still all
-   default; if new fetches stay default, the scoring write path is unwired).
+3. **H3.8 manual-pass matrix** — REPORTED 14 Sep 2026: 7 PASS (1 cooldown footnotes
+   + Waiting statuses; 3 5J50.DE chart; 4 Settings stable; 5 six genuine ok rows;
+   6 apple tracked via discovery; 7 news weekday/cap/word). Item 2 (Growth IWDA)
+   evidence accepted via `test_chart_rules` (Ruling B). Item 8 FAILED -> H4.
+   Live: `Scores as of Monday 14 Sep 2026.` with AMZN/GDX bars after the 14 Sep
+   review (N1 verified).
+4. **H4 (from item 8): scoring write path unwired.** Fresh cache still `scorer
+   model 0 / default 30`; `fetch_news_items` hardcodes `default` and never calls
+   the scorer. Fixed BEFORE R8: injectable scorer boundary in `load_news`, batch
+   per symbol, model available -> `scorer: model`, failure/timeout -> `default`
+   + one log line; recorded-source tests with a boundary stub.
 5. Follow-up issues (non-gating): capture `docs/assets/today.png`; curated ISINs
    beyond 5J50.DE; legacy ruff E/I/N; PyPI name + Trusted Publishing; GitHub
    topics; `.rooignore` manual entries; coverage ratchet toward 80.
