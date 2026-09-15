@@ -11,7 +11,6 @@ import pandas as pd
 from quant.config import (
     CORE_ASSETS, SATELLITE_ASSETS, ACTIVE_ASSETS, SECTOR_ASSETS,
     TARGET_WEIGHTS, REBALANCE_FREQUENCY_DAYS, REBALANCE_DRIFT_TIERS,
-    MIN_TRADE_SIZE_EUR, REBALANCE_FIRST_RUN,
 )
 from quant.data.currency import get_fx_to_eur
 
@@ -219,7 +218,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
             pnl_eur = float('nan')
             current_value = float('nan')
             decision = "NO DATA"
-            reasoning = f"No valid price data to compute PnL"
+            reasoning = "No valid price data to compute PnL"
         else:
             pnl_pct = ((curr_price - buy_price) / buy_price * 100) if buy_price and buy_price > 0 else 0
             shares = orig_amount / buy_price if buy_price > 0 else 0.0

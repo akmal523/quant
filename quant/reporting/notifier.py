@@ -27,7 +27,6 @@ import logging
 import requests
 
 from quant.portfolio.cash_rate import current_cash_apy
-from quant.portfolio.risk import daily_risk_free_rate
 
 logger = logging.getLogger(__name__)
 

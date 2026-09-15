@@ -18,7 +18,6 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 from quant import paths
 import os
 import threading
-import time
 from datetime import date as _date
 from datetime import datetime as _dt
 

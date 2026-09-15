@@ -11,7 +11,6 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import pandas as pd
 
 from quant.config import (
-    CORE_ASSETS, SATELLITE_ASSETS, ACTIVE_ASSETS, SECTOR_ASSETS,
     TARGET_WEIGHTS, MIN_TRADE_SIZE_EUR,
 )
 
@@ -172,7 +171,6 @@ def test_check_volume_liquidity():
 
 
 if __name__ == "__main__":
-    import sys
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
         t()

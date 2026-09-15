@@ -10,7 +10,6 @@ import urllib.request
 import json
 
 from quant.cli.output import reporter
-from quant.config import CONVERT_TO_EUR
 from quant.data.universe import CURRENCY_SYMBOLS
 
 # Module-level EUR/USD rate cache (fetched once per process).

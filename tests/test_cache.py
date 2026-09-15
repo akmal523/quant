@@ -2,7 +2,6 @@ import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 # test_cache.py
-import os
 from quant.data.fundamentals import _save_to_cache, _get_from_cache, _compute_icr
 
 def test_caches():

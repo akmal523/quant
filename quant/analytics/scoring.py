@@ -16,8 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from quant.config import (
     WEIGHT_STEWARDSHIP, WEIGHT_TECHNICAL,
     FILTER_MAX_PE, FILTER_MIN_ROE,
-    STRUCT_MAX_PE, STRUCT_MAX_PEG, STRUCT_MIN_ROE,
-    STW_GEN_MAX_DE, STW_GEN_MID_DE, STW_GEN_MIN_ROE, STW_GEN_HI_ROE, STW_GEN_MIN_ICR,
+    STRUCT_MAX_PEG, STW_GEN_MAX_DE, STW_GEN_MID_DE, STW_GEN_MIN_ROE, STW_GEN_HI_ROE, STW_GEN_MIN_ICR,
     STW_FIN_MIN_PB, STW_FIN_MAX_PB, STW_FIN_MIN_ICR,
     MIN_STRUCT_GRADE_FOR_BUY, MIN_TACT_GRADE_FOR_BUY,
     SENTIMENT_NO_DATA_PENALTY,
@@ -333,7 +332,6 @@ def position_size(
     avg_loss:         float | None,
     asset_annual_vol: float | None,
 ) -> dict:
-    from quant.config import KELLY_FRACTION, TARGET_VOLATILITY, MAX_POSITION_PCT
     kelly = kelly_position_size(win_rate or 0.0, avg_win or 0.0, avg_loss or 0.0)
     tv = target_volatility_size(asset_annual_vol or 0.30)
     final = min(kelly, tv) if kelly > 0 else tv

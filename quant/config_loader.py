@@ -15,7 +15,6 @@ Dependencies: yaml, pathlib.
 from __future__ import annotations
 
 from quant import paths
-from pathlib import Path
 
 import yaml
 

@@ -44,7 +44,7 @@ def test_stewardship_score_v2_zero_values():
     assert s1 > 0, f"PB=0 should score, got {s1}"
     s2 = stewardship_score_v2({"PB": 2.0, "DebtToEquity": 0.0, "ROE": 0.25, "ICR": 8.0}, sector="Technology")
     assert s2 > 0, f"D/E=0 should score, got {s2}"
-    print(f"  [PASS] test_stewardship_score_v2_zero_values")
+    print("  [PASS] test_stewardship_score_v2_zero_values")
 
 def test_evaluate_structural_grade_etf_bypass():
     """ETF bypass: PE=None + ROE=None → 85.0."""

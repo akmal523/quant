@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import datetime as dt
 
-from quant.config import TCA_PARTICIPATION_CAP
 
 
 def implementation_shortfall(signal_price: float, fill_price: float, side: str) -> float:

@@ -8,8 +8,8 @@ from quant.data.database import get_connection
 def test_market_db():
     conn = get_connection()
     
-    # Mock data
-    df = pd.DataFrame({"Symbol": ["AAPL", "MSFT"], "Close": [150.0, 300.0]})
+    # Mock data (used by the DuckDB replacement scan via `SELECT * FROM df`).
+    df = pd.DataFrame({"Symbol": ["AAPL", "MSFT"], "Close": [150.0, 300.0]})  # noqa: F841
     
     # Write
     conn.execute("CREATE OR REPLACE TABLE market_history AS SELECT * FROM df")

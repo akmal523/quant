@@ -38,7 +38,7 @@ from quant.config import (
 from quant.data.database import get_connection, init_db
 from quant.execution.taxonomy import (
     get_instrument_class, log_universe_event, mark_delisted,
-    CORE_STATUSES, DEMOTABLE_STATUSES,
+    CORE_STATUSES,
 )
 
 # Legacy watchlist CSV (fallback only). Plan 3 (Phase 1): the graduation engine
@@ -160,7 +160,6 @@ def demote_stale_active(months: int = ACTIVE_DEMOTE_MONTHS,
     """
     conn = get_connection()
     now = dt.date.today().isoformat()
-    cutoff = (dt.date.today() - dt.timedelta(days=months * 30)).isoformat()
     graduated_this_run = graduated_this_run or set()
 
     rows = conn.execute(

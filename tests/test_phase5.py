@@ -15,7 +15,7 @@ import pandas as pd
 from quant.execution.taxonomy import validate_isin, INVERSE_STRUCTURE
 from quant.execution.routing import route_signal, build_execution_instruction
 from quant.analytics.scoring import etf_quality_score, etf_tactical_grade
-from quant.execution.discovery import months_between, demote_stale_active, graduate
+from quant.execution.discovery import demote_stale_active, graduate
 
 
 class TestGraduationGracePeriod(unittest.TestCase):

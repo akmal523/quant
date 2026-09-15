@@ -23,8 +23,8 @@ import polars as pl
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from quant.data.database import get_connection, init_db
-from quant.data.currency import apply_fx_conversion, get_eur_rate
-from quant.portfolio.portfolio import load_portfolio, audit_portfolio, enhanced_portfolio_audit, account_effectiveness, print_effectiveness_report
+from quant.data.currency import get_eur_rate
+from quant.portfolio.portfolio import load_portfolio, enhanced_portfolio_audit, account_effectiveness, print_effectiveness_report
 from quant.features.indicators import add_all_indicators, fast_volatility
 from quant.analytics.sentiment import NLPScorer
 from quant.portfolio.risk import calculate_risk_penalty
@@ -94,7 +94,6 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
             return None
 
         price_hist = df.drop(columns=["Symbol", "Sector"], errors="ignore")
-        native_ccy = deduce_currency(symbol)
         # Get sector from the queried data
         sector = df['Sector'].iloc[0] if 'Sector' in df.columns else "Unknown"
 
@@ -195,7 +194,6 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     engine, cash manager, tax optimizer, attribution, guardrails) into a single
     coherent report. Non-fatal — wrapped in try/except by the caller.
     """
-    import numpy as np
     import pandas as pd
 
     from quant.portfolio.portfolio_context import PortfolioContext

@@ -11,12 +11,10 @@ New in this version:
 """
 from __future__ import annotations
 
-import os
 import time
-import sqlite3
 import logging
 import threading
-from quant.data.database import get_connection, init_db
+from quant.data.database import get_connection
 
 import requests
 import yfinance as yf
@@ -215,7 +213,6 @@ def _yf_worker(symbol: str, result: list) -> None:
         info = ticker.info or {}
         
         pe  = info.get("trailingPE") or info.get("forwardPE")
-        pb  = info.get("priceToBook") # <- ADD THIS
         peg = info.get("pegRatio")
         roe = info.get("returnOnEquity")
         de  = info.get("debtToEquity")

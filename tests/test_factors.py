@@ -8,7 +8,6 @@ from __future__ import annotations
 import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import numpy as np
 import pandas as pd
 
 
@@ -30,7 +29,7 @@ def test_factor_scores_high_quality_ranks_higher():
     assert "composite_score" in out.columns
     # Best fundamentals should rank first.
     assert out["composite_score"].iloc[0] > out["composite_score"].iloc[2]
-    print(f"  [PASS] test_factor_scores_high_quality_ranks_higher")
+    print("  [PASS] test_factor_scores_high_quality_ranks_higher")
 
 
 def test_factor_scores_zscore_columns_present():
@@ -47,7 +46,7 @@ def test_factor_scores_zscore_columns_present():
     out = factor_scores(features)
     for col in ["value_z", "quality_z", "momentum_z", "low_risk_z", "sentiment_z"]:
         assert col in out.columns, f"missing {col}"
-    print(f"  [PASS] test_factor_scores_zscore_columns_present")
+    print("  [PASS] test_factor_scores_zscore_columns_present")
 
 
 def test_sector_neutral_rank():
@@ -61,7 +60,7 @@ def test_sector_neutral_rank():
     out = sector_neutral_rank(features)
     assert out["sector_rank"].iloc[0] == 1.0  # best Tech
     assert out["sector_rank"].iloc[2] == 1.0  # best Fin
-    print(f"  [PASS] test_sector_neutral_rank")
+    print("  [PASS] test_sector_neutral_rank")
 
 
 # ── No-Lookahead Fundamentals ─────────────────────────────────────────────────
@@ -79,7 +78,7 @@ def test_get_fundamentals_as_of_no_lookahead():
     res = get_fundamentals_as_of("TEST", "2024-03-01")
     assert res is not None
     assert res["PE"] == 10.0, f"lookahead! got PE={res['PE']}"
-    print(f"  [PASS] test_get_fundamentals_as_of_no_lookahead")
+    print("  [PASS] test_get_fundamentals_as_of_no_lookahead")
 
 
 # ── Cost-Aware Backtest ───────────────────────────────────────────────────────
@@ -113,7 +112,7 @@ def test_cost_aware_backtest_empty():
     })
     res = run_cost_aware_backtest(hist)
     assert res["CA_Trades"] == 0
-    print(f"  [PASS] test_cost_aware_backtest_empty")
+    print("  [PASS] test_cost_aware_backtest_empty")
 
 
 # ── Liquidity & Validation ────────────────────────────────────────────────────
@@ -126,7 +125,7 @@ def test_liquidity_score():
     assert liquidity_score(2_000_000) == 1.0
     assert is_liquid(2_000_000) is True
     assert is_liquid(500_000) is False
-    print(f"  [PASS] test_liquidity_score")
+    print("  [PASS] test_liquidity_score")
 
 
 def test_validate_market_data_raises_on_nonpositive():
@@ -139,7 +138,7 @@ def test_validate_market_data_raises_on_nonpositive():
         assert False, "should have raised"
     except ValueError:
         pass
-    print(f"  [PASS] test_validate_market_data_raises_on_nonpositive")
+    print("  [PASS] test_validate_market_data_raises_on_nonpositive")
 
 
 def test_sanitize_fundamentals():
@@ -150,11 +149,10 @@ def test_sanitize_fundamentals():
     assert out["PE"] is None
     assert out["ROE"] is None
     assert out["PEG"] == 1.0
-    print(f"  [PASS] test_sanitize_fundamentals")
+    print("  [PASS] test_sanitize_fundamentals")
 
 
 if __name__ == "__main__":
-    import sys
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
         t()

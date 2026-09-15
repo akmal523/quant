@@ -6,7 +6,6 @@ regimes. Signal = z-scored 6-month return.
 """
 from __future__ import annotations
 
-import numpy as np
 
 from quant.strategy.strategies.base import BaseStrategy
 

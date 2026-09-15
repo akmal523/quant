@@ -13,7 +13,6 @@ No production behavior changes; the artifact-producing code path is the real one
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 

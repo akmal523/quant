@@ -33,7 +33,7 @@ def test_survivorship_bias_warning_emitted():
     result = walk_forward_optimization(mock)
     assert "survivorship_bias_warning" in result, "Missing survivorship bias warning"
     assert "SURVIVORSHIP BIAS" in result["survivorship_bias_warning"], "Warning content mismatch"
-    print(f"  [PASS] test_survivorship_bias_warning_emitted: warning present")
+    print("  [PASS] test_survivorship_bias_warning_emitted: warning present")
 
 
 def test_survivorship_bias_warning_empty():
@@ -44,7 +44,7 @@ def test_survivorship_bias_warning_empty():
     result = walk_forward_optimization(short)
     assert "survivorship_bias_warning" in result, "Missing warning on empty result"
     assert result["wfo_periods"] == 0, "Expected 0 periods for short history"
-    print(f"  [PASS] test_survivorship_bias_warning_empty: warning present, periods=0")
+    print("  [PASS] test_survivorship_bias_warning_empty: warning present, periods=0")
 
 
 # ── WFO Correctness ────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ def test_wfo_insufficient_data():
     result = walk_forward_optimization(short)
     assert result["wfo_periods"] == 0, "Expected 0 periods for insufficient data"
     assert result["wfo_oos_avg_pnl"] is None, "OOS avg PnL should be None"
-    print(f"  [PASS] test_wfo_insufficient_data: empty result as expected")
+    print("  [PASS] test_wfo_insufficient_data: empty result as expected")
 
 
 # ── Macro Backtest ─────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ def test_historical_backtest_edge_cases():
     short = pd.DataFrame({"Close": [100.0] * 10})
     result = run_historical_backtest(short)
     assert result["Backtest_Signal"] == "N/A", "Expected N/A for short input"
-    print(f"  [PASS] test_historical_backtest_edge_cases: both edge cases handled")
+    print("  [PASS] test_historical_backtest_edge_cases: both edge cases handled")
 
 
 # ── Run 'em All ────────────────────────────────────────────────────────────────
