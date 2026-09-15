@@ -470,7 +470,7 @@ continuation can resume from this file alone. All unreleased work since tag
 | 10.5.0 | Polish v2/v3 first pass: four-page workspace, copy module, concurrency fix, cash-rate schedule |
 | 10.5.1 | P1-P10 polish: read-only connections, retry, runner mutex, copy catalog + banned-token test, portfolio_history, names/search, workspace rebuild |
 | 10.5.2 | Punchlist v3: empty states, regime masking guard, status single mapper, visuals, autocomplete, ISIN repair infrastructure |
-| 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). Last code commit: 5844631; docs commits: 738f3d4, 9e88de5; HEAD at cycle close: 9e88de5. Suite **304 passed**, version string still 10.5.2 |
+| 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). Last code commit: 5844631; docs commits: 738f3d4, 9e88de5. R8 (`2022302`) + H4 (`441271a`) + ruff gate (`df314a8`) followed. Suite **327 passed**, released as **10.6.0** (tag `v10.6.0`) |
 
 Unreleased commit chain: `00ecd8e` → `570f875` → `981c65f`, `1074e0d` → `1d527ee`
 → `707a1b6` → `3292226` → `caff829`, `2ea724d` → `3aff21d`, `79c2821` → `2e6e1b3`
@@ -655,7 +655,8 @@ throughout. Key guards: `test_run_to_ui`, `test_ui_copy`, `test_registry_bounded
 
 ### Current state and open items
 
-HEAD `9e88de5`; version string 10.5.2; suite 304; ruff zero new on changed files;
+Released **10.6.0** (tag `v10.6.0`); suite 327; ruff zero new on changed files
+plus repo-wide F-codes fixed (legacy E/I/N/UP deferred);
 live doctor healthy: W=90, names clean, 18 non-routable ISINs explained, search
 probes correct, actions oracle 2, sentiment cache 30 default-scorer (legacy),
 cards correct.

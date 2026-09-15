@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quant-ai"
-version = "10.5.1"
+version = "10.6.0"
 description = "Institutional-grade systematic equity pipeline for a EUR-native family office."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -109,7 +109,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 known-first-party = ["quant"]
 
 [tool.bumpversion]
-current_version = "10.5.1"
+current_version = "10.6.0"
 commit = true
 tag = true
 tag_name = "v{new_version}"

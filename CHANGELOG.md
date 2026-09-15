@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [10.6.0] - unreleased
+## [10.6.0] - 2026-09-15
 
 The R1-R9 program and the H2/H3 hotfix cycles. The product is repositioned and
 hardened as a daily portfolio manager; every change below is guarded by a test.
@@ -35,6 +35,10 @@ hardened as a daily portfolio manager; every change below is guarded by a test.
   under three days.
 - **Curated inputs**: `data/isin_curated.csv`, `data/names_curated.csv`,
   `data/themes.csv` (all un-ignored in `.gitignore`).
+- **Calendar lines (R8)**: optional `savings_plan_day` (1-31) in
+  `data/account.yaml`; Today shows the savings-plan countdown under the actions
+  block (with a same-day variant), and a markets-closed freshness line in the
+  header when today is non-trading and the latest bar is the previous session.
 
 ### Changed
 
@@ -58,13 +62,17 @@ hardened as a daily portfolio manager; every change below is guarded by a test.
 - Zero actions on a drifting portfolio (time-gate silence); mixed-run Today
   header; Growth annotation carrying EUR; dead discovery sentence; Settings
   "No market data" mid-refresh; operation-specific own-session copy.
+- News sentiment write path (H4): `load_news` now scores fresh headlines through
+  FinBERT when the stack is available and stores `scorer: model`; an absent
+  model, a failure, or the timeout keeps `scorer: default` with one log line.
 
 ### Tests
 
-- Suite grew 145 → **304 passed**; golden `tests/golden/backtest_2024.json`
+- Suite grew 145 → **327 passed**; golden `tests/golden/backtest_2024.json`
   unmoved. New guards: `test_registry_bounded`, `test_names_recorded_source`
   (D1), `test_themes`, `test_news_format`, `test_h3_5/6/7/8`, `test_doctor`,
-  `test_feedback_contract`, `test_review_status`, `test_explore_news`.
+  `test_feedback_contract`, `test_review_status`, `test_explore_news`,
+  `test_h4`, `test_r8_calendar`.
 
 ---
 
