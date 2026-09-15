@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.6.1] - 2026-09-15
+
+### Fixed - Fresh-install (F-series)
+
+- **F1/F3** `quant doctor` initializes the DB before counting, so registry counts
+  read 0 (not -1) and `market_history` resolves instead of raising a
+  CatalogException on a fresh install.
+- **F2** Path resolver splits development vs production: a source checkout uses
+  the repo root; an installed wheel uses `user_data_dir("quant-ai")` (never
+  site-packages). `QUANT_DATA_DIR` overrides. The dashboard script path now
+  resolves from the package dir.
+- **F5** `themes.csv` ships as package data (`quant/_data/`) and a first-run
+  bootstrap seeds the writable data dir (input templates + themes) without
+  overwriting user files.
+- **F4** Explore renders an honest empty state for an instrument with no registry
+  row instead of showing the bare ticker.
+
+### Tests
+
+- New `test_f_series.py` (12 tests). Suite 327 -> 339.
+
+---
+
 ## [10.6.0] - 2026-09-15
 
 The R1-R9 program and the H2/H3 hotfix cycles. The product is repositioned and

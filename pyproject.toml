@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quant-ai"
-version = "10.6.0"
+version = "10.6.1"
 description = "Institutional-grade systematic equity pipeline for a EUR-native family office."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,7 @@ dependencies = [
     "aiohttp>=3.9",
     "tenacity>=8.2",
     "duckdb>=1.0.0",
+    "platformdirs>=4.0",
     "feedparser>=6.0",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
@@ -109,7 +110,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 known-first-party = ["quant"]
 
 [tool.bumpversion]
-current_version = "10.6.0"
+current_version = "10.6.1"
 commit = true
 tag = true
 tag_name = "v{new_version}"

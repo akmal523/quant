@@ -69,3 +69,5 @@ Thumbs.db
 !data/isin_curated.csv
 !data/names_curated.csv
 !data/themes.csv
+# Bundled package data (seeded into the user data dir on first run).
+!quant/_data/themes.csv

@@ -485,10 +485,15 @@ def page_explore() -> None:
     name = card["name"]
     cls = card["class"]
 
-    st.subheader(name)
-    st.caption(symbol)
-    if card["subtitle"]:
-        st.caption(card["subtitle"])
+    # F-series (bug 4): a bare-symbol fallback is not a name — render an honest
+    # empty state instead of showing the ticker as a title.
+    if card["has_details"]:
+        st.subheader(name)
+        st.caption(symbol)
+        if card["subtitle"]:
+            st.caption(card["subtitle"])
+    else:
+        st.info(C.EXPLORE_NO_DETAILS.format(symbol=symbol))
     structure = get_structure(symbol)
     if structure in (INVERSE_STRUCTURE, LEVERAGED_STRUCTURE):
         st.warning("This product is leveraged or inverse. It can lose value quickly.")

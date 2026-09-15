@@ -36,6 +36,10 @@ def explore_card_fields(symbol: str) -> dict:
     except Exception:  # noqa: BLE001
         row = None
 
+    # F-series (bug 4): has_details distinguishes a real registry row from a
+    # bare-symbol fallback, so the page can render an honest empty state instead
+    # of showing the ticker as if it were a name.
+    has_details = bool(row)
     nm = (row[0] if row and row[0] else "")
     cls = (row[1] if row and row[1] else "") or classify_instrument(symbol)
     reg_cur = (row[2] if row and row[2] else "")
@@ -56,4 +60,5 @@ def explore_card_fields(symbol: str) -> dict:
         "isin": isin,
         "subtitle": subtitle,
         "isin_source": broker.get("isin_source", ""),
+        "has_details": has_details,
     }

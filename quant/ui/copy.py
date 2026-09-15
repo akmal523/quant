@@ -274,6 +274,10 @@ SCORES_NONE = "No scores for {name} yet. Scores appear after the next review."
 SCORES_AS_OF = "Scores as of {date}."
 NEWS_CHECKING = "Checking news..."
 HOW_TO_BUY_ISIN_MISSING = "ISIN missing for {name}. Repair it in Settings."
+# F-series (bug 4): honest empty state when the instrument has no registry row
+# yet (fresh install / untracked) — never show the bare ticker as a title.
+EXPLORE_NO_DETAILS = ("No details for {symbol} yet. Refresh market data in "
+                      "Settings to load its name and ISIN.")
 # H3.4: empty-query helper (distinct from the zero-match sentence).
 SEARCH_HELPER = "Type a name, symbol, ISIN or theme to explore."
 # H3.4: news display — cap the visible rows, expand the rest.

@@ -76,6 +76,15 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     _verbose = bool(getattr(_args, "verbose", False)) if _args is not None else False
 
     print(f"db: {paths.DB_FILE}")
+    # F-series: a fresh install has no schema yet. Initialize it so counts are
+    # real (0, not -1) and market_history resolves instead of raising a
+    # CatalogException. init_db also seeds the writable data dir.
+    try:
+        from quant.data.database import init_db
+
+        init_db()
+    except Exception as e:  # noqa: BLE001
+        print(f"db init: failed ({type(e).__name__}: {e})")
     try:
         with read_only_connection() as conn:
             def _count(sql: str) -> int:
@@ -172,7 +181,8 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
 
         for sym in ("AMZN", "5J50.DE", "SGLN.L"):
             f = explore_card_fields(sym)
-            print(f"explore card {sym}: title={f['name']!r} subtitle={f['subtitle']!r}")
+            print(f"explore card {sym}: title={f['name']!r} "
+                  f"subtitle={f['subtitle']!r} details={f['has_details']}")
     except Exception as e:  # noqa: BLE001
         print(f"explore cards: unreadable ({e})")
 
@@ -249,7 +259,9 @@ def _cmd_dash(args: argparse.Namespace) -> int:
     except Exception:  # noqa: BLE001
         pass
 
-    dash = os.path.join(str(paths.PROJECT_ROOT), "quant", "dashboard.py")
+    # F-series: the dashboard script lives in the PACKAGE, not the writable root
+    # (which is the user data dir when installed).
+    dash = os.path.join(str(paths.PACKAGE_DIR), "dashboard.py")
     address = "0.0.0.0" if getattr(args, "lan", False) else "127.0.0.1"
     return subprocess.call(
         [sys.executable, "-m", "streamlit", "run", dash,

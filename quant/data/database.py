@@ -124,7 +124,18 @@ def migrate_registry_display_name(conn) -> None:
 
 
 def init_db() -> None:
-    """Initializes unified OLAP schemas."""
+    """Initializes unified OLAP schemas.
+
+    F-series: also seeds the writable data dir (dirs + input templates + bundled
+    themes) so a fresh install has a valid DB location and input files before the
+    first read. Seeding never overwrites user-owned files.
+    """
+    try:
+        from quant.data.bootstrap import seed_user_data
+
+        seed_user_data()
+    except Exception:  # noqa: BLE001
+        pass
     conn = get_connection()
 
     # market_history: PRIMARY KEY (Symbol, Date) enables INSERT OR REPLACE
