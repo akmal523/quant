@@ -453,6 +453,43 @@ idempotent membership, the CSV ceiling, and the bulk-source refusal.
   freshness line (`MARKETS_CLOSED`) when today is non-trading and the latest bar
   is the previous session (Friday).
 
+## v10.6.1 Domain Additions (F-series — fresh install)
+
+### Path resolution: development vs production (F2)
+
+- [`quant/paths.py`](quant/paths.py) resolves the writable root by mode:
+  - **source checkout** (a `pyproject.toml` or `.git` sits next to the package)
+    -> the repo root (tests and the repo `data/` are used);
+  - **installed wheel** -> `platformdirs.user_data_dir("quant-ai")` (a wheel must
+    never write into site-packages);
+  - `QUANT_DATA_DIR` (env) overrides both, for tests, CI, and portable installs.
+- `PACKAGE_DIR` is always the installed package dir (shipped assets + the
+  dashboard script); `PROJECT_ROOT` is the writable root. Importing `paths`
+  performs **no** filesystem writes; `ensure_dirs()` creates the runtime dirs.
+
+### First-run seeding (F5)
+
+- `themes.csv` ships as package data at [`quant/_data/themes.csv`](quant/_data/themes.csv)
+  (included in the wheel via `packages = ["quant"]`).
+- [`quant/data/bootstrap.py`](quant/data/bootstrap.py) `seed_user_data()` creates
+  the runtime dirs and seeds the **empty input templates** (headers only, shipped
+  in code so no user portfolio/registry leaks into the wheel) plus the bundled
+  `themes.csv` into the writable data dir. It NEVER overwrites a user-owned file
+  and never raises. Called from `init_db()`.
+
+### Doctor initializes the DB (F1/F3)
+
+- `quant doctor` calls `init_db()` before reading, so on a fresh install registry
+  counts read `0` (not `-1`) and `market_history` resolves instead of raising a
+  `CatalogException`. The card probe prints `details={has_details}` (F4).
+
+### Explore empty state (F4)
+
+- [`quant.ui.cards.explore_card_fields`](quant/ui/cards.py) returns `has_details`
+  (a real registry row exists). [`quant/ui/render.py`](quant/ui/render.py) renders
+  `EXPLORE_NO_DETAILS` for an instrument with no registry row, never the bare
+  ticker as a title.
+
 ---
 
 ## v10.6.0 Cycle Ledger (V1-V8, R1-R9, H2-H3.8)
@@ -471,6 +508,7 @@ continuation can resume from this file alone. All unreleased work since tag
 | 10.5.1 | P1-P10 polish: read-only connections, retry, runner mutex, copy catalog + banned-token test, portfolio_history, names/search, workspace rebuild |
 | 10.5.2 | Punchlist v3: empty states, regime masking guard, status single mapper, visuals, autocomplete, ISIN repair infrastructure |
 | 10.5.2 + unreleased (→10.6.0) | R1-R9 program and H2/H3 hotfix cycles (below). Last code commit: 5844631; docs commits: 738f3d4, 9e88de5. R8 (`2022302`) + H4 (`441271a`) + ruff gate (`df314a8`) followed. Suite **327 passed**, released as **10.6.0** (tag `v10.6.0`) |
+| 10.6.1 | F-series fresh-install hotfix: dev/production path split (`user_data_dir("quant-ai")`), first-run seeding + bundled themes, doctor DB init, Explore empty state. Suite **339 passed** |
 
 Unreleased commit chain: `00ecd8e` → `570f875` → `981c65f`, `1074e0d` → `1d527ee`
 → `707a1b6` → `3292226` → `caff829`, `2ea724d` → `3aff21d`, `79c2821` → `2e6e1b3`
@@ -655,8 +693,9 @@ throughout. Key guards: `test_run_to_ui`, `test_ui_copy`, `test_registry_bounded
 
 ### Current state and open items
 
-Released **10.6.0** (tag `v10.6.0`); suite 327; ruff zero new on changed files
-plus repo-wide F-codes fixed (legacy E/I/N/UP deferred);
+Released **10.6.1** (F-series fresh-install hotfix; tag `v10.6.0` marks 10.6.0);
+suite 339; ruff zero new on changed files plus repo-wide F-codes fixed (legacy
+E/I/N/UP deferred);
 live doctor healthy: W=90, names clean, 18 non-routable ISINs explained, search
 probes correct, actions oracle 2, sentiment cache 30 default-scorer (legacy),
 cards correct.
