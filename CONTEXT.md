@@ -691,7 +691,11 @@ cards correct.
 5. Follow-up issues (non-gating): capture `docs/assets/today.png`; curated ISINs
    beyond 5J50.DE; legacy ruff E/I/N; PyPI name + Trusted Publishing; GitHub
    topics; `.rooignore` manual entries; coverage ratchet toward 80.
-6. Launch sequence post-tag: topics, launch post, demo, the two issues above.
+6. **Step 3 — launch** (docs-only, `docs/launch.md`): exact topics + description
+   + Pages link, repo-metadata and follow-up-issue `gh` commands, the 10.6.0
+   launch post + demo script. Live briefing link verified HTTP 200
+   (https://akmal523.github.io/quant/). Repo metadata and issue creation need an
+   authenticated `gh` (unauthenticated in the agent session).
 
 ### Continuation protocol
 
