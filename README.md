@@ -303,7 +303,6 @@ participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 | [`CONTEXT.md`](CONTEXT.md) | Domain vocabulary, data contracts, module map, ADRs |
 | [`CHANGELOG.md`](CHANGELOG.md) | Full version history |
 | [`tests/README.md`](tests/README.md) | Test isolation, coverage, golden files |
-| [`plans/`](plans/) | Engineering change proposals |
 | API docs | `mkdocs serve` (deployed to GitHub Pages) |
 
 ---

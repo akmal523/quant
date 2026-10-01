@@ -60,12 +60,28 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
+.vscode/
 *.swp
 *.swo
 *~
+
+# AI / code-generation tooling (not part of the product)
+.rooignore
+.roorules
+.rules
+rules_*.txt
+.cursor/
+.cursorrules
+.aider*
+.claude/
+CLAUDE.md
+.windsurfrules
+.continue/
+
+# Non-essential docs (kept out of the public repo)
+plans/
+ANALYSIS_REPORT.md
+docs/launch.md
 !data/isin_curated.csv
 !data/names_curated.csv
 !data/themes.csv

@@ -1,7 +1,5 @@
 site_name: Quant-AI
 site_description: Institutional-grade systematic equity pipeline
-exclude_docs: |
-  launch.md
 repo_url: https://github.com/akmal523/quant
 site_url: https://akmal523.github.io/quant/
 

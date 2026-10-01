@@ -64,6 +64,14 @@ Final optimization and polish. No new features; behavior is preserved.
   releases link to this changelog.
 - **`.coveragerc`**: corrected the stale `v10.6.22` comment to `v10.6.2`.
 
+### Removed
+
+- AI / code-generation tooling and non-essential docs are no longer tracked:
+  `.rooignore`, `.roorules`, `rules_heavy.txt`, `rules_light.txt`, `.vscode/`,
+  `plans/` (all files), `ANALYSIS_REPORT.md`, and `docs/launch.md`. They are now
+  listed in `.gitignore`. Main docs (README, CHANGELOG, CONTEXT, LICENSE,
+  CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, and the `docs/` site) are kept.
+
 ### Version
 
 - Bumped to **10.6.5** (`quant/__init__.py`, `pyproject.toml`).
