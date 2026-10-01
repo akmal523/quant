@@ -22,7 +22,6 @@ nav:
   - Home: index.md
   - API Reference: api.md
   - How the system talks to you: conversation.md
-  - Running it by itself: launch.md
   - Your first week: first_week.md
   - Backup and restore: backup.md
   - Migration (v10.7.0): migration_v10.7.0.md
