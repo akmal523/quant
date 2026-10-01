@@ -53,6 +53,17 @@ Final optimization and polish. No new features; behavior is preserved.
   portfolio, ui/render). The remaining pre-existing gaps across older modules
   are tracked as a follow-up (the audit scripts make them measurable).
 
+### Fixed
+
+- **CI coverage gate**: the workflow now installs the `dashboard` extra
+  (streamlit) so the UI tests run. Without it, 16 tests skipped and coverage fell
+  to 47 percent, below the 55 percent floor; with it, measured coverage is 59.62
+  percent.
+- **README**: a single "What's new" section (current release only), a clean
+  project intro, and a concise "What it does" / "How to use it" section. Older
+  releases link to this changelog.
+- **`.coveragerc`**: corrected the stale `v10.6.22` comment to `v10.6.2`.
+
 ### Version
 
 - Bumped to **10.6.5** (`quant/__init__.py`, `pyproject.toml`).

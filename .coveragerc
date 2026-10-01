@@ -15,7 +15,7 @@ exclude_lines =
     raise NotImplementedError
 # Ratchet floor = measured baseline (v10.4.2). Target: 80% (see tests/README.md).
 # Raise this number as coverage improves; never lower it.
-# v10.6.22: raised 42 -> 55 (measured 57.64% with the 21-test three-tier suite).
+# v10.6.2: raised 42 -> 55 (measured 59.62% with the three-tier suite).
 fail_under = 55
 
 [html]

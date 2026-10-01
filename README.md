@@ -6,18 +6,50 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-Quant-AI takes one snapshot of your portfolio per day after the market close,
-reviews your holdings against their targets, and says in plain language what to
-add, trim, or leave alone. It is built for long-horizon resource management, not
-for intraday trading: you place orders in the broker app, and Quant-AI advises
-and explains. The browser app is the product; the terminal is an optional power
-tool.
+Quant-AI is a self-hosted portfolio manager for one investor on Trade Republic.
+Once a day, after the close, it reviews your holdings against their targets and
+says in plain language what to add, trim, or leave alone. It advises and
+explains; you place the orders in the broker app. The browser app is the
+product; the terminal is an optional power tool.
 
 Live briefing: https://akmal523.github.io/quant/
 
 > **New here?** Read [`CONTEXT.md`](CONTEXT.md) for the domain vocabulary, data
 > contracts, architecture map, and the full **v10.6.0 cycle ledger** (every
 > decision, bug, and guard since 10.5.2).
+
+---
+
+## What it does
+
+- **Three-tier portfolio** — Fortress (never sell), Alpha (weekly trading),
+  Speculative (2 percent cap). Assign tiers in the user-editable
+  [`data/tiers.csv`](data/tiers.csv); [`data/portfolio.csv`](data/portfolio.csv)
+  stays broker-synced.
+- **Daily advice** — drift versus target drives add/trim; a rebalance cooldown
+  surfaces as "Waiting until {date}", never silence.
+- **Weekly cadence** — signals generate on Friday and are cached Monday through
+  Thursday. `quant weekly-report` writes a Markdown plus self-contained HTML
+  report (print to PDF from the browser).
+- **Emergency liquidity** — enter a cash amount and get a tax-aware sell order
+  (most liquid first, losers first for tax-loss harvesting).
+- **Auto-balance** — `quant suggest-rebalance` proposes tier reassignments to
+  fix allocation violations; you approve each one. It edits `data/tiers.csv`
+  only and never executes a trade.
+- **Risk controls** — Mean-CVaR tail optimization, kill-switch drawdown
+  breakers, weekly VaR, and hard data-quality gates that fail closed.
+- **Honest data** — bitemporal point-in-time fundamentals (no lookahead),
+  broker-synced PnL, and FinBERT news sentiment with no dictionary fallback.
+
+## How to use it
+
+1. Install and launch: `pip install -e .` then `quant dash`.
+2. Add holdings in the Portfolio page (type a name, symbol, or ISIN).
+3. Set cash and your risk profile, then press Save and review.
+4. Read the advice on Today and place orders in the broker app.
+
+The first run walks you through these steps; details are in
+[Quick start](#quick-start-browser-first) below.
 
 ---
 
@@ -30,84 +62,7 @@ Live briefing: https://akmal523.github.io/quant/
   backoff, and graceful degradation when data is missing.
 - **Docs** — a [performance tuning guide](docs/performance.md).
 
----
-
-## What's new in 10.6.4
-
-- **Auto-balance** — `quant suggest-rebalance` proposes tier reassignments to
-  fix allocation violations; `quant apply-rebalance --symbols ...` applies the
-  ones you approve; `quant autobalance-wizard` reviews them interactively. It
-  edits `data/tiers.csv` only and never executes a trade.
-- **Health check** — `quant health-check` reports data freshness, tiers
-  validation, tier allocations, database integrity, signal cache, and the data
-  source.
-- **Robustness** — a corrupted `tiers.csv` no longer crashes the load; parallel
-  batch scoring keeps 50+ asset portfolios fast.
-
----
-
-## What's new in 10.6.3
-
-- **Tier validation and repair** — `quant validate-tiers` and
-  `quant repair-tiers`; the Portfolio page flags unclassified assets and can
-  auto-assign a recommended tier.
-- **Tier-aware emergency liquidity** — sell ALPHA first, then SPECULATIVE, and
-  only as a last resort FORTRESS (with a capital gains tax warning).
-- **Tax-aware sell order** — losers first, then winners within the 1000 EUR
-  Freistellungsauftrag.
-- **Onboarding wizard** and per-tier empty states for first-time users.
-- **Stale signal cache** invalidates after 7 days; the weekly trade cap is
-  tracked from the trade log.
-- **No emoji anywhere** — enforced by a project-wide guard test.
-
----
-
-## What's new in 10.6.2
-
-- **Three-tier architecture** — Fortress (never sell), Alpha (weekly trading),
-  Speculative (2 percent cap). Tier assignments live in a new user-editable
-  [`data/tiers.csv`](data/tiers.csv); [`data/portfolio.csv`](data/portfolio.csv)
-  stays broker-synced.
-- **Weekly cadence** — signals generate on Friday and are cached Monday through
-  Thursday. `quant weekly-report` writes a Markdown + self-contained HTML report
-  (print to PDF from the browser).
-- **Emergency liquidity** — enter a cash amount and get a tax-aware sell order
-  (most liquid first, losers first for tax-loss harvesting).
-- **Tax-loss alerts** — positions with an unrealized loss are highlighted.
-- **21-test suite** across 7 categories (look-ahead, survivorship, math, data
-  integrity, behavioral, economic realism, robustness).
-
----
-
-## What's new in 10.6.0
-
-- **Four-page workspace** — Today decides, Portfolio edits, Explore explains,
-  Settings maintains — with one central copy module and a banned-token test.
-- **Working universe** — `asset_registry` holds exactly the tracked set
-  (funnel survivors ∪ CORE ∪ ACTIVE ∪ portfolio ∪ broker registry ∪ curated ∪
-  broad ETFs); the 1000+ discovery pool never leaks in.
-- **Explore search** by name, symbol, ISIN, or **theme** (`data/themes.csv`),
-  plus a discovery loop that can bring a universe instrument into tracking.
-- **`quant doctor`** — one read-only diagnosis: registry counts, names state,
-  metadata probes, news/sentiment distribution, search probes, explore-card
-  probes, and an advice-engine oracle.
-- **Honest advice** — drift vs target drives add/trim; a rebalance cooldown
-  surfaces as "Waiting until {date}" plus a footnote, never silence.
-
----
-
-## Highlights
-
-- **Bitemporal PIT data** - `as_of_date` + `published_date`; backtests cannot see
-  a fundamental before the market did. No lookahead bias.
-- **Mean-CVaR tail-risk optimization** - optimizes the worst 5% Expected
-  Shortfall (Rockafellar-Uryasev), not variance.
-- **Broker-synced PnL reconciliation** - portfolio PnL is copied from the broker
-  and diffed against the system estimate; never price-guessed.
-- **NLP-driven sentiment scoring** - 8-K / news text scored with FinBERT; there is no dictionary fallback, and text with no evidence yields a neutral score with a confidence penalty.
-- **Hard data-quality assertions** - duplicate timestamps, unexplained >50%
-  drops, and bad D/E abort the pipeline (fail closed).
-- **Golden-file CI** - deterministic backtest snapshots fail on > 0.01% drift.
+Older releases are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -317,13 +272,15 @@ Tests are hermetic: an ephemeral DuckDB is injected by
 [`tests/conftest.py`](tests/conftest.py); production data is never touched.
 
 ```bash
-pip install -e ".[test]"
+pip install -e ".[test,dashboard]"
 pytest -n auto            # parallel; coverage floor enforced by .coveragerc
 ```
 
 The coverage floor is a ratchet in [`.coveragerc`](.coveragerc) (v10.4.2
-baseline 42%, target 80%). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
-runs the full suite plus the golden snapshot gate on every push and PR. See
+baseline 42%, current floor 55%, target 80%). The `dashboard` extra (streamlit)
+is required so the UI tests run and the floor is met. CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the full suite plus
+the golden snapshot gate on every push and PR. See
 [`tests/README.md`](tests/README.md) for the isolation model, determinism rules,
 and golden-file regeneration process.
 

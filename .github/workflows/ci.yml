@@ -21,8 +21,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # CPU-only torch keeps CI lightweight; pyproject cannot express the
-          # extra index under PEP 621.
-          pip install -e ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
+          # extra index under PEP 621. The dashboard extra (streamlit) is
+          # required so the UI tests run and the coverage floor is met.
+          pip install -e ".[test,dashboard]" --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Run test suite with coverage
         # Coverage floor lives in .coveragerc (fail_under). --strict-markers is
