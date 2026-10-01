@@ -118,3 +118,25 @@ pytest tests/test_performance.py -v
 
 It reports batch scoring time for 50 and 100 assets, batch query time, and
 memory usage.
+
+## Honest performance math (v10.7.0)
+
+The old "+2.5 percent since 13 Sep" was a naive value change and lied whenever
+money entered. From v10.7.0 the Overview return uses **Modified Dietz** over the
+period between two dates, using the `flows` table:
+
+```
+R = (V_end - V_start - F) / (V_start + sum(w_i * F_i))
+w_i = (days_in_period - days_from_start_to_flow) / days_in_period
+```
+
+Deposits do not count as profit. Flow signs: `buy` = +amount (money entered
+invested), `sell` = -amount (money left invested), `dividend` = -amount (left
+invested, landed in cash). The Overview sentence reads: "Since 13 Sep: +20.84
+EUR. Of that: you added 0.00 EUR, market moved +20.84 EUR. Return: +2.4
+percent."
+
+Per-asset performance is simply the price change over the period, labeled
+"price change" (honest for a held asset). The value series the chart reads is
+`portfolio_value_history(date, invested_eur)`, written by the daily job from
+shares times close; it never includes cash.

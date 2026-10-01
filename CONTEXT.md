@@ -930,3 +930,121 @@ quant.cli ────────────────────> quant.an
 3 integration tests in [`tests/test_integration.py`](tests/test_integration.py),
 4 stress tests in [`tests/test_stress.py`](tests/test_stress.py), and 3
 performance tests in [`tests/test_performance.py`](tests/test_performance.py).
+
+---
+
+## v10.7.0 Domain Additions ("The System That Talks Sense")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Invested pool** | Everything held at the broker. The ONLY pool that is scored, weighted, charted, and advised. All targets and limits apply to this pool only. |
+| **Savings-plan budget** | A monthly amount the user decides from salary. A FLOW into Invested, not a balance. Sparplan buys cost 0 EUR on the buy side. |
+| **Operational cash** | Daily-life money at the broker. Earns the cash yield. NEVER an investment buffer: never in weights, never in the donut, never a source of forced trades. |
+| **Four channels** | Daily silent monitor, Friday weekly summary, Monthly decision, and rare urgent alerts. Nothing else may interrupt the user. |
+| **Level-triggered alert** | A condition that inspects the current state (not intraday events), so a monitoring gap delays an alert but never loses it. |
+| **Modified Dietz** | Return over a period that excludes deposits: `R = (V_end - V_start - F) / (V_start + sum(w_i * F_i))`. Deposits do not count as profit. |
+| **Sizing laws** | Section 6 rules: FORTRESS never sells; sell = min(drift, value - 1 EUR) rounded down to 5 EUR, suppressed below 25 EUR; positions below 100 EUR are untouchable; cooldown blocks sells only; buys round to 10 EUR; active buys need HIGH conviction or the money goes to cash. |
+| **Advice record** | The self-scoring honesty ledger: resolved alerts are priced 30 days later and scored correct/wrong. |
+| **Alert kinds** | `structural_break`, `tactical_collapse`, `position_crash`, `regime_flip`, `speculative_stop`. Each is level-triggered and stays open until resolved. |
+| **Sizing laws** | FORTRESS never sells; sell = min(drift, value - 1 EUR) rounded down to 5 EUR, suppressed below 25 EUR; positions below 100 EUR untouchable; cooldown blocks sells only; buys round to 10 EUR; active buys need HIGH conviction. |
+
+### v10.7.0 rulings
+
+Ambiguities were resolved conservatively (simpler, more honest, more
+conservative with the user's money):
+
+- **Trading calendar**: weekend-only rule (Saturday/Sunday skip). No holiday
+  calendars yet.
+- **Cash in weights**: operational cash is excluded from all weights, targets,
+  and the distribution donut. It competes only inside the Monthly allocator.
+- **Cash floor**: the old `cash floor 10%` constraint is removed from
+  [`quant/config.py`](quant/config.py) and all risk-profile displays. Risk
+  profiles now describe the INVESTED pool only as a 3-tuple
+  `(long_term_min, active_max, max_position)`.
+- **Alert conditions**: level-triggered, evaluated on the latest snapshot.
+- **Telegram**: sent with the standard library (`urllib`); no new dependency.
+- **Scheduler**: systemd user timer is the default; a cron fallback is
+  documented for non-systemd machines.
+- **Golden backtest**: the optimizer bucket constraints were renamed to the
+  invested-only meaning; the golden path does not use them, so
+  [`tests/golden/backtest_2024.json`](tests/golden/backtest_2024.json) is
+  unmoved.
+
+---
+
+## v10.7.1 Domain Additions ("Finish the Redesign")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Advice** | One record from `quant/engine/advice.build_advice`: `kind` (buy/top_up/sell_part/keep/change_savings_plan/to_cash), symbol, company name, EUR, from_where, why, fee, tier word, source. |
+| **RejectedNote** | A considered-but-suppressed advice (symbol, considered action, plain reason). The Overview "Not this week" block renders exactly these. |
+| **One advice pipeline** | Every surface that tells the user to do something renders from `build_advice`; no surface computes its own TRIM/BUY labels. |
+
+### v10.7.1 rulings
+
+- **Legacy adapter**: `quant/reporting/actions.build_actions` is kept as a thin
+  adapter over `build_advice` so older callers (the web briefing, the run status
+  map, the doctor probe) keep working. It preserves the legacy status semantics
+  (WAITING/ADD/TRIM) while the action word comes from the dictionary.
+- **Legacy audits**: an audit row without `Value_EUR` uses a nominal value, and
+  without `Current_Weight` derives the current weight from `Target_Weight +
+  Drift`, so the sizing laws still apply to legacy fixtures.
+- **Candidate grouping**: Find investments groups funnel survivors by structure
+  (>= 75) and tactics (>= 70); the same list feeds the Monthly decision.
+- **Golden backtest**: unmoved.
+
+---
+
+## v10.7.2 Domain Additions ("Real-World Hardening")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Runner lock** | `outputs/.runner.lock`: one shared lock owned by `quant.engine.lock`. Carries `pid`, `started_at` (ISO), `command` (plus the legacy `owner`/`ts`). Every writer respects it. |
+| **Takeover** | Taking the lock from a dead pid (immediate) or a live pid above `HARD_LOCK_MINUTES` (with a warning). Recorded so the doctor renders the exact phrase. |
+| **write_connection** | `quant.data.database.write_connection()`: a short-lived read-write connection that closes in `finally` and retries on DuckDB lock/IO errors. |
+| **last_failed_run** | `outputs/.daily_last_failed`: the plain reason a daily run could not acquire the database. The morning slot retries. |
+| **news_pillar** | Persisted status `active` | `absent`, recomputed on the Friday run. Absent when zero model-scored items in the last 30 days. |
+| **Backup archive** | `data/backups/quant-backup-YYYYMMDD-HHMM.tar.gz`: the user-owned state, pruned to the 5 most recent. |
+
+### v10.7.2 rulings
+
+- **Lock thresholds.** `STALE_LOCK_MINUTES = 90`, `HARD_LOCK_MINUTES = 240`. A
+  dead pid is always taken over immediately. A live pid at or below the stale
+  threshold is respected (retry 5 attempts over about 60 seconds, then abort
+  gracefully). A live pid above the hard cap is taken over with a warning. The
+  middle band (above stale, at or below hard) behaves like the below-stale case
+  (retry then abort): the system never steals a live process's lock unless it is
+  clearly runaway. `PermissionError` from the liveness probe counts as alive.
+- **One lock, one owner.** The UI's old 10-minute heartbeat window is replaced by
+  the shared lock. The UI holds the lock and tells its spawned subprocess it
+  inherited it via `QUANT_LOCK_HELD=1`, so the subprocess never deadlocks against
+  its own parent. `quant all` re-enters the lock for the same pid.
+- **News-pillar wiring finding (Part 2.2).** The wiring EXISTS: H4 wired
+  `load_news` to score headlines, and `quant run` scores holdings through
+  `NLPScorer`. The zero model-scored count is data/legacy-caused: the daily timer
+  never fetches news (only the review and Explore do), and the existing cache
+  entries are legacy `default`. No pipeline change was made. The news cache
+  `scorer` field (`model` | `default`) is the `scored_by` provenance the
+  diagnostic reads; `nlp_scores` keeps its `doc_hash, score` shape.
+- **Backup member list.** `data/portfolio.csv`, `data/tiers.csv`,
+  `data/account.yaml`, `quant_cache.duckdb` (plus `quant_cache.duckdb.wal` when
+  present). `data/notify.toml` is included ONLY with `--include-secrets`. Members
+  are stored at their project-relative paths; restore unpacks the archive over
+  the project folder (the one containing `data/`), then runs `quant doctor`.
+- **Tier source of truth (Part 5.1).** The audit's `Tier` column comes from the
+  legacy `classify_asset` (CORE/SATELLITE/ACTIVE/SECTOR), so a FORTRESS symbol
+  could be misread as ALPHA and sold. `build_advice` now resolves the tier from
+  the `tiers` argument (tiers.csv) first; the holding's tier is only a fallback.
+  `build_actions` loads the `tiers.csv` map and passes it. A FORTRESS sell can no
+  longer be expressed by any consumer.
+- **Holdings meta sync (Part 5.2).** The run pipeline seeds `holdings_meta` from
+  the broker CSV with `first_time_only=True`: a symbol already present keeps its
+  recorded `sync_date`, so the 35-day reminder still reflects the user's last CSV
+  export. `quant doctor` shows the last broker sync date.
+- **Golden backtest**: unmoved.

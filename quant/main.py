@@ -379,6 +379,28 @@ def main() -> None:
     portfolio_symbols = set(port_df["Symbol"].unique()) if not port_df.empty else set()
     logger.info("Loaded Portfolio: %s", list(portfolio_symbols))
 
+    # v10.7.2 (Part 5.2): seed holdings_meta from the broker CSV so the valuation
+    # pipeline has shares. First-time only: an existing row keeps its sync_date,
+    # so the 35-day reminder still reflects the user's last CSV export.
+    try:
+        from quant.engine import valuation
+
+        def _latest_close(sym: str) -> float | None:
+            try:
+                row = conn.execute(
+                    "SELECT Close FROM market_history WHERE Symbol = ? "
+                    "ORDER BY Date DESC LIMIT 1", [sym]).fetchone()
+                return float(row[0]) if row and row[0] is not None else None
+            except Exception:  # noqa: BLE001
+                return None
+
+        _synced = valuation.sync_holdings_meta(
+            conn, port_df, _latest_close, first_time_only=True)
+        if _synced:
+            logger.info("holdings_meta: synced %d new symbol(s)", _synced)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("holdings_meta sync failed: %s", e)
+
     # ── Plan 3 (Phase 1): Smart Funnel universe filter ──────────────────────
     # The broad 1000+ universe is filtered to the top survivors ONCE per cycle by
     # data_updater.py and cached in the funnel_survivors table. main.py reads that

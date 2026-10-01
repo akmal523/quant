@@ -43,48 +43,110 @@ Live briefing: https://akmal523.github.io/quant/
 
 ## How to use it
 
-1. Install and launch: `pip install -e .` then `quant dash`.
-2. Add holdings in the Portfolio page (type a name, symbol, or ISIN).
-3. Set cash and your risk profile, then press Save and review.
-4. Read the advice on Today and place orders in the broker app.
+Run `quant setup` once, then live your life:
 
-The first run walks you through these steps; details are in
-[Quick start](#quick-start-browser-first) below.
+```bash
+quant setup           # guided first-week setup (data, tiers, schedule, alerts, backup)
+quant dash            # open the app
+```
+
+Once a month, open the **Monthly decision** page, enter your savings-plan
+budget, and approve the split. Everything else runs by itself. The full
+first-week checklist is in [`docs/first_week.md`](docs/first_week.md).
 
 ---
 
-## What's new in 10.6.5
+## What's new in 10.7.2
 
-- **Performance** — batch database queries, lazy chunked loading, and a disk
-  cache for expensive calculations. `quant cache-stats` and `quant clear-cache`
-  manage the cache.
-- **Reliability** — a standardized error hierarchy, retry with exponential
-  backoff, and graceful degradation when data is missing.
-- **Docs** — a [performance tuning guide](docs/performance.md).
+- **Real-world hardening** — one shared runner lock with ownership and takeover
+  (a dead process is taken over, a runaway one is taken over with a warning, a
+  live one is respected), short writer transactions with a bounded retry, and a
+  plain, retryable failure when the database is busy.
+- **News pillar, demoted honestly** — `quant news-doctor` diagnoses why the
+  heavy FinBERT stack contributes nothing; when it does, the pillar is marked
+  absent, torch is never imported, and one honest line explains the tactical
+  score.
+- **Backup** — `quant backup` writes a restorable tar.gz of your state and keeps
+  the five most recent; the system reminds you at most once a week.
+- **First-week setup** — `quant setup` walks six idempotent steps and prints the
+  first-week checklist; `quant setup --check` prints the statuses.
 
 Older releases are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
-## Quick start (browser-first)
+## Quick start
+
+Run `quant setup` once, then live your life. The command walks six idempotent
+steps (market data, tiers, schedule, notifications, backup, and the first-week
+checklist), showing the current status of each and offering a skip. The full
+checklist is in [`docs/first_week.md`](docs/first_week.md).
 
 ```bash
-pip install -e .
-quant dash
+quant setup           # guided setup
+quant setup --check   # print the statuses without prompting
+quant dash            # open the app
 ```
 
-Open the address Streamlit prints (usually http://localhost:8501).
-Display names and ISINs are backfilled automatically the first time the
-app runs. On a phone on
-the same Wi-Fi, run `quant dash --lan` and open the printed LAN address.
+Open the address Streamlit prints (usually http://localhost:8501). Display names
+and ISINs are backfilled automatically the first time the app runs. On a phone
+on the same Wi-Fi, run `quant dash --lan` and open the printed LAN address.
 
 Everything else happens in the browser:
 
-1. Open Portfolio and add your holdings (type a name, symbol, or ISIN).
+1. Open My holdings and add your holdings (type a name, symbol, or ISIN).
 2. Set cash and your risk profile.
-3. Press Save and review, then read the advice on Today.
+3. Press Save and review, then read the advice on Overview.
 
-The first run walks you through these three steps.
+## Environment
+
+The project runs in a Python 3.11+ virtual environment. This machine already has
+one at `~/Downloads/vacancy_results/myenv` with an editable install of this
+project:
+
+```bash
+alias myenv='source ~/Downloads/vacancy_results/myenv/bin/activate'
+myenv
+quant --version
+```
+
+The `quant` command exists only inside the environment. Without an active
+environment, call the interpreter directly:
+
+```bash
+~/Downloads/vacancy_results/myenv/bin/python -m quant.cli --version
+```
+
+To create a fresh environment (a new machine, or a clean rebuild):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dashboard,test]"
+quant --version
+```
+
+## Notifications
+
+```bash
+quant notify-setup
+```
+
+Choose Telegram, email, or none. For Telegram, create a bot via BotFather, send
+it any message, then read your chat id from
+`https://api.telegram.org/bot<TOKEN>/getUpdates`. The configuration is written to
+`data/notify.toml` (kept local, gitignored). The command sends a test message and
+records whether it worked; `quant doctor` shows the notification status.
+
+## Backup
+
+```bash
+quant backup
+```
+
+Writes a restorable `data/backups/quant-backup-YYYYMMDD-HHMM.tar.gz` and keeps
+the five most recent. See [`docs/backup.md`](docs/backup.md) for the contents and
+the restore procedure.
 
 ## Advanced: command line
 
@@ -96,6 +158,9 @@ The terminal is optional. Three commands cover the daily cycle:
 | `quant run` | Review the portfolio and write the briefing (step 2) |
 | `quant publish` | Render the static Published Briefing for the web |
 | `quant doctor` | Read-only diagnosis (registry, names, news, search, advice) |
+| `quant news-doctor` | Read-only news-pillar diagnostic (`--enable` forces it active) |
+| `quant backup` | Archive the user-owned state (`--include-secrets` adds notify.toml) |
+| `quant setup` | Guided first-week setup (`--check` prints statuses) |
 | `quant health-check` | System health (data, tiers, allocations, database, cache) |
 | `quant suggest-rebalance` | Suggest tier reassignments to fix allocation violations |
 | `quant apply-rebalance` | Apply approved tier reassignments (`--symbols`, `--dry-run`) |
@@ -272,8 +337,9 @@ Tests are hermetic: an ephemeral DuckDB is injected by
 [`tests/conftest.py`](tests/conftest.py); production data is never touched.
 
 ```bash
-pip install -e ".[test,dashboard]"
+myenv                     # activate the environment (see Environment above)
 pytest -n auto            # parallel; coverage floor enforced by .coveragerc
+pytest tests/test_v10_7_2_phase_a.py   # a single file
 ```
 
 The coverage floor is a ratchet in [`.coveragerc`](.coveragerc) (v10.4.2

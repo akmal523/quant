@@ -19,9 +19,11 @@ from __future__ import annotations
 from datetime import date, datetime
 
 # ── Page titles (P12) ─────────────────────────────────────────────────────────
-PAGE_TODAY = "Today"
-PAGE_PORTFOLIO = "Portfolio"
-PAGE_EXPLORE = "Explore"
+# v10.7.0 nav order: Overview, Monthly decision, My holdings, Find investments,
+# Settings.
+PAGE_TODAY = "Overview"
+PAGE_PORTFOLIO = "My holdings"
+PAGE_EXPLORE = "Find investments"
 PAGE_SETTINGS = "Settings"
 
 # ── Section titles ────────────────────────────────────────────────────────────
@@ -76,24 +78,25 @@ ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Ad
                          "to data/isin_curated.csv (from your broker app or the fund factsheet), "
                          "then run Repair registry again.")
 
-# ── v10.6.2: Three-tier dashboard, emergency liquidity, tax-loss ─────────────
-SEC_TIERS = "Your three tiers"
-SEC_EMERGENCY = "Emergency liquidity"
-SEC_TAX_LOSS = "Tax-loss harvesting"
-TIER_FORTRESS = "Fortress"
-TIER_ALPHA = "Alpha"
-TIER_SPECULATIVE = "Speculative"
-HELP_TIER_FORTRESS = ("Never sold, to avoid capital gains tax. Quarterly review of "
-                      "savings-plan amounts only.")
-HELP_TIER_ALPHA = "Weekly rebalancing on Fridays. Sell when cash is needed."
-HELP_TIER_SPECULATIVE = ("Hard cap 2 percent of the portfolio. Stop-loss -50 percent, "
+# ── v10.6.2 / v10.7.0: Three-tier dashboard, cash, tax-loss ──────────────────
+# v10.7.0 naming dictionary (Section 11): plain words, invested pool only.
+SEC_TIERS = "How your money is split"
+SEC_EMERGENCY = "If you need cash now"
+SEC_TAX_LOSS = "Losses you can use to lower tax"
+TIER_FORTRESS = "Long-term (never sell)"
+TIER_ALPHA = "Active (may sell)"
+TIER_SPECULATIVE = "Small bets (high risk)"
+HELP_TIER_FORTRESS = ("Never sold, to avoid capital gains tax. The only advice is "
+                      "changing the monthly savings-plan amount.")
+HELP_TIER_ALPHA = "May be sold when cash is needed or a position breaks."
+HELP_TIER_SPECULATIVE = ("Hard cap 2 percent of invested. Stop-loss -50 percent, "
                          "take-profit +100 percent.")
 EMPTY_TIER = "No holdings in this tier."
 EMERGENCY_PROMPT = "How much cash do you need (EUR)?"
 EMERGENCY_ORDER = "Sell in this order:"
-EMERGENCY_NONE = "No Alpha holdings available for an emergency sale."
+EMERGENCY_NONE = "No Active holdings available for an emergency sale."
 EMERGENCY_LINE = "{symbol} ({value} EUR) - tax {tax} EUR ({note})"
-TAX_LOSS_HEADER = "Positions with an unrealized loss (candidates for tax-loss harvesting):"
+TAX_LOSS_HEADER = "Positions with an unrealized loss (losses you can use to lower tax):"
 TAX_LOSS_NONE = "No positions with an unrealized loss."
 TAX_LOSS_LINE = "{symbol}: {pnl} EUR unrealized loss"
 
@@ -110,7 +113,7 @@ TRADE_LIMIT_REACHED = ("Weekly Alpha trade limit reached ({n}/{max}). "
 TRADE_LIMIT_ONE_LEFT = "Only 1 Alpha trade remaining this week. Use it wisely."
 
 # ── v10.6.4: Auto-balance ─────────────────────────────────────────────────────
-SEC_AUTOBALANCE = "Tier balance"
+SEC_AUTOBALANCE = "How your money is split"
 AUTOBALANCE_LINE = "{tier}: {value} EUR ({pct}), limit {limit}"
 AUTOBALANCE_OK = "All tier allocations are within limits."
 AUTOBALANCE_VIOLATION = "Tier allocation violations: {tiers}."
@@ -155,6 +158,12 @@ ONBOARD_SKIP = "Skip onboarding"
 # ── Errors (spec 3.2) ─────────────────────────────────────────────────────────
 ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open. "
                  "Close other tabs or terminals, then try again.")
+# v10.7.2 (Part 1.3): the exact user-facing string when the daily job cannot
+# acquire the database after retries. Stored here so the CLI, the marker, and
+# the doctor all render one sentence.
+DB_BUSY_RETRY = ("Database is busy: another quant process is writing. The run "
+                 "will retry; if this persists, close other quant windows and "
+                 "rerun.")
 ERROR_REFRESH_FAILED = "Refresh failed. Open View log for details, or try again."
 ERROR_STALE_PRICES = "Prices are {n} days old. Refresh market data."
 ERROR_ALREADY_RUNNING = "A review is already running in another tab."
@@ -165,9 +174,12 @@ ERROR_RUNNING = "An operation is already running."
 HELP_CASH_APY = ("Uninvested cash earns {apy} percent per year at Trade Republic "
                  "(from {date}).")
 HELP_BROKER_VALUES = "Values come from your broker. The app never guesses them."
-HELP_PROFILE_CONSERVATIVE = "More safety assets and cash, smaller bets."
-HELP_PROFILE_BALANCED = "The default mix of core funds and tactical positions."
-HELP_PROFILE_AGGRESSIVE = "Larger tactical positions, thinner cash buffer."
+HELP_PROFILE_CONSERVATIVE = ("At least 50 percent of your invested money in "
+                             "long-term assets, at most 40 percent in active positions.")
+HELP_PROFILE_BALANCED = ("At least 40 percent of your invested money in long-term "
+                         "assets, at most 50 percent in active positions.")
+HELP_PROFILE_AGGRESSIVE = ("At least 30 percent of your invested money in long-term "
+                           "assets, at most 65 percent in active positions.")
 HELP_REVIEW_CADENCE = "Reviews run once a day after market close. Refresh manually anytime."
 # A5: the add-holding affordance states what it does and what to do next.
 PLACEHOLDER_ADD_HOLDING = "Type a name, symbol or ISIN to add a holding"
@@ -204,21 +216,22 @@ STATUS_WORDS = {
 }
 # A3 (v10.5.2): the ONE status vocabulary. The holdings table and the action
 # cards both read these words via status_for(), so two widgets on one screen can
-# never disagree (P2 trust rule).
-STATUS_ON_TRACK = "On track"
-STATUS_ADD = "Add"
-STATUS_TRIM = "Trim"
+# never disagree (P2 trust rule). v10.7.0: statuses are verbs with EUR amounts
+# (Section 11 dictionary).
+STATUS_ON_TRACK = "OK, do nothing"
+STATUS_ADD = "Buy more (regular buying is fine)"
+STATUS_TRIM = "Sell part"
 STATUS_BLOCKED = "Blocked"
-STATUS_WAITING = "Waiting until {date}"
+STATUS_WAITING = "Cooldown until {date} (do nothing)"
 STATUS_BELOW_MIN = "Below minimum order"
 STATUS_NOT_REVIEWED = "Not reviewed yet"
 # Column-name -> human header (P2: no column names in the UI).
 COLUMN_HEADERS = {
     "Symbol": "Instrument",
-    "Avg_Entry_Price": "Average entry price",
-    "Current_Value_EUR": "Current value (EUR)",
-    "Broker_PnL_EUR": "Profit or loss (EUR)",
-    "Current_Weight": "Share",
+    "Avg_Entry_Price": "Entry price per share",
+    "Current_Value_EUR": "Value (EUR)",
+    "Broker_PnL_EUR": "Profit (EUR)",
+    "Current_Weight": "Now / should be (of invested)",
     "Target_Weight": "Target",
     "Drift": "Difference from target",
     "Signal": "Status",
@@ -360,6 +373,57 @@ SEARCH_HELPER = "Type a name, symbol, ISIN or theme to explore."
 NEWS_EARLIER = "Earlier items ({n} more)"
 # H3.4: one Diagnostics line when the sentiment model is absent.
 SENTIMENT_UNAVAILABLE = "Sentiment model not available; news shown without sentiment."
+
+# ── v10.7.2 (Part 2): the news pillar's honest absent line + diagnostic ───────
+# When the heavy FinBERT stack contributes nothing on this user's universe, the
+# system says so in one honest line and runs lighter (no torch import).
+NEWS_PILLAR_ABSENT = ("News pillar: no data for your assets. Tactical score uses "
+                      "market regime and price momentum only.")
+NEWS_DOCTOR_HEADER = "News pillar diagnostic"
+NEWS_DOCTOR_LINE = ("{symbol}: {total} items in 30 days, {long} long enough, "
+                    "{model} scored by the model, {default} defaulted ({reason}).")
+NEWS_DOCTOR_NONE = "{symbol}: no news in the last 30 days."
+NEWS_DOCTOR_STATUS = "News pillar: {status} ({model} model-scored items in 30 days)."
+NEWS_DOCTOR_ENABLED = "News pillar forced active."
+NEWS_DOCTOR_REASON_SHORT = "text too short"
+NEWS_DOCTOR_REASON_UNAVAILABLE = "model unavailable"
+NEWS_DOCTOR_REASON_NOT_INVOKED = "scorer not invoked"
+
+# ── v10.7.2 (Part 3): backup ──────────────────────────────────────────────────
+BACKUP_WARNING_SECRETS = ("Including data/notify.toml (contains your bot token). "
+                          "Keep this archive private.")
+BACKUP_RESTORE_HINT = ("To restore: stop quant processes, unpack the archive over "
+                       "your project folder, then run quant doctor.")
+BACKUP_DONE = "Backup written: {path} ({size} MB)."
+BACKUP_MEMBERS = "Members: {members}"
+BACKUP_LAST = "Last backup: {date}"
+BACKUP_OLD = "Last backup {n} days ago. Run quant backup."
+BACKUP_NEVER = "No backup yet. Run quant backup."
+
+# ── v10.7.2 (Part 4): setup ───────────────────────────────────────────────────
+SETUP_HEADER = "Setup status"
+SETUP_STEP_LINE = "{n}. {title}: {status}"
+SETUP_DONE = "done"
+SETUP_TODO = "not done"
+SETUP_MARKET = "Market data"
+SETUP_TIERS = "Tiers"
+SETUP_SCHEDULE = "Schedule"
+SETUP_NOTIFY = "Notifications"
+SETUP_BACKUP = "Backup"
+SETUP_CHECKLIST = "First-week checklist"
+SETUP_MARKET_DONE = "last refresh {date}"
+SETUP_MARKET_TODO = "no market data yet; run quant update"
+SETUP_TIERS_DONE = "{n} tiers"
+SETUP_TIERS_TODO = "missing; run python scripts/migrate_tiers.py"
+SETUP_SCHEDULE_DONE = "installed"
+SETUP_SCHEDULE_TODO = "not installed; run quant schedule"
+SETUP_NOTIFY_DONE = "configured"
+SETUP_NOTIFY_TODO = "not configured; run quant notify-setup"
+SETUP_BACKUP_DONE = "last backup {date}"
+SETUP_BACKUP_TODO = "no backup yet; run quant backup"
+SETUP_CHECKLIST_HINT = "see docs/first_week.md"
+SETUP_SKIP = "skip"
+SETUP_ACTION = "do it now"
 # H3.5: discovery-universe loop closure (Explore zero-match + Portfolio add).
 DISCOVERY_NOT_TRACKED = ("{label} is in the discovery universe but not tracked. "
                          "Add it in Portfolio to track it.")
@@ -522,3 +586,199 @@ def status_for(
         # Over threshold with no explicit rec: use the drift sign.
         return STATUS_ADD if drift_frac < 0 else STATUS_TRIM
     return STATUS_ON_TRACK
+
+
+# ── v10.7.0: Naming dictionary (Section 11, mandatory) ────────────────────────
+# Old -> new, exact strings. The forbidden-token test scans rendered pages and
+# the briefing for the OLD tokens; these constants are the new vocabulary.
+
+# Tier display words (company name first, symbol small in parentheses elsewhere).
+TIER_WORDS = {
+    "FORTRESS": TIER_FORTRESS,
+    "ALPHA": TIER_ALPHA,
+    "SPECULATIVE": TIER_SPECULATIVE,
+}
+
+# Section titles (v10.7.0 page redesign).
+SEC_YOUR_MONEY = "Your money"
+SEC_STEPS = "Your steps this week"
+SEC_NOT_THIS_WEEK = "Not this week"
+SEC_YOUR_ASSETS = "Your assets"
+SEC_SAVINGS_PLAN = "Savings plan"
+SEC_MARKET = "Market"
+SEC_MONTHLY = "Monthly decision"
+SEC_AUTOMATION = "Automation"
+SEC_REPORT_HISTORY = "Report history"
+SEC_SYSTEM_CHECK = "System check"
+SEC_BROKER_REFERENCE = "Broker reference"
+SEC_ALERTS = "Alerts"
+
+# Page titles (v10.7.0 nav order).
+PAGE_OVERVIEW = "Overview"
+PAGE_MONTHLY = "Monthly decision"
+PAGE_HOLDINGS = "My holdings"
+PAGE_FIND = "Find investments"
+
+# Statuses as verbs with EUR amounts.
+STATUS_SELL_PART_AMOUNT = "Sell part (about {amount} EUR)"
+
+# Verdicts (Block D, plain words).
+VERDICT_KEEP = "keep, top up"
+VERDICT_NOTHING = "do nothing"
+VERDICT_TOO_SMALL = "do not sell, position too small"
+
+# Savings plan: first mention carries the German word.
+SPARPLAN_FIRST = "savings plan (Sparplan)"
+SPARPLAN = "savings plan"
+
+# Market regime line (Section 10.1 Block E).
+MARKET_REGIME_LINE = ("Market is rising, high confidence. Affects only the "
+                      "Active part.")
+MARKET_REGIME_BEAR = ("Market is falling, high confidence. Affects only the "
+                      "Active part; new active money goes to cash until the "
+                      "regime recovers. Long-term savings plan continues.")
+
+# Report history / system check.
+REPORT_AS_OF = "Report as of {date}"
+
+# Money plaques (Section 10.1 Block A).
+INVESTED_LINE = ("Invested: {amount} EUR. Profit {pnl} EUR ({pct} percent, "
+                 "deposits excluded). As of {date}.")
+OPERATIONAL_CASH_LINE = ("Operational cash: {amount} EUR, as of {date}. For daily "
+                         "life, not for investing. Earns {apy} percent per year. "
+                         "Dividends land here.")
+INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR, cash yield about "
+               "{cash_yield} EUR (estimate).")
+ESTIMATED_LABEL = "estimated, as of {date}"
+
+# Performance line (Section 7.3): deposits do not count as profit.
+PERFORMANCE_LINE = ("Since {date}: {change} EUR. Of that: you added {added} EUR, "
+                    "market moved {market} EUR. Return: {ret} percent.")
+
+# Split lines (Section 10.2).
+SPLIT_LINE = "{tier}: {value} EUR, {pct} percent of invested. Rule: {rule}. {status}."
+SPLIT_RULE_LONG_TERM = "at least {min} percent"
+SPLIT_RULE_ACTIVE = "at most {max} percent"
+SPLIT_RULE_BETS = "at most {max} percent"
+SPLIT_OK = "OK."
+
+# Steps and silence (Section 10.5).
+NOTHING_TO_DO_WEEK = "Nothing to do this week."
+NOTHING_URGENT = "Nothing urgent this week."
+MONITORING_GAP = ("Monitoring gap: no runs for {n} days; conditions evaluated on "
+                  "the latest data.")
+SYNC_REMINDER = ("Last broker sync was {n} days ago. Export a fresh CSV from Trade "
+                 "Republic when convenient.")
+
+# Alerts (Section 2, exact phrasing template).
+ALERT_ACTION_HEADER = "ACTION FOR TOMORROW"
+ALERT_ACTION_LINE = "{name}: {action} about {amount} EUR."
+ALERT_ACTION_FOOTER = ("Place the order tonight or tomorrow; it executes at market "
+                       "open.")
+ALERT_REASON = "Reason: {reason}."
+ALERT_FEE = "Fee: {fee} EUR {side}. Reply in app: done / declined with reason."
+ALERT_DETAILS_IN_APP = "details in app"
+
+# Advice self-scoring ledger (Section 5).
+ADVICE_RECORD = ("Advice record, last 12 months: {n} actions, {correct} correct, "
+                 "{wrong} wrong.")
+
+# In-app alert banner (Section 4.4).
+ALERT_BANNER_TITLE = "Open actions"
+BTN_ALERT_DONE = "Done"
+BTN_ALERT_DECLINED = "Declined (reason)"
+ALERT_RESOLVED = "Action marked {status}."
+
+# Monthly decision (Section 8.1).
+MONTHLY_TITLE = "Monthly decision - {month}"
+MONTHLY_STATUS_NOT_APPROVED = "Status: not approved yet for this month."
+MONTHLY_STATUS_APPROVED = "Status: approved on {date}."
+MONTHLY_BUDGET_LABEL = "Your savings-plan budget this month (EUR)"
+MONTHLY_BUDGET_PREFILL = "(prefilled from {month})"
+MONTHLY_SPLIT_HEADER = "The system splits it:"
+MONTHLY_LEG_LINE = "{amount} EUR  {name} ({symbol}), {kind}"
+MONTHLY_LEG_REASON = "Reason: {reason} Fee {fee} EUR."
+MONTHLY_NEW_IDEAS = "New ideas this month (optional, you may ignore all):"
+MONTHLY_CANDIDATE_LINE = "{name} - {detail}"
+BTN_APPROVE = "Approve"
+BTN_CHANGE_SPLIT = "Change split"
+MONTHLY_APPROVED = "Plan approved. Execute it in Trade Republic."
+MONTHLY_ACTUALS_HEADER = "Enter what you bought"
+BTN_SAVE_ACTUALS = "Save actuals"
+MONTHLY_ACTUALS_SAVED = "Actuals saved. The math stays honest."
+MONTHLY_EXECUTE_STEP = "Execute the approved plan in Trade Republic"
+MONTHLY_ENTER_ACTUALS_STEP = ("Enter what you bought (one line), so the math "
+                              "stays honest.")
+MONTHLY_MAKE_DECISION_STEP = "Make this month's decision"
+
+# ── v10.7.1: One advice pipeline (Part 1) ─────────────────────────────────────
+ADVICE_SELL_PART = "Sell part"
+ADVICE_BUY = "Buy"
+ADVICE_TOP_UP = "Top up savings plan"
+ADVICE_KEEP = "Keep, do nothing"
+ADVICE_TO_CASH = "Move new active money to cash"
+ADVICE_FROM_CASH = "cash"
+ADVICE_FROM_SAVINGS = "savings plan"
+ADVICE_FROM_POSITION = "position"
+# Rejected notes ("Not this week"): the system showing its work.
+REJECT_TOO_SMALL = "position {value} EUR; the 2 EUR fee makes any sale pointless"
+REJECT_COOLDOWN = "cooldown until {date}; sells wait, buys do not"
+REJECT_BELOW_MIN = "the move is below the 25 EUR minimum after rounding"
+REJECT_FORTRESS = "long-term assets are never sold"
+FORTRESS_LEG_SUGGESTION = ("Consider raising the savings-plan leg for {name} from "
+                           "{current} to {target} EUR per month; it is {pct} percent "
+                           "of invested vs {target_pct} percent target.")
+CASH_REGIME_LINE = ("New active money goes to cash at 2.5 percent until the market "
+                    "regime recovers.")
+# My holdings (Part 2).
+SEC_HOW_SPLIT = "How your money is split"
+SEC_IF_CASH = "If you need cash now"
+SEC_TAX_LOSSES = "Losses you can use to lower tax"
+SEC_QUICK_EVENTS = "Record a buy, sell, or dividend"
+SPLIT_RULE_LONG = "at least {min} percent"
+SPLIT_RULE_ACTIVE = "at most {max} percent"
+SPLIT_RULE_BETS = "at most {max} percent"
+SPLIT_OK = "OK."
+SPLIT_OVER = "Over the rule. See Your steps this week."
+ENTRY_PRICE_LINE = ("Entry price per share: {entry} EUR. Current price per share: "
+                    "{current} EUR ({estimated}).")
+SHARES_LINE = "Shares: {shares}, from broker sync on {date}."
+TIER_LINE = "Tier: {tier}."
+WHY_VERDICT_LINE = "Why this verdict: {why}"
+TAX_LOSS_LINE = "{name}: {pnl} EUR unrealized loss. Selling it can reduce tax on gains."
+TAX_LOSS_NONE = "No positions with unrealized losses."
+QUICK_EVENT_SAVED = ("Recorded: {type} {amount} EUR {name} on {date}. Performance "
+                     "math updated.")
+QUICK_EVENT_CASH_NOTE = ("Daily-life spending from operational cash is not recorded "
+                         "and not asked for.")
+SAVINGS_DAY_LABEL = "Savings plan execution day of month"
+SAVINGS_DAY_CAPTION = ("Used to date planned savings-plan flows and the enter-actuals "
+                       "reminder.")
+# Find investments (Part 3).
+SEC_CAND_LONG = "Candidates for long-term"
+SEC_CAND_ACTIVE = "Candidates for active"
+SEC_CAND_BETS = "Candidates for small bets"
+CAND_LONG_REASON = "Would be a savings-plan asset. Fee 0 EUR on buys."
+CAND_ACTIVE_LIMIT = "Counts against the active limit: {used} percent of {max} percent used."
+CAND_BETS_LIMIT = "Counts against the bets limit: {used} percent of {max} percent used."
+CAND_EMPTY = "No candidates for {section} this month."
+
+# Forbidden tokens (Section 11): the OLD vocabulary. The copy test fails if any
+# of these appears in rendered pages or the briefing.
+FORBIDDEN_TOKENS = (
+    "Trim",
+    "On track",
+    "Waiting until",
+    "Current_Value_EUR",
+    "Broker_PnL_EUR",
+    "Tier balance",
+    "Emergency liquidity",
+    "Tax-loss harvesting",
+    "SECTOR",
+    "SATELLITE",
+)
+
+
+def tier_word(tier: str) -> str:
+    """Map a tier enum to its plain display word (Section 11)."""
+    return TIER_WORDS.get(str(tier).upper(), "Active (may sell)")

@@ -121,8 +121,8 @@ def build_weekly_report(
     # Fortress
     md.append("## Fortress (eternal holdings)")
     md.append("")
-    md.append("Never sold, to avoid capital gains tax. Quarterly review of "
-              "savings-plan amounts only.")
+    md.append("Never sold, to avoid capital gains tax. The monthly decision "
+              "adjusts savings-plan amounts only.")
     md.append("")
     fortress = _tier_rows(portfolio_df, "FORTRESS")
     md += _tier_table(fortress, ["Symbol", "Current_Value_EUR", "Tier"])
@@ -144,8 +144,8 @@ def build_weekly_report(
     spec = _tier_rows(portfolio_df, "SPECULATIVE")
     md += _tier_table(spec, ["Symbol", "Current_Value_EUR", "Tier"])
 
-    # Emergency liquidity
-    md.append("## Emergency liquidity")
+    # If you need cash now (v10.7.0 dictionary)
+    md.append("## If you need cash now")
     md.append("")
     if emergency_amount and not portfolio_df.empty:
         from quant.portfolio.risk import emergency_sell_plan

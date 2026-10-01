@@ -48,13 +48,16 @@ def _write_hb(tmp_path, owner, pid, age_s):
 
 def test_stale_heartbeat_auto_releases(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    _write_hb(tmp_path, "other", 999999, 700)  # older than 10 minutes
+    # v10.7.2: a dead pid is a stale lock to take over, so it never blocks.
+    _write_hb(tmp_path, "other", 999999, 700)
     assert runner._foreign_live_heartbeat() is False
 
 
 def test_foreign_live_heartbeat_blocks_with_other_tab_sentence(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    _write_hb(tmp_path, "other", 999999, 0)
+    # v10.7.2: liveness is by pid. pid 1 is always alive (PermissionError counts
+    # as alive), so a foreign live owner yields the other-tab sentence.
+    _write_hb(tmp_path, "other", 1, 0)
     assert runner._foreign_live_heartbeat() is True
     res = runner.run("update")  # short-circuits before any subprocess
     assert res.status == "busy"
@@ -158,4 +161,4 @@ def test_status_vocabulary_single_mapper(monkeypatch):
                   C.STATUS_BLOCKED, C.STATUS_BELOW_MIN, C.STATUS_NOT_REVIEWED}
     for h in artifacts.read_actions():
         status = h["status"]
-        assert status in vocabulary or status.startswith("Waiting until "), status
+        assert status in vocabulary or status.startswith("Cooldown until "), status

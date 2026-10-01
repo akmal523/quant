@@ -119,6 +119,14 @@ _default_scorer_resolved = False
 def _build_default_scorer():
     """Construct a FinBERTBatchScorer when transformers+torch are importable."""
     try:
+        # v10.7.2 (Part 2.3): when the news pillar is absent (zero model-scored
+        # items in 30 days), never import torch/transformers at all. This is the
+        # performance win on the old laptop.
+        from quant.engine import news_pillar
+
+        if news_pillar.is_absent():
+            return None
+
         import importlib.util
 
         if (importlib.util.find_spec("transformers") is None

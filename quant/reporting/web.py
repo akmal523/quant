@@ -23,13 +23,12 @@ import shutil
 
 import pandas as pd
 
-from quant import paths
-from quant import __version__
+from quant import __version__, paths
 from quant.config import MIN_TRADE_SIZE_EUR, REBALANCE_DRIFT_TIERS
-from quant.reporting.actions import build_actions
-from quant.ui import copy as ui_copy
-from quant.reporting.artifacts import latest_run
 from quant.portfolio.account import load_account
+from quant.reporting.actions import _tier, build_actions
+from quant.reporting.artifacts import latest_run
+from quant.ui import copy as ui_copy
 
 _CSS = """
 :root { color-scheme: light dark; }
@@ -88,7 +87,7 @@ def build_data(run_dir: str) -> dict:
         for _, r in audit.iterrows():
             holdings.append({
                 "symbol": str(r.get("Symbol", "")),
-                "tier": str(r.get("Tier", "")),
+                "tier": ui_copy.tier_word(_tier(r.get("Tier"))),
                 "weight": str(r.get("Current_Weight", "")),
                 "target": str(r.get("Target_Weight", "")),
                 "drift": str(r.get("Drift", "")),
@@ -190,10 +189,10 @@ def render_html(data: dict) -> str:
             if a["blocked"]:
                 parts.append(f"<tr class='blocked'><td>{_esc(a['symbol'])}</td>"
                              f"<td>BLOCKED</td><td></td><td>{_esc(a['reason'])}</td></tr>")
-            else:
-                sign = "+" if a["action"] == "BUY MORE" else "-"
+            elif a.get("kind") in ("sell_part", "buy", "change_savings_plan", "to_cash"):
+                amount = f"{a['amount_eur']:.0f}" if a.get("amount_eur") else ""
                 parts.append(f"<tr><td>{_esc(a['symbol'])}</td><td>{_esc(a['action'])}</td>"
-                             f"<td>{sign}{a['amount_eur']:.0f}</td>"
+                             f"<td>{amount}</td>"
                              f"<td>{_esc(a['reason'])}</td></tr>")
         parts.append("</table>")
     else:
@@ -243,6 +242,15 @@ def render_html(data: dict) -> str:
         "sentiment. Portfolio PnL is copied from the broker, never price-guessed. Actions "
         "cite the drift threshold from quant/config.py that triggered them.</p>"
     )
+    # v10.7.2 (Part 2.3): the honest news-pillar line when it is absent.
+    try:
+        from quant.engine import news_pillar
+        from quant.ui import copy as _copy
+
+        if news_pillar.is_absent():
+            parts.append(f"<p class='muted'>{_esc(_copy.NEWS_PILLAR_ABSENT)}</p>")
+    except Exception:  # noqa: BLE001
+        pass
     parts.append(
         "<p class='muted'>All output is for informational purposes. Probabilistic models "
         "and NLP sentiment analysis involve inherent risk. Past performance does not "

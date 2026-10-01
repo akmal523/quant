@@ -29,11 +29,54 @@ from pathlib import Path
 from quant.cli import output
 
 
+def _lock_or_fail(command: str) -> bool:
+    """Acquire the shared runner lock or report a plain, retryable failure.
+
+    v10.7.2 (Part 1): every writer respects one lock. When a live owner holds it
+    past the retry budget, write the last-failed-run marker and return False so
+    the caller exits nonzero quietly (the morning slot retries).
+    """
+    from quant.engine import lock as lock_mod
+
+    res = lock_mod.acquire(command, blocking=True)
+    if res.acquired:
+        return True
+    from quant.engine.daily import write_last_failed_run
+    from quant.ui import copy as ui_copy
+
+    write_last_failed_run(ui_copy.DB_BUSY_RETRY)
+    print(ui_copy.DB_BUSY_RETRY)
+    return False
+
+
 def _cmd_update(_args: argparse.Namespace) -> int:
     """Fetch market data + run the funnel (step 1). Returns an exit code."""
     from quant.data.data_updater import main as updater_main
+    from quant.engine import lock as lock_mod
 
-    return updater_main()
+    if not _lock_or_fail("update"):
+        return 1
+    try:
+        return updater_main()
+    finally:
+        lock_mod.release()
+
+
+def _print_open_alerts() -> None:
+    """Print the ALERTS section before anything else (v10.7.0, Section 4.4)."""
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import alerts as alerts_mod
+
+        with read_only_connection() as conn:
+            open_now = alerts_mod.open_alerts(conn)
+    except Exception:  # noqa: BLE001
+        return
+    if not open_now:
+        return
+    print("ALERTS")
+    for alert in open_now:
+        print(f"  {alert.get('message', '')}")
 
 
 def _cmd_run(_args: argparse.Namespace) -> int:
@@ -42,18 +85,25 @@ def _cmd_run(_args: argparse.Namespace) -> int:
     H3.3: a failed review writes review_status=failed (+ error) to the run artifact
     so Today/Health/Reviews read ONE field; no portfolio_history row is written.
     """
+    from quant.engine import lock as lock_mod
     from quant.main import main as pipeline_main
 
+    if not _lock_or_fail("run"):
+        return 1
     try:
-        return pipeline_main()
-    except Exception as e:  # noqa: BLE001
+        _print_open_alerts()
         try:
-            from quant.reporting.artifacts import new_run_dir, save_metrics
+            return pipeline_main()
+        except Exception as e:  # noqa: BLE001
+            try:
+                from quant.reporting.artifacts import new_run_dir, save_metrics
 
-            save_metrics(new_run_dir(), {"review_status": "failed", "error": str(e)})
-        except Exception:  # noqa: BLE001
-            pass
-        raise
+                save_metrics(new_run_dir(), {"review_status": "failed", "error": str(e)})
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+    finally:
+        lock_mod.release()
 
 
 def _cmd_publish(_args: argparse.Namespace) -> int:
@@ -161,6 +211,14 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"sentiment cache: unreadable ({e})")
 
+    # v10.7.2 (Part 2.1): the condensed news-pillar status line.
+    try:
+        from quant.engine import news_pillar
+
+        print(news_pillar.summary_line())
+    except Exception as e:  # noqa: BLE001
+        print(f"news pillar: unreadable ({e})")
+
     try:
         from quant.ui.search import load_index, search
 
@@ -225,19 +283,138 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"actions oracle: unreadable ({e})")
 
     try:
-        lock_path = os.path.join(str(paths.OUTPUTS_DIR), ".runner.lock")
-        if os.path.exists(lock_path):
-            hb = json.load(open(lock_path, encoding="utf-8"))
-            age = time.time() - float(hb.get("ts", 0))
-            if age > 600:
-                print(f"runner lock: stale (auto-release on next operation), age={age:.0f}s")
-            else:
-                print(f"runner lock: present pid={hb.get('pid')} age={age:.0f}s")
-        else:
-            print("runner lock: none")
+        from quant.engine import lock as lock_mod
+
+        print(lock_mod.status_line())
     except Exception as e:  # noqa: BLE001
         print(f"runner lock: unreadable ({e})")
+
+    # ── v10.7.0: automation and data-retention status (Section 13) ───────────
+    try:
+        size_mb = os.path.getsize(paths.DB_FILE) / (1024 * 1024)
+        print(f"database size: {size_mb:.2f} MB")
+    except Exception as e:  # noqa: BLE001
+        print(f"database size: unreadable ({e})")
+
+    try:
+        from quant.engine.daily import monitoring_gap_days, read_last_daily_run
+
+        last = read_last_daily_run()
+        print(f"last daily run: {last.isoformat() if last else 'none'}")
+        gap = monitoring_gap_days()
+        print(f"monitoring gap: {gap if gap is not None else 'n/a'} days")
+    except Exception as e:  # noqa: BLE001
+        print(f"last daily run: unreadable ({e})")
+
+    # v10.7.2 (Part 1.3): the last failed run with its plain reason and time.
+    try:
+        from quant.engine.daily import read_last_failed_run
+
+        failed = read_last_failed_run()
+        if failed:
+            print(f"last failed run: {failed.get('at')} - {failed.get('reason')}")
+        else:
+            print("last failed run: none")
+    except Exception as e:  # noqa: BLE001
+        print(f"last failed run: unreadable ({e})")
+
+    # v10.7.2 (Part 3.1): the last backup line.
+    try:
+        from quant.engine import backup
+
+        print(backup.backup_line())
+    except Exception as e:  # noqa: BLE001
+        print(f"backup: unreadable ({e})")
+
+    try:
+        from quant.engine.valuation import days_since_last_sync
+
+        with read_only_connection() as conn:
+            sync_days = days_since_last_sync(conn)
+            _row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
+        _last = _row[0] if _row else None
+        if sync_days is None:
+            print("last broker sync: never (run quant run to sync)")
+        else:
+            print(f"last broker sync: {sync_days} days ago ({_last})")
+    except Exception as e:  # noqa: BLE001
+        print(f"last broker sync: unreadable ({e})")
+
+    try:
+        from quant.engine.scheduler import status_line
+
+        print(f"scheduler: {status_line()}")
+    except Exception:  # noqa: BLE001
+        print("scheduler: not installed; run quant schedule")
+
+    try:
+        from quant.engine.notify import status_line as notify_status
+
+        print(f"notifications: {notify_status()}")
+    except Exception:  # noqa: BLE001
+        print("notifications: off; run quant notify-setup")
     return 0
+
+
+def _cmd_news_doctor(args: argparse.Namespace) -> int:
+    """Read-only news-pillar diagnostic (v10.7.2, Part 2.1). Never loads torch.
+
+    ``--enable`` forces the pillar active (the model loads again); a subsequent
+    Friday recomputation may return it to absent.
+    """
+    from quant.engine import news_pillar
+    from quant.ui import copy as C
+
+    if getattr(args, "enable", False):
+        news_pillar.enable()
+        print(C.NEWS_DOCTOR_ENABLED)
+        return 0
+
+    symbols: list[str] = []
+    try:
+        from quant.portfolio.portfolio import load_portfolio
+
+        df = load_portfolio()
+        if df is not None and not df.empty:
+            symbols = [str(s) for s in df["Symbol"].astype(str)]
+    except Exception:  # noqa: BLE001
+        symbols = []
+
+    print(C.NEWS_DOCTOR_HEADER)
+    for line in news_pillar.diagnostic_lines(symbols):
+        print(line)
+    print(news_pillar.summary_line())
+    return 0
+
+
+def _cmd_backup(args: argparse.Namespace) -> int:
+    """Archive the user-owned state (v10.7.2, Part 3.1)."""
+    from quant.engine import backup
+    from quant.ui import copy as C
+
+    result = backup.create_backup(
+        custom_dir=getattr(args, "dir", None),
+        include_secrets=getattr(args, "include_secrets", False))
+    if not result["ok"]:
+        print(f"backup failed: {result.get('error')}")
+        return 1
+    if result["warning"]:
+        print(C.BACKUP_WARNING_SECRETS)
+    print(C.BACKUP_DONE.format(path=result["path"], size=f"{result['size_mb']:.2f}"))
+    print(C.BACKUP_MEMBERS.format(members=", ".join(result["members"])))
+    print(C.BACKUP_RESTORE_HINT)
+    return 0
+
+
+def _cmd_setup(args: argparse.Namespace) -> int:
+    """First-week setup: interactive, or ``--check`` for a status print."""
+    from quant.engine import setup as setup_mod
+
+    if getattr(args, "check", False):
+        for line in setup_mod.check_lines():
+            print(line)
+        return 0
+    return setup_mod.run_interactive()
 
 
 def _cmd_dash(args: argparse.Namespace) -> int:
@@ -543,6 +720,72 @@ def _cmd_weekly_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_schedule(args: argparse.Namespace) -> int:
+    """Install, remove, or report the local daily timer (v10.7.0, Section 3.1)."""
+    from quant.engine import scheduler
+
+    if getattr(args, "off", False):
+        print(scheduler.uninstall())
+        return 0
+    if getattr(args, "status", False):
+        print(scheduler.status_line())
+        return 0
+    print(scheduler.install())
+    return 0
+
+
+def _cmd_notify_setup(_args: argparse.Namespace) -> int:
+    """Interactive notification setup (v10.7.0, Section 4.1)."""
+    from quant.engine import notify
+
+    channel = input("Channel (telegram/email/none): ").strip().lower()
+    config: dict = {"channel": channel or "none"}
+    if channel == "telegram":
+        print("Create a bot via BotFather; get your chat id via a user-info bot.")
+        config["telegram_bot_token"] = input("Bot token: ").strip()
+        config["telegram_chat_id"] = input("Chat id: ").strip()
+    elif channel == "email":
+        config["email_from"] = input("From address: ").strip()
+        config["email_password"] = input("App password: ").strip()
+        config["email_to"] = input("To address: ").strip()
+    ok = notify.send_test(config)
+    config["tested"] = bool(ok)
+    notify.save_config(config)
+    print("test message sent" if ok else "test failed; configuration saved anyway")
+    return 0
+
+
+def _cmd_daily(_args: argparse.Namespace) -> int:
+    """Run the daily job (used by the timer). One line to stdout (Section 3.2)."""
+    from quant.engine import daily, lock as lock_mod
+
+    if not _lock_or_fail("daily"):
+        return 1
+    try:
+        def _update() -> None:
+            from quant.data.data_updater import main as updater_main
+
+            updater_main()
+
+        result = daily.run_daily(update_fn=_update)
+        print(result.message)
+        # A DB-busy failure exits nonzero quietly; the morning slot retries.
+        return 1 if result.status == "error" else 0
+    finally:
+        lock_mod.release()
+
+
+def _cmd_ack(args: argparse.Namespace) -> int:
+    """Resolve an alert: quant ack <id> --status done|declined --reason ..."""
+    from quant.data.database import get_connection
+    from quant.engine import alerts
+
+    ok = alerts.resolve_alert(
+        get_connection(), int(args.id), args.status, getattr(args, "reason", None))
+    print("alert resolved" if ok else "alert not found")
+    return 0 if ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``quant`` argument parser."""
     from quant import __version__
@@ -571,6 +814,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("all", help="run update then run (full daily cycle)")
     sub.add_parser("publish", help="render the static Published Briefing")
     sub.add_parser("doctor", help="read-only diagnosis (no writes, safe to paste)")
+    news_doc = sub.add_parser("news-doctor",
+                              help="read-only news-pillar diagnostic (never loads torch)")
+    news_doc.add_argument("--enable", action="store_true",
+                          help="force the news pillar active (model loads again)")
+    backup_p = sub.add_parser("backup", help="archive the user-owned state (tar.gz)")
+    backup_p.add_argument("--dir", default=None,
+                          help="output directory (default data/backups)")
+    backup_p.add_argument("--include-secrets", action="store_true",
+                          help="also include data/notify.toml (bot token)")
+    setup_p = sub.add_parser("setup", help="first-week setup (interactive) or --check")
+    setup_p.add_argument("--check", action="store_true",
+                         help="print setup statuses without prompting")
     sub.add_parser("validate-tiers", help="validate data/tiers.csv and report issues")
     sub.add_parser("repair-tiers", help="repair common issues in data/tiers.csv")
     sub.add_parser("suggest-rebalance",
@@ -595,6 +850,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--emergency", type=float, default=None,
         help="cash amount (EUR) for the emergency sell order",
     )
+    sched = sub.add_parser("schedule", help="install/remove the local daily timer")
+    sched.add_argument("--off", action="store_true", help="uninstall the timer")
+    sched.add_argument("--status", action="store_true", help="print timer status")
+    sub.add_parser("notify-setup", help="configure Telegram/email notifications")
+    sub.add_parser("daily", help="run the daily job (used by the timer)")
+    ack = sub.add_parser("ack", help="resolve an alert")
+    ack.add_argument("id", help="alert id")
+    ack.add_argument("--status", choices=["done", "declined"], required=True)
+    ack.add_argument("--reason", default=None, help="why (for declined)")
     dash = sub.add_parser("dash", help="launch the local interactive workspace")
     dash.add_argument(
         "--lan", action="store_true",
@@ -633,6 +897,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "publish": _cmd_publish,
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,
+        "news-doctor": _cmd_news_doctor,
+        "backup": _cmd_backup,
+        "setup": _cmd_setup,
         "weekly-report": _cmd_weekly_report,
         "validate-tiers": _cmd_validate_tiers,
         "repair-tiers": _cmd_repair_tiers,
@@ -642,6 +909,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "health-check": _cmd_health_check,
         "clear-cache": _cmd_clear_cache,
         "cache-stats": _cmd_cache_stats,
+        "schedule": _cmd_schedule,
+        "notify-setup": _cmd_notify_setup,
+        "daily": _cmd_daily,
+        "ack": _cmd_ack,
     }
     try:
         return dispatch[args.command](args)

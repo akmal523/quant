@@ -36,8 +36,12 @@ class AccountState:
     # R8: optional savings-plan day of month (1-31); None when unset.
     savings_plan_day: int | None = None
 
-    def risk_limits(self) -> tuple[float, float, float, float, float]:
-        """Return (safety_min, core_min, alpha_max, max_position, cash_floor)."""
+    def risk_limits(self) -> tuple[float, float, float]:
+        """Return (long_term_min, active_max, max_position) of the INVESTED pool.
+
+        v10.7.0: the old cash floor is removed. Operational cash is not an
+        investment buffer and is never constrained.
+        """
         return RISK_PROFILES.get(self.risk_profile, RISK_PROFILES[DEFAULT_RISK_PROFILE])
 
     @property

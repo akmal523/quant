@@ -7,6 +7,308 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.7.2] - 2026-10-01
+
+"Real-World Hardening: Locks, News Pillar, Backup, First Week." Four real-world
+weaknesses found in the project's own logs, fixed without new features. All
+v10.7.0 hard constraints remain: no emojis, broker is truth, local-first privacy,
+plain English via `quant/ui/copy.py`, argparse-and-print CLI, golden files
+unmoved, suite green after each phase.
+
+### Added - Stale-lock recovery and busy-database grace (Part 1)
+
+- **`quant/engine/lock.py`**: one shared runner lock with ownership and takeover.
+  The lock file carries `pid`, `started_at` (ISO), and `command`. A dead pid is
+  taken over immediately (exact doctor phrase "runner lock: taken over from stale
+  process (pid N, age M min)"); a live pid below `STALE_LOCK_MINUTES` (90) is
+  respected with a retry budget (5 attempts over about 60 seconds) then a
+  graceful abort; a live pid above `HARD_LOCK_MINUTES` (240) is taken over with a
+  warning. `PermissionError` from the liveness probe counts as alive.
+- **`quant/data/database.py`**: `write_connection()`, a short-lived read-write
+  connection that closes in `finally` and retries up to 5 attempts with backoff
+  totaling about 60 seconds on DuckDB lock/IO errors.
+- **Graceful failure**: a daily job that cannot acquire the database writes a
+  `last_failed_run` marker with the plain reason, exits nonzero quietly, and lets
+  the morning slot retry. The exact string lives in `copy.DB_BUSY_RETRY`.
+- **Wiring**: `quant daily`, `quant run`, `quant update`, and the UI runner all
+  respect the one lock; the UI's spawned subprocess inherits it via
+  `QUANT_LOCK_HELD`. `quant doctor` shows the runner-lock line and the last
+  failed run with reason and time.
+
+### Added - News pillar: diagnose, then demote honestly (Part 2)
+
+- **`quant/engine/news_pillar.py`**: a read-only diagnostic (per holding symbol:
+  news count in 30 days, count of texts at least 50 characters, count scored by
+  the model, count defaulted, the dominant default reason) that never loads
+  torch. New `quant news-doctor` command (and a condensed line in `quant
+  doctor`); `--enable` forces the pillar active.
+- **`news_pillar` status** (`active` | `absent`), recomputed on the Friday run:
+  absent when zero model-scored items in the last 30 days. When absent, the
+  scorer path never imports torch/transformers (the performance win), tactical
+  scoring is unchanged, and the Overview market expander and the briefing
+  methodology show the exact line "News pillar: no data for your assets.
+  Tactical score uses market regime and price momentum only."
+
+### Added - Backup: one command, honest hygiene (Part 3)
+
+- **`quant/engine/backup.py`** and `quant backup [--dir PATH]
+  [--include-secrets]`: acquires the runner lock, archives with stdlib tar.gz
+  (`data/portfolio.csv`, `data/tiers.csv`, the DuckDB file plus its `.wal`
+  sibling, `data/account.yaml`; `data/notify.toml` only with `--include-secrets`
+  plus a warning), writes `data/backups/quant-backup-YYYYMMDD-HHMM.tar.gz`, and
+  prunes to the 5 most recent. Prints the path, size, member list, and the
+  restore instruction.
+- **`last_backup_at`** is persisted; `quant doctor` and the Settings Automation
+  block show "Last backup: <date>", or the gentle line at most once a week.
+- **`docs/backup.md`**: archive contents, restore procedure, and the monthly
+  cloud-copy recommendation.
+
+### Added - First-week experience (Part 4)
+
+- **`quant/engine/setup.py`** and `quant setup` (interactive) / `quant setup
+  --check` (non-interactive): six idempotent steps (market data, tiers, schedule,
+  notifications, backup, first-week checklist), each showing its current status
+  first and offering a skip.
+- **`docs/first_week.md`**: the plain-English checklist, identical to the text
+  the setup command prints. The README quick start is now "Run `quant setup`
+  once, then live your life."
+
+### Fixed - Critical bug fixes (Part 5)
+
+- **FORTRESS sell violation.** `quant run` advised selling a FORTRESS holding
+  because the audit's `Tier` column comes from the legacy `classify_asset`
+  (CORE/SATELLITE/ACTIVE/SECTOR), not `tiers.csv`. `build_advice` now resolves
+  the tier from the `tiers` source of truth first (the holding's tier is only a
+  fallback), and `build_actions` loads the `tiers.csv` map and passes it. A
+  FORTRESS sell can no longer be expressed by any consumer. Regression test
+  `test_fortress_never_sells_real_scenario`.
+- **Holdings meta not synced.** `quant run` read `data/portfolio.csv` but never
+  populated `holdings_meta`, so the valuation pipeline had no shares. The run
+  pipeline now seeds `holdings_meta` from the broker CSV (first-time only, so an
+  existing row keeps its `sync_date` and the 35-day reminder still fires).
+  `quant doctor` shows the last broker sync date. Regression test
+  `test_holdings_meta_sync_on_run`.
+
+### Documentation
+
+- README gains an Environment section (the venv, when to create a fresh one, and
+  running without an active environment), a Notifications section, and a Backup
+  section. `mkdocs.yml` nav gains `first_week.md` and `backup.md`.
+
+### Version
+
+- Bumped to **10.7.2** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
+## [10.7.1] - 2026-10-01
+
+"Finish the Redesign: One Advice Pipeline, Two Complete Pages, Proof Under
+Load." Completes the v10.7.0 redesign so the old advice path can no longer
+contradict it.
+
+### Added - One advice pipeline (Part 1)
+
+- **`quant/engine/advice.py`**: `build_advice(holdings, tiers, scores, regime,
+  cooldowns, open_alerts, plans, as_of)` returns `(advice, rejected)`. Every
+  sell and buy routes through `quant/engine/sizing.py`, so a FORTRESS sell
+  cannot be expressed. Generation order: open alerts first (alert sells ignore
+  cooldowns), FORTRESS never sells, ALPHA drift sells only when every law
+  passes, buys need HIGH conviction, SPECULATIVE is stop-loss only, and a
+  bear-regime cash line. Considered-but-suppressed advice becomes a
+  `RejectedNote`.
+- **Consumers rewired**: `quant/reporting/actions.py` is a thin adapter over
+  `build_advice`; the briefing Actions table is `Name | Action | Amount EUR |
+  Reason` from Advice only; the Holdings table renders `copy.tier_word` and
+  plain verdicts; the web briefing and the `quant run` printout use the
+  dictionary words; the Overview "Not this week" block renders the pipeline's
+  rejected notes. Legacy tier labels are gone from every surface.
+
+### Added - My holdings, full redesign (Part 2)
+
+- The page follows the exact Section 10.2 block order: add-holding input; the
+  holdings table (`Name | Value | Profit | Structure | Tactics | Verdict`, no
+  per-share columns, B7); one expander per holding with a normalized per-asset
+  chart (1M/3M/1Y/Max, dotted baseline, non-zero axis, no fill) and the
+  per-share/shares/tier/why lines; "How your money is split"; "If you need cash
+  now"; "Losses you can use to lower tax"; the quick-events form; and the
+  Account block with the savings-plan execution day.
+
+### Added - Find investments + monthly wiring (Part 3)
+
+- Three grouped candidate sections (long-term / active / small bets) with plain
+  reasons and limit-usage lines, company names first. The same candidate list
+  feeds the Monthly decision "New ideas this month" section.
+
+### Added - Proof under load (Part 4)
+
+- `tests/test_v10_7_1_phase_a.py` (6) and `tests/test_v10_7_1_phase_d.py` (7):
+  the historical failures, a 100-asset daily run under 60 seconds, the monthly
+  end-to-end ritual, catch-up honesty, the app-open fallback, the advice record,
+  and the extended forbidden-token copy test.
+
+### Version
+
+- Bumped to **10.7.1** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
+## [10.7.0] - 2026-10-01 (in progress)
+
+"The System That Talks Sense" — a root redesign of how the system converses
+with its user. This entry tracks the phased implementation; the suite stays
+green and the golden backtest stays unmoved after each phase.
+
+### Phase 1 — Money model, config, and naming dictionary
+
+- **Three money pools** ([`quant/config.py`](quant/config.py)): Invested (the
+  only pool that is scored, weighted, charted, and advised), Savings-plan
+  budget (a flow, not a balance), and Operational cash (daily-life money, never
+  an investment buffer). Documented in [`CONTEXT.md`](CONTEXT.md).
+- **Cash floor removed**: the old `cash floor 10%` constraint is gone from
+  config and all risk-profile displays. `RISK_PROFILES` is now a 3-tuple
+  `(long_term_min, active_max, max_position)` of the INVESTED pool, with plain
+  one-sentence descriptions (`RISK_PROFILE_DESCRIPTIONS`).
+- **Invested-only bucket limits**: `LONG_TERM_MIN` (0.40), `ACTIVE_MAX` (0.50),
+  `BETS_MAX` (0.02). The optimizer's cash (safety) constraint is removed; the
+  remaining bucket constraints are renamed to the invested-only meaning.
+- **New config constants**: `MONTHLY_LONG_TERM_SHARE` (0.70), alert thresholds,
+  scheduler slots, and the Section 6 sizing laws.
+- **Naming dictionary** ([`quant/ui/copy.py`](quant/ui/copy.py)): tier words
+  ("Long-term (never sell)", "Active (may sell)", "Small bets (high risk)"),
+  section titles, statuses as verbs ("OK, do nothing", "Sell part",
+  "Cooldown until {date} (do nothing)"), column headers ("Value (EUR)",
+  "Profit (EUR)", "Entry price per share"), and the `FORBIDDEN_TOKENS` list.
+- **Invested-only donut**: the Overview distribution no longer includes cash;
+  it is labeled "of invested".
+- **Tests**: new [`tests/test_v10_7_0_phase1.py`](tests/test_v10_7_0_phase1.py)
+  (9 tests). Full suite 408 passed; golden
+  [`tests/golden/backtest_2024.json`](tests/golden/backtest_2024.json) unmoved.
+
+### Phase 2 — Valuation, flows, performance math, retention, doctor
+
+- **New tables** ([`quant/data/database.py`](quant/data/database.py)):
+  `holdings_meta(symbol, shares, sync_date, invested_at_sync)`,
+  `flows(id, date, type, amount_eur, symbol, note, created_at)`, and
+  `portfolio_value_history(date, invested_eur)`.
+- **New package** [`quant/engine/`](quant/engine/__init__.py):
+  - [`valuation.py`](quant/engine/valuation.py): shares from the broker CSV
+    sync, estimated revaluation (shares * latest close), the "estimated, as of
+    <date>" label, and the 35-day sync reminder.
+  - [`flows.py`](quant/engine/flows.py): buy/sell/dividend flows, Modified Dietz
+    returns that exclude deposits, the Overview performance line, and Sparplan
+    planned-to-actual reconciliation.
+  - [`retention.py`](quant/engine/retention.py): 5-year daily-to-weekly
+    downsampling (idempotent) and 90-day news-cache pruning.
+  - [`daily.py`](quant/engine/daily.py): the last-daily-run marker and the
+    monitoring-gap helper.
+- **Doctor** ([`quant/cli/__init__.py`](quant/cli/__init__.py)): database size,
+  last daily run, monitoring gap, last broker sync, scheduler status, and
+  notifications status (graceful when the Phase 3 modules are absent).
+- **Tests**: new [`tests/test_v10_7_0_phase2.py`](tests/test_v10_7_0_phase2.py)
+  (13 tests). Full suite 421 passed; golden unmoved.
+
+### Phase 3 — Engine, notifications, alerts, sizing laws
+
+- **Sizing laws** ([`quant/engine/sizing.py`](quant/engine/sizing.py)): the six
+  Section 6 rules. FORTRESS never sells; sell = min(drift, value - 1 EUR) rounded
+  down to 5 EUR, suppressed below 25 EUR; positions below 100 EUR are untouchable;
+  cooldown blocks sells only; buys round to 10 EUR; active buys need HIGH
+  conviction. The 143.53 EUR historical failure produces no sell.
+- **Alerts** ([`quant/engine/alerts.py`](quant/engine/alerts.py)): the five
+  level-triggered conditions (structural break, tactical collapse, position
+  crash, regime flip, speculative stop-loss), the `alerts` table, resolve, and
+  the 30-day self-scoring honesty ledger.
+- **Notifications** ([`quant/engine/notify.py`](quant/engine/notify.py)):
+  Telegram via the standard library, email via the existing SMTP config, the
+  exact alert phrasing template, and a status line. Failed sends never crash the
+  job; the token is never logged.
+- **Scheduler** ([`quant/engine/scheduler.py`](quant/engine/scheduler.py)):
+  systemd user timer/service generation (slots 18:45 and 07:45, Persistent=true,
+  loginctl enable-linger), install/uninstall/status.
+- **Daily job** ([`quant/engine/daily.py`](quant/engine/daily.py)): weekend skip,
+  catch-up gap line, revaluation, alert evaluation, retention, artifact, and
+  notification dispatch; the 07:45 morning slot; the app-open staleness fallback
+  in [`quant/dashboard.py`](quant/dashboard.py).
+- **CLI**: `quant schedule` (`--off`, `--status`), `quant notify-setup`,
+  `quant daily`, and `quant ack <id> --status done|declined --reason ...`.
+- **UI**: a red open-actions banner on Overview; `quant run` prints an ALERTS
+  section first; the briefing starts with an Alerts section.
+- **Tests**: new [`tests/test_v10_7_0_phase3.py`](tests/test_v10_7_0_phase3.py)
+  (23 tests). Full suite 444 passed; golden unmoved.
+
+### Phase 4 — Monthly decision, allocator, actuals
+
+- **Allocator** ([`quant/engine/allocator.py`](quant/engine/allocator.py)): the
+  long base is 70 percent of the budget, distributed across FORTRESS holdings by
+  target gap (largest first); the active pool goes to cash in a bear regime or
+  without HIGH conviction; bets are gated by the 2 percent cap; all EUR rounded
+  to 5. Cash is always shown when it receives anything.
+- **Plan storage** ([`quant/engine/plans.py`](quant/engine/plans.py)): the
+  `monthly_plans` table, save/load, the pending-sync marker, and
+  `enter_actuals` (replaces auto-flows, updates holdings_meta shares, returns
+  reconciliation rows).
+- **Monthly decision page** ([`quant/pages/monthly.py`](quant/pages/monthly.py),
+  [`quant/ui/render.py`](quant/ui/render.py)): the exact Section 8.1 copy, the
+  budget input prefilled from last month, the split with reasons and fees, the
+  Approve / Change split buttons, and the actuals form. Added to the nav order
+  (Overview, Monthly decision, My holdings, Find investments, Settings).
+- **Quarterly gate removed**: the weekly report's Fortress copy now says the
+  monthly decision adjusts savings-plan amounts.
+- **Tests**: new [`tests/test_v10_7_0_phase4.py`](tests/test_v10_7_0_phase4.py)
+  (9 tests). Full suite 453 passed; golden unmoved.
+
+### Phase 5 — UI redesign, steps generator, charts, briefing
+
+- **Steps generator** ([`quant/engine/steps.py`](quant/engine/steps.py)): the
+  five allowed sources (open alerts, unapproved decision after the 25th,
+  approved plan not executed, actuals missing 7+ days, a FORTRESS gap over 10
+  points) and the "Not this week" rejected-actions block.
+- **Overview** ([`quant/ui/render.py`](quant/ui/render.py)): renamed to
+  Overview; blocks A-C added (Your money plaques, Your steps this week with the
+  Not this week block, Savings plan). The distribution donut is invested-only.
+- **Page titles** ([`quant/ui/copy.py`](quant/ui/copy.py)): Overview, Monthly
+  decision, My holdings, Find investments, Settings.
+- **Charts** (B8): the value chart has no area fill and an axis that never
+  starts at zero (padded visible range), with the dotted baseline at period
+  start.
+- **Settings**: report history deduped to one entry per trading day (B6) and a
+  new Automation block (scheduler, notifications, database size, advice record,
+  last broker sync).
+- **Briefing** ([`quant/reporting/briefing.py`](quant/reporting/briefing.py)):
+  order is Alerts, Your steps this week, Your money, then the existing sections.
+- **Forbidden-token copy test**: renders all five pages and the briefing and
+  fails on any old vocabulary or emoji.
+- **Tests**: new [`tests/test_v10_7_0_phase5.py`](tests/test_v10_7_0_phase5.py)
+  (13 tests). Full suite 466 passed; golden unmoved.
+
+### Phase 6 — Docs, version, final verification
+
+- **Docs**: new [`docs/conversation.md`](docs/conversation.md) (the four
+  channels), [`docs/launch.md`](docs/launch.md) (systemd + cron fallback), and
+  [`docs/migration_v10.7.0.md`](docs/migration_v10.7.0.md) (cash-floor removal,
+  deduped history). [`docs/performance.md`](docs/performance.md) documents
+  Modified Dietz. [`README.md`](README.md) quick start updated ("install once:
+  quant schedule, quant notify-setup; live your life; once a month: Monthly
+  decision"). [`CONTEXT.md`](CONTEXT.md) gains the alert kinds and sizing laws.
+- **Version**: bumped to **10.7.0** ([`quant/__init__.py`](quant/__init__.py),
+  [`pyproject.toml`](pyproject.toml)).
+- **Verification**: full suite 466 passed; golden
+  [`tests/golden/backtest_2024.json`](tests/golden/backtest_2024.json) unmoved;
+  `mkdocs build --strict` clean; ruff findings unchanged from the pre-existing
+  baseline (one conventional `copy as C` in the new test).
+
+### Known follow-ups (tracked, not blocking)
+
+- The My holdings and Find investments pages are renamed but their full
+  redesigns (split lines with rules, the two expanders, the three grouped
+  candidate sections) remain.
+- Bug fixes B1-B4 and B7 (tier-routed advice, impossible sell sizes in the
+  advice engine, cooldown-blocks-buys, stale tier labels, entry-price expander)
+  remain.
+
+---
+
 ## [10.6.5] - 2026-10-01
 
 Final optimization and polish. No new features; behavior is preserved.

@@ -273,6 +273,7 @@ def read_actions() -> list[dict]:
             "target_weight": str(r.get("Target_Weight", "")),
             "drift": str(r.get("Drift", "")),
             "action": a.get("action"),
+            "kind": a.get("kind"),
             "amount_eur": a.get("amount_eur"),
             "blocked": bool(a.get("blocked", False)),
             "remedy": a.get("remedy"),

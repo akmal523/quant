@@ -21,6 +21,9 @@ site/
 sec_filings/
 *.log
 
+# v10.7.0: local notification secrets (bot token, chat id)
+data/notify.toml
+
 # HuggingFace / ML Models
 *.safetensors
 *.bin

@@ -406,7 +406,7 @@ def prioritize_sells_with_tax(
     for rec in losers:
         r = dict(rec)
         r["tax_impact"] = round(_pnl(r) * tax_rate, 2)
-        r["tax_note"] = "Tax-loss harvesting: offsets gains"
+        r["tax_note"] = "Losses you can use to lower tax: offsets gains"
         out.append(r)
     for rec in winners:
         r = dict(rec)

@@ -7,7 +7,8 @@ scripts under quant/pages/ call them. This module is the entry: it draws the
 sidebar contract (name, tagline, version) then st.navigation over four pages.
 
 Invariants: sidebar shows only name, tagline, version, then page nav; page order
-is Today, Portfolio, Explore, Settings; navigation labels equal quant.ui.copy.
+is Overview, Monthly decision, My holdings, Find investments, Settings;
+navigation labels equal quant.ui.copy.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ st.set_page_config(page_title="Quant-AI", layout="centered")
 # (script path, title, default) in the fixed order.
 _NAV = [
     ("pages/today.py", C.PAGE_TODAY, True),
+    ("pages/monthly.py", C.PAGE_MONTHLY, False),
     ("pages/portfolio.py", C.PAGE_PORTFOLIO, False),
     ("pages/explore.py", C.PAGE_EXPLORE, False),
     ("pages/settings.py", C.PAGE_SETTINGS, False),
@@ -46,8 +48,40 @@ def _startup_backfill() -> None:
     st.session_state["_names_ensured"] = True
 
 
+def _startup_staleness() -> None:
+    """App-open fallback (v10.7.0, Section 3.5): heal staleness on open.
+
+    If the last successful daily run is older than the previous trading day and
+    the runner lock is free, trigger a quiet background refresh and show a
+    one-line status. If the lock is busy, show the status line only.
+    """
+    if st.session_state.get("_staleness_checked"):
+        return
+    st.session_state["_staleness_checked"] = True
+    try:
+        from quant.engine import daily
+        from quant.ui import runner
+
+        status = daily.staleness_status()
+        if not status:
+            return
+        st.info(status)
+        if not runner.is_running():
+            import subprocess
+            import sys
+
+            subprocess.Popen(
+                [sys.executable, "-m", "quant.cli", "daily"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main() -> None:
     _startup_backfill()
+    _startup_staleness()
     st.sidebar.title("Quant-AI")
     st.sidebar.caption("Daily portfolio management")
     st.sidebar.caption(f"Version {__version__}")

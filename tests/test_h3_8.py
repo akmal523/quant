@@ -49,10 +49,14 @@ def _all_text(at: AppTest) -> str:
     return " ".join(chunks)
 
 
+# v10.7.0: page titles were renamed; map the title to its file.
+_PAGE_FILE = {PAGE_TODAY: "pages/today.py", PAGE_SETTINGS: "pages/settings.py"}
+
+
 def _page(page: str) -> AppTest:
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
-    at.switch_page(f"pages/{page.lower()}.py").run()
+    at.switch_page(_PAGE_FILE.get(page, f"pages/{page.lower()}.py")).run()
     return at
 
 
@@ -92,8 +96,9 @@ def test_m4_actions_oracle():
     assert eunl["Drift"] == "-16.1%"
     assert sxrv["Drift"] == "10.5%"
     acts = {a["symbol"]: a for a in build_actions(audit) if not a["blocked"]}
-    assert acts["EUNL.DE"]["action"] == "BUY MORE"
-    assert acts["SXRV.DE"]["action"] == "TRIM"
+    # v10.7.1: action words come from the one advice pipeline (dictionary).
+    assert acts["EUNL.DE"]["action"] == "Top up savings plan"
+    assert acts["SXRV.DE"]["action"] == "Sell part"
 
 
 def test_status_from_drift_not_on_track_for_overshoot():

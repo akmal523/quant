@@ -63,24 +63,85 @@ SPARPLAN_SELL_FEE_EUR = 1.0
 # constant is the fallback. Consumers should call current_cash_apy().
 BROKER_CASH_APY = 0.025
 
-# ── Smart Balance Risk Buckets (Phase 4) ──────────────────────────────────────
-# Hard inequality constraints for the cvxpy optimizer. Prevents 100% allocation
-# into a handful of volatile tech stocks.
-SAFETY_BUCKET_MIN = 0.10   # Cash & short-term bonds (2.25% risk-free)
-CORE_BUCKET_MIN   = 0.40   # Broad ETFs via Sparplan (free execution)
-ALPHA_BUCKET_MAX  = 0.50   # Active equities (1 EUR fee, high conviction)
+# ── v10.7.0: The three money pools (root fix) ─────────────────────────────────
+# The system keeps exactly three separate pools. Mixing them made every
+# percentage lie (the 92 percent cash donut, "invest from cash" advice).
+#
+#   Pool 1 INVESTED          Everything held at the broker. The ONLY pool that is
+#                            scored, weighted, charted, and advised. All targets
+#                            and limits below apply to this pool only.
+#   Pool 2 SAVINGS BUDGET    A monthly amount the user decides from salary. A
+#                            FLOW into Invested, not a balance. Sparplan buys
+#                            cost 0 EUR on the buy side.
+#   Pool 3 OPERATIONAL CASH  Daily-life money at the broker. Earns the cash yield.
+#                            NEVER an investment buffer: never in weights, never
+#                            in the donut, never a source of forced trades.
+#
+# Invested-only limits (fractions of the INVESTED pool):
+LONG_TERM_MIN = 0.40   # long-term (FORTRESS) at least 40 percent of invested
+ACTIVE_MAX    = 0.50   # active (ALPHA) at most 50 percent of invested
+BETS_MAX      = 0.02   # small bets (SPECULATIVE) at most 2 percent of invested
+# max single position is per risk profile (see RISK_PROFILES below).
 
-# ── v10.5.0: Risk Profiles (spec 2.3) ─────────────────────────────────────────
-# The user picks one profile in data/account.yaml; it maps to the optimizer and
-# limit parameters below. Tuple order:
-#   (safety_min, core_min, alpha_max, max_position, cash_floor)
-# Documented in CONTEXT.md, one plain sentence per profile.
+# ── v10.7.0: Risk Profiles (invested pool only) ───────────────────────────────
+# The user picks one profile in data/account.yaml. Tuple order:
+#   (long_term_min, active_max, max_position)
+# All three are fractions of the INVESTED pool. The old cash floor is removed:
+# operational cash is not an investment buffer and is never constrained.
 RISK_PROFILES = {
-    "conservative": (0.20, 0.40, 0.40, 0.25, 0.15),
-    "balanced":     (0.10, 0.40, 0.50, 0.35, 0.10),
-    "aggressive":   (0.05, 0.30, 0.65, 0.45, 0.05),
+    "conservative": (0.50, 0.40, 0.25),
+    "balanced":     (0.40, 0.50, 0.35),
+    "aggressive":   (0.30, 0.65, 0.45),
 }
 DEFAULT_RISK_PROFILE = "balanced"
+
+# Plain-word consequences, one sentence per profile (invested pool only).
+RISK_PROFILE_DESCRIPTIONS = {
+    "conservative": ("At least 50 percent of your invested money in long-term "
+                     "assets, at most 40 percent in active positions."),
+    "balanced": ("At least 40 percent of your invested money in long-term assets, "
+                 "at most 50 percent in active positions."),
+    "aggressive": ("At least 30 percent of your invested money in long-term assets, "
+                   "at most 65 percent in active positions."),
+}
+
+# ── v10.7.0: Monthly allocator (Section 8) ────────────────────────────────────
+MONTHLY_LONG_TERM_SHARE = 0.70   # long base = 70 percent of the monthly budget
+
+# ── v10.7.0: Alert thresholds (level-triggered, Section 5) ────────────────────
+ALERT_STRUCTURAL_FLOOR = 40.0        # structural grade below this -> alert
+ALERT_STRUCTURAL_DROP = 20.0         # dropped >= 20 points since last monthly decision
+ALERT_TACTICAL_DROP = 25.0           # tactical grade dropped >= 25 points within window
+ALERT_TACTICAL_WINDOW_DAYS = 7
+ALERT_POSITION_CRASH = 0.15          # holding value down >= 15 percent within window
+ALERT_POSITION_CRASH_DAYS = 7
+ALERT_SPECULATIVE_STOP = -0.50       # SPECULATIVE down 50 percent from recorded entry
+
+# ── v10.7.0: Scheduler slots (local time, Section 3) ──────────────────────────
+SCHEDULE_DAILY_SLOT = "18:45"        # full daily job after market close
+SCHEDULE_MORNING_SLOT = "07:45"      # lightweight morning packaging slot
+
+# ── v10.7.2: Runner lock thresholds (Part 1) ──────────────────────────────────
+# A laptop that sleeps mid-run and runs an app plus a timer plus manual commands
+# makes lock collisions a weekly event. The runner lock carries pid, started_at,
+# and command. Below STALE_LOCK_MINUTES a live owner is respected (retry, then
+# abort gracefully); above HARD_LOCK_MINUTES a live owner is assumed runaway and
+# taken over with a warning. A dead pid is always taken over immediately.
+STALE_LOCK_MINUTES = 90
+HARD_LOCK_MINUTES = 240
+# Retry budget while a live owner holds the lock below the stale threshold.
+LOCK_RETRY_ATTEMPTS = 5
+LOCK_RETRY_TOTAL_SECONDS = 60.0
+# Writer connection retry budget on DuckDB lock/IO errors (Part 1.2).
+WRITE_RETRY_ATTEMPTS = 5
+WRITE_RETRY_TOTAL_SECONDS = 60.0
+
+# ── v10.7.0: Sizing laws (Section 6) ──────────────────────────────────────────
+SELL_MIN_EUR = 25.0                  # below this, no sell advice (fee relevance)
+SELL_ROUND_STEP_EUR = 5.0            # round sell amounts down to 5 EUR steps
+BUY_ROUND_STEP_EUR = 10.0            # round buy amounts to 10 EUR steps
+UNTOUCHABLE_POSITION_EUR = 100.0     # never sell a position below this value
+SYNC_REMINDER_DAYS = 35              # gentle broker-sync reminder threshold
 
 # ── Signal Routing (Phase 4) ──────────────────────────────────────────────────
 # Structural grade threshold for long-term hold -> route to Sparplan.

@@ -45,10 +45,14 @@ def _all_text(at: AppTest) -> str:
     return " ".join(chunks)
 
 
+# v10.7.0: page titles were renamed; map the title to its file.
+_PAGE_FILE = {PAGE_TODAY: "pages/today.py", PAGE_SETTINGS: "pages/settings.py"}
+
+
 def _page(page: str) -> AppTest:
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
-    at.switch_page(f"pages/{page.lower()}.py").run()
+    at.switch_page(_PAGE_FILE.get(page, f"pages/{page.lower()}.py")).run()
     return at
 
 

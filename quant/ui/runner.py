@@ -17,11 +17,11 @@ Invariants:
   - "A review is already running in another tab." only for a LIVE FOREIGN heartbeat.
   - A run on empty/absent DB never raises; returns a RunResult.
 
-Dependencies: subprocess, sys, threading, json, time, uuid, quant.ui.copy.
+Dependencies: subprocess, sys, threading, time, uuid, quant.engine.lock,
+quant.ui.copy.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -35,9 +35,8 @@ from quant.ui import copy as ui_copy
 # One lock per process: serializes UI-triggered runs across tabs.
 _LOCK = threading.Lock()
 
-# A heartbeat older than this is stale and may be overwritten (spec 4.4).
-_STALE_SECONDS = 600.0
-# This process's heartbeat identity.
+# This process's identity (kept for backward compatibility; the shared lock
+# tracks ownership by pid).
 _OWNER = uuid.uuid4().hex
 
 # UI command buttons -> CLI subcommands (P2: command names never reach the UI).
@@ -67,60 +66,53 @@ def is_running() -> bool:
     return _LOCK.locked()
 
 
-# ── Heartbeat (spec 4.4) ──────────────────────────────────────────────────────
+# ── Heartbeat / runner lock (v10.7.2: one shared lock) ────────────────────────
+# The file lock is owned by quant.engine.lock so every writer (daily, run, the
+# UI, backup) respects the same lock. The UI keeps its in-process mutex for
+# same-process serialization and uses the shared lock's non-blocking mode so a
+# foreign live owner yields the other-tab sentence immediately.
 
 def _heartbeat_path() -> str:
-    from quant import paths
+    from quant.engine import lock as lock_mod
 
-    return os.path.join(str(paths.OUTPUTS_DIR), ".runner.lock")
+    return lock_mod.lock_path()
 
 
 def _read_heartbeat() -> dict | None:
-    try:
-        with open(_heartbeat_path(), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:  # noqa: BLE001
-        return None
+    from quant.engine import lock as lock_mod
+
+    return lock_mod.read_lock()
 
 
-def _write_heartbeat() -> None:
-    try:
-        path = _heartbeat_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"owner": _OWNER, "pid": os.getpid(), "ts": time.time()}, f)
-    except Exception:  # noqa: BLE001
-        pass
+def _write_heartbeat(command: str = "ui") -> None:
+    from quant.engine import lock as lock_mod
+
+    lock_mod.write_lock(command, refresh=True)
 
 
 def _clear_heartbeat() -> None:
-    hb = _read_heartbeat()
-    if hb and hb.get("owner") == _OWNER:
-        try:
-            os.remove(_heartbeat_path())
-        except Exception:  # noqa: BLE001
-            pass
+    from quant.engine import lock as lock_mod
+
+    lock_mod.release()
 
 
 def _heartbeat_live(hb: dict | None) -> bool:
+    from quant.engine import lock as lock_mod
+
     if not hb:
         return False
-    try:
-        return (time.time() - float(hb.get("ts", 0))) < _STALE_SECONDS
-    except (TypeError, ValueError):
-        return False
+    return lock_mod.pid_alive(hb.get("pid"))
 
 
 def _foreign_live_heartbeat() -> bool:
-    """True iff a DIFFERENT session holds a still-live heartbeat.
+    """True iff a DIFFERENT live process holds the lock.
 
-    Stale heartbeats (>10 min) and this process's own heartbeat return False, so
-    a killed run never blocks the next press.
+    v10.7.2: liveness is by pid (a dead pid is a stale lock to take over), not by
+    a heartbeat timestamp. This process's own lock returns False.
     """
-    hb = _read_heartbeat()
-    return (_heartbeat_live(hb)
-            and hb.get("owner") != _OWNER
-            and hb.get("pid") != os.getpid())
+    from quant.engine import lock as lock_mod
+
+    return lock_mod.is_foreign_live()
 
 
 def _latest_log_path() -> str | None:
@@ -140,13 +132,15 @@ def run_repair() -> RunResult:
     the repair runs in this process and shares the orchestrator lock. Writes only
     data/broker_registry.csv, never the DB.
     """
+    from quant.engine import lock as lock_mod
+
     if not _LOCK.acquire(blocking=False):
         return RunResult("busy", ui_copy.ERROR_RUNNING, None, -1)
     t0 = time.time()
     try:
-        if _foreign_live_heartbeat():
+        res = lock_mod.acquire(REPAIR, blocking=False)
+        if not res.acquired:
             return RunResult("busy", ui_copy.ERROR_ALREADY_RUNNING, None, -1)
-        _write_heartbeat()
         from quant.data.registry_repair import repair_isins
 
         summary = repair_isins()
@@ -157,32 +151,38 @@ def run_repair() -> RunResult:
         return RunResult("error", ui_copy.ERROR_REFRESH_FAILED, None, -1,
                          time.time() - t0)
     finally:
-        _clear_heartbeat()
+        lock_mod.release()
         _LOCK.release()
 
 
 def run(command: str = REFRESH) -> RunResult:
-    """Run a pipeline command under the mutex + heartbeat. Never raises.
+    """Run a pipeline command under the mutex + shared lock. Never raises.
 
     One acquisition covers the whole command (``all`` = update then run in one
     subprocess), so nested acquisition is impossible by construction.
     """
+    from quant.engine import lock as lock_mod
+
     if not _LOCK.acquire(blocking=False):
         # Same process already running: never the foreign-session sentence.
         return RunResult("busy", ui_copy.ERROR_RUNNING, None, -1)
     t0 = time.time()
     try:
-        if _foreign_live_heartbeat():
+        res = lock_mod.acquire(command, blocking=False)
+        if not res.acquired:
             return RunResult("busy", ui_copy.ERROR_ALREADY_RUNNING, None, -1)
-        _write_heartbeat()
+        # The UI holds the lock; tell the spawned subprocess it inherited it so
+        # it does not deadlock against its own parent.
+        child_env = os.environ.copy()
+        child_env["QUANT_LOCK_HELD"] = "1"
         proc = subprocess.run(
             [sys.executable, "-m", "quant.cli", command],
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=child_env,
         )
         # Refresh at the update->run boundary / end of the sequence.
-        _write_heartbeat()
+        _write_heartbeat(command)
         log_path = _latest_log_path()
         if proc.returncode == 0:
             return RunResult("ok", "", log_path, 0, time.time() - t0)
@@ -192,5 +192,5 @@ def run(command: str = REFRESH) -> RunResult:
         return RunResult("error", ui_copy.ERROR_REFRESH_FAILED, _latest_log_path(),
                          -1, time.time() - t0)
     finally:
-        _clear_heartbeat()
+        lock_mod.release()
         _LOCK.release()

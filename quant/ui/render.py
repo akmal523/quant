@@ -25,7 +25,7 @@ import pandas as pd
 import streamlit as st
 
 from quant import __version__, paths
-from quant.config import RISK_PROFILES, STALE_DATA_DAYS
+from quant.config import RISK_PROFILE_DESCRIPTIONS, RISK_PROFILES, STALE_DATA_DAYS
 from quant.data.database import read_only_connection
 from quant.data.news import load_news
 from quant.execution.routing import holding_routes_to_savings_plan
@@ -128,25 +128,31 @@ def _any_savings_plan_holding(portfolio) -> bool:
 # ── Shared renderers ──────────────────────────────────────────────────────────
 
 def render_action_cards(holdings: list[dict]) -> None:
-    """Render action cards from the canonical action list (spec 2.1 S2)."""
-    cards = [h for h in holdings if h.get("action")]
+    """Render action cards from the ONE advice pipeline (v10.7.1)."""
+    cards = [h for h in holdings if h.get("action") and not h.get("blocked")]
     if not cards:
         st.info(C.EMPTY_NOTHING_TO_DO)
         return
     for a in cards:
-        if a.get("blocked"):
-            continue
+        kind = a.get("kind")
+        if not kind:
+            # Legacy callers pass only the action word; map it.
+            word = a.get("action", "")
+            kind = "buy" if word == "BUY MORE" else ("sell_part" if word == "TRIM" else "keep")
         target = (a.get("target_weight") or "").rstrip("%") or "?"
         pct = abs(float(str(a.get("drift", "0")).rstrip("%") or 0))
         name = a.get("name") or a["symbol"]
-        if a["action"] == "BUY MORE":
+        amount = a.get("amount_eur")
+        if kind == "buy" and amount:
             st.write(C.ACTION_ADD.format(
-                amount=f"{a['amount_eur']:.0f}", symbol=a["symbol"],
+                amount=f"{amount:.0f}", symbol=a["symbol"],
                 name=name, pct=f"{pct:.0f}", target=target))
-        else:
+        elif kind == "sell_part" and amount:
             st.write(C.ACTION_SELL.format(
-                amount=f"{a['amount_eur']:.0f}", symbol=a["symbol"],
+                amount=f"{amount:.0f}", symbol=a["symbol"],
                 pct=f"{pct:.0f}", target=target))
+        elif kind in ("change_savings_plan", "to_cash"):
+            st.write(a.get("reason") or C.ADVICE_KEEP)
 
 
 # ── v10.6.2: Three-tier dashboard, emergency liquidity, tax-loss ─────────────
@@ -284,7 +290,7 @@ def render_tax_loss_alerts(portfolio: pd.DataFrame | None) -> None:
     st.write(C.TAX_LOSS_HEADER)
     for _, r in losers.iterrows():
         st.write(C.TAX_LOSS_LINE.format(
-            symbol=r.get("Symbol"),
+            name=r.get("Name") or r.get("Symbol"),
             pnl=f"{float(r.get('Broker_PnL_EUR', 0)):.2f}"))
 
 
@@ -387,9 +393,147 @@ def render_tier_assignment_alerts() -> None:
 
 # ── Page: Today (P4) ──────────────────────────────────────────────────────────
 
+def _resolve_alert(alert_id: int, status: str, reason: str | None) -> None:
+    """Resolve an alert from the UI (write connection, short-lived)."""
+    try:
+        from quant.data.database import connect_with_retry
+        from quant.engine import alerts as alerts_mod
+
+        conn = connect_with_retry()
+        try:
+            alerts_mod.resolve_alert(conn, alert_id, status, reason)
+        finally:
+            conn.close()
+        st.success(C.ALERT_RESOLVED.format(status=status))
+    except Exception:  # noqa: BLE001
+        st.warning("Could not resolve the action. Try again.")
+
+
+def render_alerts_banner() -> None:
+    """Red block listing open alerts until resolved (v10.7.0, Section 4.4)."""
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import alerts as alerts_mod
+
+        with read_only_connection() as conn:
+            open_now = alerts_mod.open_alerts(conn)
+    except Exception:  # noqa: BLE001
+        return
+    if not open_now:
+        return
+    st.error(C.ALERT_BANNER_TITLE)
+    for alert in open_now:
+        st.write(alert.get("message", ""))
+        cols = st.columns(2)
+        if cols[0].button(C.BTN_ALERT_DONE, key=f"alert_done_{alert['id']}"):
+            _resolve_alert(alert["id"], "done", None)
+        if cols[1].button(C.BTN_ALERT_DECLINED, key=f"alert_decl_{alert['id']}"):
+            _resolve_alert(alert["id"], "declined", "declined in app")
+
+
+def _render_overview_money(portfolio, account) -> None:
+    """Block A: the two money plaques (v10.7.0, Section 10.1)."""
+    st.subheader(C.SEC_YOUR_MONEY)
+    invested = 0.0
+    pnl = 0.0
+    if portfolio is not None and not portfolio.empty:
+        if "Current_Value_EUR" in portfolio.columns:
+            invested = float(portfolio["Current_Value_EUR"].sum())
+        if "Broker_PnL_EUR" in portfolio.columns:
+            pnl = float(portfolio["Broker_PnL_EUR"].sum())
+    cost = invested - pnl
+    pct = (pnl / cost * 100) if cost > 0 else 0.0
+    cash = account.cash_eur if account.cash_is_set else 0.0
+    cols = st.columns(2)
+    cols[0].metric("Invested", C.fmt_eur(invested))
+    cols[0].caption(C.INVESTED_LINE.format(
+        amount=f"{invested:.0f}", pnl=f"{pnl:+.2f}", pct=f"{pct:+.1f}",
+        date=C.fmt_date(_date.today())))
+    cols[1].metric("Operational cash", C.fmt_eur(cash))
+    cols[1].caption(C.OPERATIONAL_CASH_LINE.format(
+        amount=f"{cash:.0f}", date=C.fmt_date(_date.today()), apy="2.5"))
+
+
+def _render_overview_steps(holdings) -> None:
+    """Block B: your steps this week + the Not this week block."""
+    from quant.data.database import read_only_connection
+    from quant.engine import alerts as alerts_mod
+    from quant.engine import plans
+    from quant.engine import steps as steps_mod
+
+    st.subheader(C.SEC_STEPS)
+    try:
+        with read_only_connection() as conn:
+            open_now = alerts_mod.open_alerts(conn)
+            plan = plans.load_plan(conn, _month_key())
+    except Exception:  # noqa: BLE001
+        open_now, plan = [], None
+    built = steps_mod.build_steps(_date.today(), open_now, plan, holdings)
+    if built:
+        for i, step in enumerate(built, 1):
+            st.write(f"{i}. {step['what']}")
+            if step.get("amount_eur"):
+                st.caption(f"{C.fmt_eur(step['amount_eur'])}. {step['why']}")
+    else:
+        st.write(C.NOTHING_TO_DO_WEEK)
+    st.write(C.SEC_NOT_THIS_WEEK)
+    # v10.7.1: the "Not this week" block renders the advice pipeline's rejected
+    # notes (the system showing its work), not a second computation.
+    try:
+        from quant.engine.advice import build_advice
+
+        _advice, rejected = build_advice(
+            _monthly_holdings(), open_alerts=open_now, plans=plan)
+    except Exception:  # noqa: BLE001
+        rejected = []
+    if rejected:
+        for note in rejected:
+            st.caption(f"{note['symbol']}: {note['plain_reason']}")
+    else:
+        st.caption(C.NOTHING_TO_DO_WEEK)
+
+
+def _render_overview_savings(plan) -> None:
+    """Block C: the savings plan."""
+    st.subheader(C.SEC_SAVINGS_PLAN)
+    if plan:
+        st.write(f"Budget: {plan['budget_eur']:.0f} EUR per month. This month: "
+                 f"approved on {C.fmt_date(plan.get('approved_date'))}.")
+    else:
+        st.write("No plan approved yet for this month.")
+
+
+def _render_market_expander(has_review: bool) -> None:
+    """Block E: the market expander (regime + the honest news-pillar line).
+
+    The regime line renders only when a review exists (S0 has no regime); the
+    news-pillar line renders whenever the pillar is absent, independent of the
+    review.
+    """
+    with st.expander(C.SEC_MARKET):
+        if has_review:
+            reg = read_regime()
+            if reg.get("state") == "estimated":
+                st.write(C.MARKET_TREND.format(label=reg.get("label"),
+                                               confidence=reg.get("confidence")))
+            elif reg.get("state") == "failed":
+                st.write(C.MARKET_TREND_FAILED)
+            else:
+                st.write(C.MARKET_TREND_INSUFFICIENT)
+        # v10.7.2 (Part 2.3): the exact absent line when the news pillar is off.
+        try:
+            from quant.engine import news_pillar
+
+            if news_pillar.is_absent():
+                st.write(C.NEWS_PILLAR_ABSENT)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def page_today() -> None:
-    """Render the Today page."""
+    """Render the Overview page."""
     st.title(C.PAGE_TODAY)
+    render_alerts_banner()
 
     portfolio = load_portfolio()
     history = read_history()
@@ -436,22 +580,35 @@ def page_today() -> None:
 
     holdings = read_actions()
 
+    # v10.7.0 Overview blocks A-C (Section 10.1).
+    _account = load_account()
+    _render_overview_money(portfolio, _account)
+    _render_overview_steps(holdings)
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import plans as _plans
+
+        with read_only_connection() as _conn:
+            _plan = _plans.load_plan(_conn, _month_key())
+    except Exception:  # noqa: BLE001
+        _plan = None
+    _render_overview_savings(_plan)
+    _render_market_expander(has_review)
+
     # 2. Portfolio value chart (spec 3.1).
     st.subheader(C.SEC_PORTFOLIO_VALUE)
     _render_value_chart(history, holdings)
 
-    # 3. Where your money is (donut). Categorical blue/gray palette only;
-    #    semantic colors never encode composition (A4). Percent labels only for
-    #    slices >= 5 percent; every slice appears in the legend with name+percent.
+    # 3. How your invested money is split (donut). v10.7.0: the INVESTED pool
+    #    only. Operational cash is never a slice (it is not an investment
+    #    buffer). Categorical blue/gray palette only; semantic colors never
+    #    encode composition (A4). Percent labels only for slices >= 5 percent.
     st.subheader(C.SEC_WHERE_MONEY)
     account = load_account()
     if not portfolio.empty:
         import plotly.graph_objects as go
         values = list(portfolio["Amount_EUR"])
         labels = list(portfolio["Symbol"])
-        if account.cash_is_set and account.cash_eur:
-            values.append(account.cash_eur)
-            labels.append("Cash")
         total = sum(values) or 1.0
         pcts = [v / total * 100 for v in values]
         legend_labels = [f"{lbl} {p:.0f}%" for lbl, p in zip(labels, pcts)]
@@ -466,6 +623,7 @@ def page_today() -> None:
         fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0),
                           showlegend=True, legend=dict(orientation="h"))
         st.plotly_chart(fig, width="stretch")
+        st.caption("of invested")
 
     # 4. Holdings table. Status comes from the audit actions so the table and the
     #    cards can never disagree (A3). S0 -> every row "Not reviewed yet".
@@ -503,10 +661,179 @@ def page_today() -> None:
             st.warning(C.NEEDS_ATTENTION_ISIN.format(symbol=b["symbol"]))
 
 
-# ── Page: Portfolio (P5) ──────────────────────────────────────────────────────
+# ── Page: My holdings (v10.7.1, Section 10.2) ─────────────────────────────────
+
+def _latest_close(symbol: str) -> float | None:
+    """Latest close for a symbol from market_history; None when absent."""
+    try:
+        df = q("SELECT Close FROM market_history WHERE Symbol = ? "
+               "ORDER BY Date DESC LIMIT 1", [symbol])
+    except Exception:  # noqa: BLE001
+        return None
+    if df is None or df.empty:
+        return None
+    try:
+        return float(df["Close"].iloc[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _render_asset_chart(symbol: str) -> None:
+    """Per-asset line chart: normalized to 100, 1M/3M/1Y/Max, no fill."""
+    import plotly.graph_objects as go
+
+    df = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
+           "ORDER BY Date ASC", [symbol])
+    if df is None or df.empty:
+        st.caption(C.CHART_NO_HISTORY.format(name=symbol))
+        return
+    df["d"] = pd.to_datetime(df["d"], errors="coerce")
+    df = df.dropna(subset=["d"]).sort_values("d")
+    rng = st.segmented_control(C.LABEL_RANGE, list(_RANGE_DAYS),
+                               default="Max", key=f"asset_range_{symbol}") or "Max"
+    df = _filter_range(df, rng)
+    if len(df) < 2:
+        st.caption(C.CHART_NO_HISTORY.format(name=symbol))
+        return
+    base = float(df["Close"].iloc[0]) or 1.0
+    series = df["Close"] / base * 100.0
+    fig = go.Figure(go.Scatter(x=df["d"], y=series, mode="lines",
+                               line=dict(width=2, color="#1F3B73"), fill=None))
+    fig.add_hline(y=100.0, line_dash="dot", line_color="#888")
+    lo, hi = float(series.min()), float(series.max())
+    pad = (hi - lo) * 0.1 or 1.0
+    fig.update_layout(height=240, margin=dict(l=8, r=8, t=8, b=8),
+                      yaxis=dict(range=[lo - pad, hi + pad]), showlegend=False)
+    st.plotly_chart(fig, width="stretch")
+
+
+def _render_holdings_table(portfolio, holdings) -> None:
+    """Block 2: the holdings table (no per-share columns, B7)."""
+    st.subheader(C.PAGE_HOLDINGS)
+    by_sym = {h["symbol"]: h for h in holdings}
+    rows = []
+    if portfolio is not None and not portfolio.empty:
+        for _, r in portfolio.iterrows():
+            sym = str(r["Symbol"])
+            h = by_sym.get(sym, {})
+            scores = read_scores(sym)
+            rows.append({
+                "Name": label_for(r.get("Name") or sym, sym),
+                "Value (EUR)": C.fmt_eur(r.get("Current_Value_EUR")),
+                "Profit (EUR)": C.fmt_eur(r.get("Broker_PnL_EUR")),
+                "Structure": scores.get("structural_grade") or "",
+                "Tactics": scores.get("tactical_grade") or "",
+                "Verdict": h.get("status", C.STATUS_NOT_REVIEWED),
+            })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+
+def _render_holding_expanders(portfolio, holdings) -> None:
+    """Block 3: one expander per holding with the per-asset detail."""
+    if portfolio is None or portfolio.empty:
+        return
+    by_sym = {h["symbol"]: h for h in holdings}
+    for _, r in portfolio.iterrows():
+        sym = str(r["Symbol"])
+        name = label_for(r.get("Name") or sym, sym)
+        with st.expander(name):
+            _render_asset_chart(sym)
+            entry = float(r.get("Avg_Entry_Price", 0) or 0)
+            current = _latest_close(sym)
+            st.write(C.ENTRY_PRICE_LINE.format(
+                entry=f"{entry:.2f}",
+                current=f"{current:.2f}" if current is not None else "not available yet",
+                estimated=C.ESTIMATED_LABEL.format(date=C.fmt_date(_date.today()))))
+            try:
+                from quant.data.database import read_only_connection
+
+                with read_only_connection() as conn:
+                    row = conn.execute(
+                        "SELECT shares, sync_date FROM holdings_meta WHERE symbol = ?",
+                        [sym]).fetchone()
+                if row:
+                    st.write(C.SHARES_LINE.format(
+                        shares=f"{float(row[0]):.3f}", date=C.fmt_date(row[1])))
+            except Exception:  # noqa: BLE001
+                pass
+            h = by_sym.get(sym, {})
+            st.write(C.TIER_LINE.format(tier=h.get("tier_word") or C.tier_word("ALPHA")))
+            st.write(C.WHY_VERDICT_LINE.format(
+                why=h.get("reason") or "within its target band."))
+
+
+def _render_split_lines(portfolio) -> None:
+    """Block 4: how your money is split (invested only)."""
+    from quant.config import ACTIVE_MAX, BETS_MAX, LONG_TERM_MIN
+    from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+
+    st.subheader(C.SEC_HOW_SPLIT)
+    if portfolio is None or portfolio.empty:
+        st.caption(C.EMPTY_TIER)
+        return
+    try:
+        tiers_df, _ = load_tiers_safe()
+        tmap = tier_map(tiers_df)
+    except Exception:  # noqa: BLE001
+        tmap = {}
+    total = float(portfolio["Current_Value_EUR"].sum()) or 1.0
+    buckets = {"FORTRESS": 0.0, "ALPHA": 0.0, "SPECULATIVE": 0.0}
+    for _, r in portfolio.iterrows():
+        tier = str(tmap.get(str(r["Symbol"]), "ALPHA")).upper()
+        if tier in buckets:
+            buckets[tier] += float(r.get("Current_Value_EUR", 0) or 0)
+    rule_long = C.SPLIT_RULE_LONG.format(min=f"{LONG_TERM_MIN * 100:.0f}")
+    rule_active = C.SPLIT_RULE_ACTIVE.format(max=f"{ACTIVE_MAX * 100:.0f}")
+    rule_bets = C.SPLIT_RULE_BETS.format(max=f"{BETS_MAX * 100:.0f}")
+    lines = [
+        (C.TIER_FORTRESS, buckets["FORTRESS"], rule_long,
+         buckets["FORTRESS"] / total >= LONG_TERM_MIN),
+        (C.TIER_ALPHA, buckets["ALPHA"], rule_active,
+         buckets["ALPHA"] / total <= ACTIVE_MAX),
+        (C.TIER_SPECULATIVE, buckets["SPECULATIVE"], rule_bets,
+         buckets["SPECULATIVE"] / total <= BETS_MAX),
+    ]
+    for label, value, rule, ok in lines:
+        status = C.SPLIT_OK if ok else C.SPLIT_OVER
+        st.write(f"{label}: {value:.0f} EUR, {value / total * 100:.0f} percent of "
+                 f"invested. Rule: {rule}. {status}")
+
+
+def _render_quick_events(portfolio) -> None:
+    """Block 7: record a buy, sell, or dividend in five seconds."""
+    st.subheader(C.SEC_QUICK_EVENTS)
+    symbols = list(portfolio["Symbol"].astype(str)) if (
+        portfolio is not None and not portfolio.empty) else []
+    if not symbols:
+        st.caption(C.EMPTY_TIER)
+        return
+    cols = st.columns(4)
+    kind = cols[0].selectbox("Type", ["buy", "sell", "dividend"], key="qe_type")
+    symbol = cols[1].selectbox("Symbol", symbols, key="qe_symbol")
+    amount = cols[2].number_input("Amount (EUR)", min_value=0.0, value=0.0,
+                                  step=10.0, key="qe_amount")
+    when = cols[3].date_input("Date", value=_date.today(), key="qe_date")
+    if st.button("Record", key="qe_save"):
+        try:
+            from quant.data.database import connect_with_retry
+            from quant.engine import flows
+
+            conn = connect_with_retry()
+            try:
+                flows.record_flow(conn, when, kind, amount, symbol)
+            finally:
+                conn.close()
+            st.success(C.QUICK_EVENT_SAVED.format(
+                type=kind, amount=f"{amount:.0f}", name=symbol,
+                date=C.fmt_date(when)))
+        except Exception:  # noqa: BLE001
+            st.warning("Could not record the event. Try again.")
+    st.caption(C.QUICK_EVENT_CASH_NOTE)
+
 
 def page_portfolio() -> None:
-    """Render the Portfolio page."""
+    """Render the My holdings page (v10.7.1, Section 10.2)."""
     st.title(C.PAGE_PORTFOLIO)
     render_onboarding_wizard()
     st.write(C.HELP_BROKER_VALUES)
@@ -562,28 +889,47 @@ def page_portfolio() -> None:
         width="stretch", key="holdings",
     )
 
-    # v10.6.2: three-tier dashboard, emergency liquidity, tax-loss alerts.
+    # v10.7.1 My holdings blocks (Section 10.2).
     from quant.portfolio.portfolio import load_portfolio_with_tiers
     tiered = load_portfolio_with_tiers()
+    holdings = read_actions()
     render_tier_assignment_alerts()
     render_trade_limit_warning()
-    render_tier_dashboard(tiered)
-    render_autobalance_section()
+
+    # Block 2 + 3: the table and the per-holding expanders.
+    _render_holdings_table(portfolio, holdings)
+    _render_holding_expanders(portfolio, holdings)
+
+    # Block 4: how your money is split.
+    _render_split_lines(portfolio)
+
+    # Block 5: if you need cash now.
     render_emergency_liquidity(tiered)
+
+    # Block 6: losses you can use to lower tax.
     render_tax_loss_alerts(tiered)
 
-    # Account block.
+    # Block 7: quick events.
+    _render_quick_events(portfolio)
+
+    # Block 8: Account.
     st.subheader("Account")
     account = load_account()
     cash_val = account.cash_eur if account.cash_is_set else 0.0
-    cash = st.number_input("Cash (EUR)", min_value=0.0, value=float(cash_val), step=10.0)
+    cash = st.number_input("Operational cash (EUR)", min_value=0.0,
+                           value=float(cash_val), step=10.0)
+    st.caption(C.OPERATIONAL_CASH_LINE.format(
+        amount=f"{cash:.0f}", date=C.fmt_date(_date.today()), apy="2.5"))
     profile = st.radio(
         "Risk profile", list(RISK_PROFILES.keys()),
         index=list(RISK_PROFILES.keys()).index(account.risk_profile),
-        captions=[C.HELP_PROFILE_CONSERVATIVE, C.HELP_PROFILE_BALANCED,
-                  C.HELP_PROFILE_AGGRESSIVE],
+        captions=[RISK_PROFILE_DESCRIPTIONS[p] for p in RISK_PROFILES],
         format_func=lambda p: p.capitalize(),
     )
+    savings_day = st.number_input(
+        C.SAVINGS_DAY_LABEL, min_value=1, max_value=28,
+        value=int(account.savings_plan_day or 1), step=1)
+    st.caption(C.SAVINGS_DAY_CAPTION)
     rate = current_rate()
     st.caption(C.HELP_CASH_APY.format(
         apy=f"{rate.apy * 100:g}", date=C.fmt_date(rate.effective_date)))
@@ -600,7 +946,7 @@ def page_portfolio() -> None:
             return
         save_portfolio(cleaned, paths.DATA_PORTFOLIO)
         save_account(AccountState(account.base_currency, float(cash), profile, True,
-                                  account.savings_plan_day))
+                                  int(savings_day)))
         st.session_state["_extra"] = []
         st.session_state["_saved_unknown"] = len(warnings)
 
@@ -716,9 +1062,94 @@ def _sentiment_available() -> bool:
         return False
 
 
+def _candidate_list() -> dict:
+    """Group funnel survivors into long-term / active / small-bets candidates.
+
+    v10.7.1 (Section 10.4): the SAME list feeds Find investments and the Monthly
+    decision "New ideas this month" section. Best-effort; never raises.
+    """
+    from quant.config import ACTIVE_TACT_MIN, SPARPLAN_STRUCT_MIN
+
+    out = {"long": [], "active": [], "bets": []}
+    try:
+        surv = q("SELECT symbol FROM funnel_survivors ORDER BY score DESC LIMIT 30")
+    except Exception:  # noqa: BLE001
+        return out
+    if surv is None or surv.empty:
+        return out
+    for sym in surv["symbol"].astype(str):
+        sc = read_scores(sym)
+        struct = sc.get("structural_grade")
+        tact = sc.get("tactical_grade")
+        name = label_for(sym, sym)
+        if struct is not None and float(struct) >= SPARPLAN_STRUCT_MIN:
+            out["long"].append({"symbol": sym, "name": name, "structure": struct})
+        elif tact is not None and float(tact) >= ACTIVE_TACT_MIN:
+            out["active"].append({"symbol": sym, "name": name,
+                                  "structure": struct, "tactics": tact})
+    return out
+
+
+def _render_candidates() -> None:
+    """Three grouped candidate sections (v10.7.1, Section 10.4)."""
+    from quant.config import ACTIVE_MAX, BETS_MAX
+    from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+
+    cands = _candidate_list()
+    try:
+        tiers_df, _ = load_tiers_safe()
+        tmap = tier_map(tiers_df)
+    except Exception:  # noqa: BLE001
+        tmap = {}
+    portfolio = load_portfolio()
+    total = float(portfolio["Current_Value_EUR"].sum()) if (
+        portfolio is not None and not portfolio.empty) else 0.0
+    active_used = 0.0
+    bets_used = 0.0
+    if total > 0:
+        for _, r in portfolio.iterrows():
+            tier = str(tmap.get(str(r["Symbol"]), "ALPHA")).upper()
+            value = float(r.get("Current_Value_EUR", 0) or 0)
+            if tier == "ALPHA":
+                active_used += value
+            elif tier == "SPECULATIVE":
+                bets_used += value
+
+    st.subheader(C.SEC_CAND_LONG)
+    if cands["long"]:
+        for c in cands["long"][:3]:
+            st.write(f"{c['name']} ({c['symbol']})")
+            st.caption(f"Structure {float(c['structure']):.0f}. {C.CAND_LONG_REASON}")
+    else:
+        st.caption(C.CAND_EMPTY.format(section="long-term"))
+
+    st.subheader(C.SEC_CAND_ACTIVE)
+    if cands["active"]:
+        for c in cands["active"][:3]:
+            st.write(f"{c['name']} ({c['symbol']})")
+            st.caption(f"Structure {float(c['structure'] or 0):.0f}, "
+                       f"tactics {float(c['tactics'] or 0):.0f}. "
+                       + C.CAND_ACTIVE_LIMIT.format(
+                           used=f"{active_used / total * 100:.0f}" if total else "0",
+                           max=f"{ACTIVE_MAX * 100:.0f}"))
+    else:
+        st.caption(C.CAND_EMPTY.format(section="active"))
+
+    st.subheader(C.SEC_CAND_BETS)
+    if cands["bets"]:
+        for c in cands["bets"][:3]:
+            st.write(f"{c['name']} ({c['symbol']})")
+            st.caption(C.CAND_BETS_LIMIT.format(
+                used=f"{bets_used / total * 100:.0f}" if total else "0",
+                max=f"{BETS_MAX * 100:.0f}"))
+    else:
+        st.caption(C.CAND_EMPTY.format(section="small bets"))
+
+
 def page_explore() -> None:
-    """Render the Explore page."""
+    """Render the Find investments page."""
     st.title(C.PAGE_EXPLORE)
+    _render_candidates()
 
     query = st.text_input("Search a name, symbol or ISIN", key="ex_q")
     matches = search(load_index(), query, 10) if query else []
@@ -845,6 +1276,19 @@ def page_explore() -> None:
 
 # ── Page: Settings (P7) ───────────────────────────────────────────────────────
 
+def _dedupe_history_by_day(history):
+    """v10.7.0 (B6): one report entry per trading day, keeping the latest."""
+    if history is None or history.empty:
+        return history
+    df = history.copy()
+    df["_day"] = pd.to_datetime(df["review_ts"], errors="coerce").dt.date
+    df = df.dropna(subset=["_day"])
+    if df.empty:
+        return history
+    df = df.sort_values("review_ts").groupby("_day", as_index=False).last()
+    return df.drop(columns=["_day"])
+
+
 def page_settings() -> None:
     """Render the Settings page."""
     st.title(C.PAGE_SETTINGS)
@@ -874,8 +1318,8 @@ def page_settings() -> None:
     _run_operation(C.BTN_REFRESH, C.BTN_REFRESHING, runner.REFRESH, "refresh")
     st.caption(C.HELP_REVIEW_CADENCE)
 
-    # Reviews (last ten). The value-chart sentence belongs to Today only (A2).
-    st.subheader(C.SEC_REVIEWS)
+    # Report history (last ten). The value-chart sentence belongs to Overview (A2).
+    st.subheader(C.SEC_REPORT_HISTORY)
     # H3.7 (L3): drop rows newer than the last OK review (legacy phantom rows).
     _ok_cutoff = latest_ok_review_ts()
     if _ok_cutoff is not None and not history.empty:
@@ -883,12 +1327,55 @@ def page_settings() -> None:
         # H3.8 (M7): legacy NaT timestamps are kept; only rows newer than the
         # last ok review (phantoms) are hidden.
         history = history[(_ts <= _ok_cutoff) | _ts.isna()]
+    # v10.7.0 (B6): one entry per trading day, keeping the latest per day.
+    history = _dedupe_history_by_day(history)
     if history.empty:
         st.info(C.EMPTY_NO_REVIEWS)
     else:
         for _, r in history.tail(10)[::-1].iterrows():
             st.write(f"{C.fmt_ts(r['review_ts'])} - {C.fmt_eur(r['value_eur'])} - "
                      f"{C.fmt_eur(r['pnl_eur'])}")
+
+    # Automation (v10.7.0, Section 10.6).
+    st.subheader(C.SEC_AUTOMATION)
+    try:
+        from quant.engine import scheduler as _sched
+
+        st.write(f"Scheduler: {_sched.status_line()}")
+    except Exception:  # noqa: BLE001
+        st.write("Scheduler: not installed; run quant schedule")
+    try:
+        from quant.engine import notify as _notify
+
+        st.write(f"Notifications: {_notify.status_line()}")
+    except Exception:  # noqa: BLE001
+        st.write("Notifications: off; run quant notify-setup")
+    try:
+        _size_mb = os.path.getsize(paths.DB_FILE) / (1024 * 1024)
+        st.write(f"Database size: {_size_mb:.2f} MB")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import alerts as _alerts
+        from quant.engine import valuation as _valuation
+
+        with read_only_connection() as _conn:
+            st.write(_alerts.advice_record_line(_conn))
+            _sync_days = _valuation.days_since_last_sync(_conn)
+        st.write(f"Last broker sync: "
+                 f"{_sync_days if _sync_days is not None else 'never'} days ago")
+    except Exception:  # noqa: BLE001
+        pass
+    # v10.7.2 (Part 3.1): the backup line, gentle at most once per week.
+    try:
+        from quant.engine import backup as _backup
+
+        _bline = _backup.ui_backup_line()
+        if _bline:
+            st.write(_bline)
+    except Exception:  # noqa: BLE001
+        pass
 
     # Health (problems only). The ONLY Repair registry button lives here (2.4).
     problems = _health_problems()
@@ -989,7 +1476,7 @@ def _render_suppression_footnotes(holdings: list[dict]) -> None:
             n = sum(1 for h in below if h["min_trade_eur"] == val)
             tpl = C.FOOTNOTE_BELOW_MIN_ONE if n == 1 else C.FOOTNOTE_BELOW_MIN
             st.caption(tpl.format(n=n, min=f"{val:.0f}"))
-    cooldown = [h for h in holdings if str(h.get("status", "")).startswith("Waiting until")]
+    cooldown = [h for h in holdings if str(h.get("status", "")).startswith("Cooldown until")]
     if cooldown:
         for when in {h.get("cooldown_until") for h in cooldown}:
             n = sum(1 for h in cooldown if h.get("cooldown_until") == when)
@@ -1080,10 +1567,10 @@ def _render_value_chart(history, holdings) -> None:
 
     fig = go.Figure()
     port = _rebase(df["value_eur"]) if growth else df["value_eur"]
+    # v10.7.0 (B8): one clean line, no area fill.
     fig.add_trace(go.Scatter(
         x=df["review_ts"], y=port, mode="lines", name="Portfolio",
-        line=dict(width=2, color="#1F3B73"),
-        fill=None if growth else "tozeroy"))
+        line=dict(width=2, color="#1F3B73"), fill=None))
 
     palette = ["#3B5C99", "#5B83BF", "#8FA9CF"]
     if growth:
@@ -1118,11 +1605,170 @@ def _render_value_chart(history, holdings) -> None:
     ann = _range_annotation(df, growth)
     if ann:
         fig.add_annotation(**_annotation_kwargs(ann))     # H3.7 (L5)
+    # v10.7.0 (B8): the axis never starts at zero; pad the visible range.
+    vals = [float(v) for v in port if v is not None]
+    yaxis = {}
+    if vals:
+        lo, hi = min(vals), max(vals)
+        pad = (hi - lo) * 0.1 or max(1.0, abs(hi) * 0.01)
+        yaxis = dict(range=[lo - pad, hi + pad])
     fig.update_layout(height=280, margin=dict(l=8, r=8, t=30, b=8),
-                      xaxis=dict(tickformat=_axis_tickformat(df)), showlegend=True,
+                      xaxis=dict(tickformat=_axis_tickformat(df)), yaxis=yaxis,
+                      showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
                                   xanchor="left", x=0))
     st.plotly_chart(fig, width="stretch")
 
 
 _HEARTBEAT_INTERVAL = 30.0
+
+
+# ── v10.7.0: Monthly decision page (Section 8) ────────────────────────────────
+
+def _month_key() -> str:
+    """The current month key, e.g. '2026-11'."""
+    return _date.today().strftime("%Y-%m")
+
+
+def _month_name() -> str:
+    """The current month name, e.g. 'November'."""
+    return _date.today().strftime("%B")
+
+
+def _monthly_holdings() -> list[dict]:
+    """Build holding dicts for the allocator (value, tier, weights)."""
+    from quant.config import LONG_TERM_MIN
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+
+    try:
+        df = load_portfolio()
+        tiers_df, _ = load_tiers_safe()
+        tmap = tier_map(tiers_df)
+    except Exception:  # noqa: BLE001
+        return []
+    if df is None or df.empty:
+        return []
+    total = float(df["Current_Value_EUR"].sum()) or 1.0
+    fortress = [s for s in df["Symbol"].astype(str)
+                if str(tmap.get(s, "ALPHA")).upper() == "FORTRESS"]
+    n_fortress = max(1, len(fortress))
+    out: list[dict] = []
+    for _, row in df.iterrows():
+        symbol = str(row["Symbol"])
+        tier = str(tmap.get(symbol, "ALPHA")).upper()
+        value = float(row.get("Current_Value_EUR", 0) or 0)
+        target = (LONG_TERM_MIN / n_fortress) if tier == "FORTRESS" else 0.0
+        out.append({
+            "symbol": symbol, "name": symbol, "tier": tier, "value_eur": value,
+            "current_weight": value / total, "target_weight": target,
+            "conviction": 0.0,
+        })
+    return out
+
+
+def _approve_plan(month: str, budget: float, legs: list[dict]) -> None:
+    """Store the plan and write planned auto-flows (write connection)."""
+    try:
+        from quant.data.database import connect_with_retry
+        from quant.engine import flows, plans
+
+        conn = connect_with_retry()
+        try:
+            plans.save_plan(conn, month, budget, legs,
+                            approved_date=_date.today(), execution_date=_date.today())
+            buy_legs = [leg for leg in legs
+                        if leg.get("kind") in ("long_term", "active", "bet")
+                        and leg.get("symbol")]
+            flows.write_planned_sparplan_flows(conn, month, buy_legs, _date.today())
+        finally:
+            conn.close()
+        st.success(C.MONTHLY_APPROVED)
+    except Exception:  # noqa: BLE001
+        st.warning("Could not save the plan. Try again.")
+
+
+def page_monthly() -> None:
+    """Render the Monthly decision page (v10.7.0, Section 8)."""
+    st.title(C.MONTHLY_TITLE.format(month=_month_name()))
+    from quant.data.database import read_only_connection
+    from quant.engine import allocator, plans
+
+    month = _month_key()
+    try:
+        with read_only_connection() as conn:
+            plan = plans.load_plan(conn, month)
+    except Exception:  # noqa: BLE001
+        plan = None
+
+    if plan:
+        st.write(C.MONTHLY_STATUS_APPROVED.format(
+            date=C.fmt_date(plan.get("approved_date"))))
+    else:
+        st.write(C.MONTHLY_STATUS_NOT_APPROVED)
+
+    holdings = _monthly_holdings()
+    default_budget = float(plan["budget_eur"]) if plan else 200.0
+    budget = st.number_input(C.MONTHLY_BUDGET_LABEL, min_value=0.0,
+                             value=default_budget, step=10.0, key="monthly_budget")
+    legs = allocator.allocate(budget, holdings, regime=None, candidates=[],
+                              bets_enabled=False)
+
+    st.write(C.MONTHLY_SPLIT_HEADER)
+    for leg in legs:
+        st.write(C.MONTHLY_LEG_LINE.format(
+            amount=f"{leg['amount_eur']:.0f}", name=leg["name"],
+            symbol=leg["symbol"] or "cash", kind=leg["kind"]))
+        st.caption(C.MONTHLY_LEG_REASON.format(
+            reason=leg["reason"], fee=f"{leg['fee_eur']:.0f}"))
+
+    # New ideas this month (v10.7.1: live candidates + regime).
+    st.write(C.MONTHLY_NEW_IDEAS)
+    _cands = _candidate_list()
+    _shown = False
+    for c in _cands["long"][:1]:
+        st.caption(C.MONTHLY_CANDIDATE_LINE.format(
+            name=c["name"], detail=f"structure {float(c['structure']):.0f}, "
+            f"long-term candidate."))
+        _shown = True
+    for c in _cands["active"][:1]:
+        st.caption(C.MONTHLY_CANDIDATE_LINE.format(
+            name=c["name"], detail=f"tactics {float(c['tactics'] or 0):.0f}, "
+            f"active candidate."))
+        _shown = True
+    if not _shown:
+        st.caption(C.CAND_EMPTY.format(section="new ideas"))
+
+    cols = st.columns(2)
+    if cols[0].button(C.BTN_APPROVE, key="monthly_approve"):
+        _approve_plan(month, budget, legs)
+    if cols[1].button(C.BTN_CHANGE_SPLIT, key="monthly_change"):
+        st.session_state["_monthly_edit"] = True
+
+    # Entering actuals (Section 8.4).
+    st.subheader(C.MONTHLY_ACTUALS_HEADER)
+    buy_legs = [leg for leg in legs
+                if leg.get("kind") in ("long_term", "active", "bet") and leg.get("symbol")]
+    actuals: list[dict] = []
+    for leg in buy_legs:
+        amount = st.number_input(
+            f"{leg['name']} ({leg['symbol']})",
+            min_value=0.0, value=float(leg["amount_eur"]), step=5.0,
+            key=f"actual_{leg['symbol']}")
+        actuals.append({"symbol": leg["symbol"], "amount_eur": amount,
+                        "date": _date.today()})
+    if st.button(C.BTN_SAVE_ACTUALS, key="monthly_save_actuals"):
+        try:
+            from quant.data.database import connect_with_retry
+            from quant.engine import plans as plans_mod
+
+            conn = connect_with_retry()
+            try:
+                recon = plans_mod.enter_actuals(conn, month, actuals)
+            finally:
+                conn.close()
+            for row in recon:
+                st.write(plans_mod.reconciliation_line(row))
+            st.success(C.MONTHLY_ACTUALS_SAVED)
+        except Exception:  # noqa: BLE001
+            st.warning("Could not save actuals. Try again.")

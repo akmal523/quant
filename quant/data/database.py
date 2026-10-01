@@ -76,6 +76,79 @@ def connect_with_retry(
     raise last
 
 
+# ── v10.7.2 (Part 1.2): short writer transactions with a bounded retry ────────
+# Every writer opens ONE connection through write_connection(), yields, and
+# closes it in ``finally``. On a DuckDB lock/IO error it retries up to 5 attempts
+# with backoff totaling about 60 seconds. Long computations must NOT wrap the
+# whole job in one write transaction; write artifacts in small transactions at
+# the end. The Streamlit app holds NO write connection beyond the documented
+# startup names backfill (quant.data.names.ensure_display_names), which opens one
+# short-lived write connection and skips on lock contention.
+
+def _is_lock_error(exc: Exception) -> bool:
+    """True for a DuckDB lock/IO error worth retrying."""
+    if isinstance(exc, TimeoutError):
+        return True
+    text = str(exc).lower()
+    return any(token in text for token in
+               ("lock", "conflicting", "io error", "busy", "transaction"))
+
+
+def _write_backoff(attempts: int, total_seconds: float) -> list[float]:
+    """Evenly spaced delays so the retry budget totals about ``total_seconds``."""
+    sleeps = max(0, attempts - 1)
+    if sleeps == 0:
+        return []
+    return [total_seconds / sleeps] * sleeps
+
+
+@contextmanager
+def write_connection(
+    attempts: int | None = None,
+    total_seconds: float | None = None,
+) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Short-lived read-write connection with a bounded retry budget.
+
+    Intent (v10.7.2, Part 1.2): one helper for every write path. Opens the
+    connection, yields it, and closes it in ``finally``. On a DuckDB lock/IO
+    error (at connect time or in the body) it retries up to ``attempts`` times
+    with backoff totaling about ``total_seconds``. Invariants: the connection is
+    always closed; the last error is raised when every attempt fails.
+    """
+    from quant.config import WRITE_RETRY_ATTEMPTS, WRITE_RETRY_TOTAL_SECONDS
+
+    attempts = WRITE_RETRY_ATTEMPTS if attempts is None else attempts
+    total_seconds = WRITE_RETRY_TOTAL_SECONDS if total_seconds is None else total_seconds
+    delays = _write_backoff(attempts, total_seconds)
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        conn = None
+        try:
+            conn = _connect_with_timeout(timeout=2.0)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if _is_lock_error(e) and i < len(delays):
+                time.sleep(delays[i])
+                continue
+            raise
+        try:
+            yield conn
+            return
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if _is_lock_error(e) and i < len(delays):
+                time.sleep(delays[i])
+                continue
+            raise
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    if last is not None:
+        raise last
+
+
 @contextmanager
 def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     """Short-lived read-only DuckDB connection. Always closed on exit.
@@ -419,6 +492,80 @@ def init_db() -> None:
             invested_eur DOUBLE,
             cash_eur DOUBLE,
             pnl_eur DOUBLE
+        )
+    """)
+
+    # ── v10.7.0: Holdings metadata (shares from the broker CSV sync) ─────────
+    # On every CSV sync, shares = Current_Value_EUR / price_eur at sync time.
+    # Between syncs, the daily revalue uses shares * latest close and labels the
+    # value "estimated". Broker PnL stays the synced truth until the next sync.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS holdings_meta (
+            symbol VARCHAR PRIMARY KEY,
+            shares DOUBLE,
+            sync_date DATE,
+            invested_at_sync DOUBLE
+        )
+    """)
+
+    # ── v10.7.0: Flows (money entering/leaving the INVESTED pool) ────────────
+    # Types: buy (money entered invested), sell (money left invested to cash or
+    # out), dividend (left invested, landed in cash). Sparplan auto-flows are
+    # written when a monthly plan is approved and replaced by actuals later.
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS flows_id_seq START 1")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flows (
+            id BIGINT DEFAULT nextval('flows_id_seq'),
+            date DATE,
+            type VARCHAR,
+            amount_eur DOUBLE,
+            symbol VARCHAR,
+            note VARCHAR,
+            created_at TIMESTAMP DEFAULT now()
+        )
+    """)
+
+    # ── v10.7.0: Invested value series (shares * close, written by the daily job)
+    # The Overview chart reads THIS table, never a series that includes cash.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_value_history (
+            date DATE PRIMARY KEY,
+            invested_eur DOUBLE
+        )
+    """)
+
+    # ── v10.7.0: Alerts (level-triggered, Section 5) ─────────────────────────
+    # An alert stays open until the user resolves it. Self-scoring prices a
+    # resolved alert 30 days later and records a verdict (the honesty ledger).
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS alerts_id_seq START 1")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id BIGINT DEFAULT nextval('alerts_id_seq'),
+            created_date DATE,
+            symbol VARCHAR,
+            kind VARCHAR,
+            message VARCHAR,
+            action VARCHAR,
+            amount_eur DOUBLE,
+            status VARCHAR DEFAULT 'new',
+            resolve_date DATE,
+            resolve_reason VARCHAR,
+            price_at_resolve DOUBLE,
+            notified BOOLEAN DEFAULT FALSE,
+            price_30d DOUBLE,
+            verdict VARCHAR
+        )
+    """)
+
+    # ── v10.7.0: Monthly savings-plan decisions (Section 8) ──────────────────
+    # One row per month: the budget, the approved legs (JSON), and the dates.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_plans (
+            month VARCHAR PRIMARY KEY,
+            budget_eur DOUBLE,
+            legs_json VARCHAR,
+            approved_date DATE,
+            execution_date DATE
         )
     """)
 

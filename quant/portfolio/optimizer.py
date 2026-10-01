@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from quant.config import (
     MAX_POSITION_PCT, TARGET_VOLATILITY,
     ROUND_TRIP_FEE_EUR,
-    SAFETY_BUCKET_MIN, CORE_BUCKET_MIN, ALPHA_BUCKET_MAX,
+    LONG_TERM_MIN, ACTIVE_MAX,
     CVAR_ALPHA, MIN_TRADE_VOL_MULT,
 )
 from quant.portfolio.risk import daily_risk_free_rate
@@ -97,14 +97,14 @@ def optimize_portfolio(
         expected_returns = expected_returns.copy()
         expected_returns[cash_index] = daily_risk_free_rate()
 
-    # Phase 4 (2.2): Smart Balance risk buckets as hard inequality constraints.
+    # v10.7.0: invested-only bucket constraints. The old cash (safety) floor is
+    # removed: operational cash is not an investment buffer. bucket_map ids:
+    # 0=SAFETY (unconstrained now), 1=LONG_TERM, 2=ACTIVE.
     if bucket_map is not None:
-        safety_mask = (bucket_map == 0).astype(float)
-        core_mask   = (bucket_map == 1).astype(float)
-        alpha_mask  = (bucket_map == 2).astype(float)
-        constraints.append(safety_mask @ w >= SAFETY_BUCKET_MIN)
-        constraints.append(core_mask   @ w >= CORE_BUCKET_MIN)
-        constraints.append(alpha_mask  @ w <= ALPHA_BUCKET_MAX)
+        long_term_mask = (bucket_map == 1).astype(float)
+        active_mask    = (bucket_map == 2).astype(float)
+        constraints.append(long_term_mask @ w >= LONG_TERM_MIN)
+        constraints.append(active_mask    @ w <= ACTIVE_MAX)
 
     if current_weights is not None:
         turnover = cp.norm1(w - current_weights)
@@ -204,12 +204,10 @@ def optimize_portfolio_cvar(
     ]
 
     if bucket_map is not None:
-        safety_mask = (bucket_map == 0).astype(float)
-        core_mask = (bucket_map == 1).astype(float)
-        alpha_mask = (bucket_map == 2).astype(float)
-        constraints.append(safety_mask @ w >= SAFETY_BUCKET_MIN)
-        constraints.append(core_mask @ w >= CORE_BUCKET_MIN)
-        constraints.append(alpha_mask @ w <= ALPHA_BUCKET_MAX)
+        long_term_mask = (bucket_map == 1).astype(float)
+        active_mask = (bucket_map == 2).astype(float)
+        constraints.append(long_term_mask @ w >= LONG_TERM_MIN)
+        constraints.append(active_mask @ w <= ACTIVE_MAX)
 
     if sector_map is not None:
         for sid in np.unique(sector_map):
