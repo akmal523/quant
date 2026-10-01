@@ -49,3 +49,19 @@ Auto-generated from docstrings via `mkdocstrings`.
 ::: quant.portfolio.history
 
 ::: quant.portfolio.cash_rate
+
+## Tier auto-balance
+
+::: quant.portfolio.autobalance
+
+## Errors, retry, cache
+
+::: quant.errors
+
+::: quant.utils.retry
+
+::: quant.analytics.cache
+
+## Health check
+
+::: quant.cli.health

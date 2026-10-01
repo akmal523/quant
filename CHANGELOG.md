@@ -7,6 +7,252 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.6.5] - 2026-10-01
+
+Final optimization and polish. No new features; behavior is preserved.
+
+### Added - Performance
+
+- **`quant/data/database.py`**: `batch_query_portfolio_data` (one query for many
+  symbols) and `load_prices_lazy` (chunked streaming).
+- **`quant/analytics/scoring.py`**: `batch_score_assets_optimized` (single query
+  then parallel scoring) and `score_asset_with_fallbacks` (graceful degradation
+  with a `data_quality` marker).
+- **`quant/analytics/cache.py`**: `disk_cache` (JSON result cache with a max
+  age), `clear_cache`, and `get_cache_stats`.
+
+### Added - Reliability and code quality
+
+- **`quant/errors.py`**: a standardized exception hierarchy (`QuantError` and
+  subclasses). Existing functions keep their current contracts.
+- **`quant/utils/retry.py`**: `retry_with_backoff` for transient external
+  failures.
+- **`quant/portfolio/autobalance.py`** and **`quant/portfolio/risk.py`**:
+  `TypedDict` result types and richer docstrings.
+- **CLI**: `quant clear-cache` and `quant cache-stats`.
+
+### Documentation
+
+- `docs/performance.md` performance tuning guide; `docs/api.md` extended with
+  the auto-balance, errors, retry, cache, and health modules.
+
+### Tests
+
+- New `tests/test_integration.py` (3), `tests/test_stress.py` (4), and
+  `tests/test_performance.py` (7, including memory-leak and resource-cleanup
+  checks). Full suite green; golden `tests/golden/backtest_2024.json` unmoved.
+
+### Final polish
+
+- `scripts/benchmark.py` measures batch query, batch scoring, lazy loading, and
+  cache statistics; `docs/performance.md` records the measured numbers.
+- `scripts/audit_type_hints.py` and `scripts/audit_docstrings.py` measure
+  coverage; `scripts/final_verification.py` runs the full verification set.
+- Type hints and docstrings completed for the modules central to the three-tier
+  work (autobalance, risk, alpha, speculative, signal_cache, scoring, database,
+  portfolio, ui/render). The remaining pre-existing gaps across older modules
+  are tracked as a follow-up (the audit scripts make them measurable).
+
+### Version
+
+- Bumped to **10.6.5** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
+## [10.6.4] - 2026-10-01
+
+### Added - Auto-balance recommendation engine
+
+- **`quant/portfolio/autobalance.py`**: `analyze_tier_allocations` (per-tier
+  value, percent, limit, violation), `suggest_rebalance` (bounded, iterative
+  reassignment suggestions), and `apply_rebalance_suggestions` (apply only
+  approved symbols). Advisory only: it edits `data/tiers.csv`, never trades.
+- **CLI**: `quant suggest-rebalance`, `quant apply-rebalance --symbols ...`
+  (`--dry-run`), and `quant autobalance-wizard` (interactive review).
+- **Portfolio page**: a tier-balance section with per-suggestion approval and
+  an apply action.
+
+### Added - Final polish
+
+- **`quant/analytics/scoring.py`**: `batch_score_assets_parallel` (process pool
+  for 50+ assets) and `_score_single_asset`.
+- **`quant/portfolio/tier_manager.py`**: `load_tiers_safe` (never crashes on a
+  missing/empty/corrupted file) and `_repair_corrupted_csv`.
+- **`quant/cli/health.py`**: `run_health_check` (data freshness, tiers
+  validation, tier allocations, database integrity, signal cache, data source)
+  and the `quant health-check` command.
+
+### Documentation
+
+- `docs/migration_v10.6.2.md`: post-migration auto-balance section and the
+  health-check command.
+
+### Tests
+
+- New `tests/test_autobalance.py` (8 tests) and `tests/test_v10_6_4.py`
+  (4 tests: batch-scoring performance, safe load, corruption repair, health
+  check). Full suite green; golden `tests/golden/backtest_2024.json` unmoved.
+
+### Version
+
+- Bumped to **10.6.4** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
+## [10.6.3] - 2026-10-01
+
+### Fixed
+
+- **Version correction**: the three-tier release is **10.6.2**, not 10.6.22.
+  Every reference in code and docs was renamed.
+- **No-emoji guard**: `tests/test_no_emoji.py` now scans the whole project
+  (quant, scripts, tests, docs, root markdown) and the full emoji ranges
+  (pictographs, misc symbols, dingbats, variation selectors). No emoji anywhere.
+
+### Added - Data integrity and migration
+
+- `detect_unclassified_assets` and `auto_assign_tiers` in
+  `quant/portfolio/tier_manager.py` (ETF/CASH to FORTRESS, EQUITY to ALPHA,
+  else SPECULATIVE).
+- `validate_tiers_csv` and `repair_tiers_csv` (dedupe, drop orphans, default
+  invalid tiers to ALPHA, report allocation-cap violations).
+- CLI `validate-tiers` and `repair-tiers`.
+- Portfolio page: unclassified-asset alert with an auto-assign action.
+
+### Added - Emergency liquidity
+
+- `emergency_sell_plan` (tier-aware: ALPHA, then SPECULATIVE, then FORTRESS as
+  a last resort with a capital gains tax warning; returns recommendations,
+  total_available, fortress_warning, shortfall).
+- `prioritize_sells_with_tax` (losers first, then winners within the 1000 EUR
+  Freistellungsauftrag).
+- The UI and weekly report now use the tier-aware plan.
+
+### Added - Weekly report, cache, guardrails, UI
+
+- Empty-portfolio weekly report with first-step guidance.
+- `load_signal_cache(max_age_days=7)` invalidates a stale cache;
+  `invalidate_signal_cache`.
+- `check_alpha_weekly_limit` returns a dict
+  `{allowed, trades_remaining, warning, override_required}`;
+  `track_weekly_trades` counts this week's trades from the DuckDB `trade_log`.
+- Portfolio page: trade-limit warning, per-tier empty states, and a three-step
+  onboarding wizard.
+- `batch_score_assets` and `cached_structural_grade` for 50+ asset portfolios.
+
+### Added - Documentation
+
+- `docs/migration_v10.6.2.md` migration guide.
+- `examples/tiers_example.csv`.
+
+### Tests
+
+- New `tests/test_v10_6_3.py` (13 edge-case tests). Full suite green; golden
+  `tests/golden/backtest_2024.json` unmoved.
+
+### Version
+
+- Bumped to **10.6.3** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
+## [10.6.2] - 2026-10-01
+
+### Added - Three-tier architecture (R-TIER-1)
+
+- **Tier model**: the legacy 4-tier system (CORE / SATELLITE / ACTIVE / SECTOR)
+  is replaced by FORTRESS / ALPHA / SPECULATIVE. Tier assignments live in a new
+  user-editable `data/tiers.csv` (`symbol,tier,last_updated,notes`);
+  `data/portfolio.csv` stays broker-synced and untouched. Legacy mapping:
+  CORE to FORTRESS; SATELLITE / ACTIVE / SECTOR to ALPHA; default ALPHA.
+- **`quant/portfolio/tier_manager.py`**: `load_tiers`, `save_tiers` (atomic),
+  `get_asset_tier`, `tier_map`, `validate_tier_constraints`,
+  `migrate_legacy_portfolio`.
+- **`quant/portfolio/fortress.py`**: `score_fortress_asset` (structural grade
+  only; tactical and NLP ignored), `fortress_signal`, `is_structural_collapse`,
+  `fortress_rebalance_recommendation` (quarterly Sparplan only, never sells),
+  `fortress_emergency_note`.
+- **`quant/portfolio/alpha.py`**: `score_alpha_asset` (full pipeline),
+  `sentiment_score_from_news`, `is_signal_day` (Friday), `alpha_trade_allowed`
+  (max 2 trades per week).
+- **`quant/portfolio/speculative.py`**: `score_speculative_asset` (momentum and
+  volume only), `calculate_momentum`, `volume_surge`, `speculative_signal`,
+  `speculative_stop_take` (stop-loss -50 percent, take-profit +100 percent),
+  hard 2 percent cap.
+- **`quant/analytics/scoring.py`**: `calculate_conviction` (0.3 structural +
+  0.4 tactical + 0.3 NLP; HIGH > 75, MEDIUM > 60) and `deflated_sharpe_ratio`
+  (Bailey and Lopez de Prado expected-max-Sharpe deflation).
+- **`quant/portfolio/risk.py`**: `weekly_var_95` (5-day VaR),
+  `estimate_spread_bps`, `calculate_liquidity_score`,
+  `prioritize_sells` (liquidity first, losers first),
+  `emergency_sell_recommendation` (tax-aware).
+- **`quant/portfolio/portfolio.py`**: `classify_tier`, `load_portfolio_with_tiers`,
+  `tier_audit` (routes each holding to its tier scorer). The legacy
+  `classify_asset` and `enhanced_portfolio_audit` are retained unchanged.
+- **`quant/reporting/actions.py`**: `build_tier_actions` (Fortress never sells;
+  Alpha buys only on HIGH conviction; Speculative carries the 2 percent cap).
+- **`scripts/migrate_tiers.py`**: one-shot migration from the legacy 4-tier to
+  the 3-tier system.
+
+### Added - Weekly cadence and reporting
+
+- **`quant/portfolio/signal_cache.py`**: `is_signal_day` (Friday),
+  `save_signal_cache` (atomic), `load_signal_cache`, `signals_for_today`
+  (generate and cache on Friday; serve the cache Monday through Thursday).
+- **`quant/reporting/weekly_report.py`**: `build_weekly_report` (Markdown +
+  self-contained HTML) and `save_weekly_report` (writes under
+  `outputs/reports/`). Covers the three tiers, the emergency sell order, and
+  the week's signals.
+- **`quant/reporting/templates/weekly_report.html`**: print CSS for
+  browser print-to-PDF (R-PDF-1).
+- **`quant/execution/reconciliation.py`**: `reconcile_weekly_trades` (Saturday
+  step; matches Friday signals to executed trades, computes implementation
+  shortfall, flags MISSED and UNPLANNED).
+- **`quant/portfolio/behavioral_guardrails.py`**: `check_alpha_weekly_limit`
+  and `register_alpha_trade` (max 2 Alpha trades per week).
+
+### Added - UI and CLI
+
+- **Three-tier dashboard** (`quant/ui/render.py`): `render_tier_dashboard`
+  (Fortress / Alpha / Speculative tabs), `render_emergency_liquidity` (amount
+  input -> tax-aware sell order), `render_tax_loss_alerts` (unrealized losses).
+  Wired into the Portfolio page.
+- **`quant weekly-report`** CLI command (`--as-of`, `--emergency`).
+- **Copy** (`quant/ui/copy.py`): tier labels, help lines, emergency and
+  tax-loss strings (no emoji, no decorative separators).
+
+### Changed
+
+- **`quant/config.py`**: added `VALID_TIERS`, `DEFAULT_TIER`,
+  `LEGACY_TIER_MAPPING`, `TIER_CONSTRAINTS`, `MAX_ALPHA_TRADES_PER_WEEK`,
+  conviction weights, `WEEKLY_VAR_HORIZON_DAYS`, `DSR_NUM_TRIALS`, and the
+  liquidity-scoring constants.
+- **`quant/paths.py`**: added `DATA_TIERS`.
+- **`quant/data/bootstrap.py`**: seeds the `tiers.csv` header on first run.
+
+### Rulings
+
+- **R-DSR-1**: the v10.6.2 spec's deflated-Sharpe form
+  (`Phi^-1(1 - p_adj/2) * se`) returns +inf for a highly significant result
+  (p_adj underflows to 0). The standard expected-max-Sharpe deflation is used
+  instead; it is finite and returns the raw Sharpe for a single trial.
+
+### Tests
+
+- New `tests/test_three_tier.py`: 21 tests across 7 categories (look-ahead bias,
+  survivorship bias, mathematical soundness, data integrity, behavioral biases,
+  economic realism, system robustness).
+- Full suite **360 passed**; golden `tests/golden/backtest_2024.json` unmoved.
+- Coverage ratchet raised 42 -> 55 (measured 57.64 percent).
+- `tests/test_r8_calendar.py`: pinned "today" so the savings-plan countdown
+  assertion is date-independent (it failed on the 1st of a month).
+
+### Version
+
+- Bumped to **10.6.2** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
 ## [10.6.1] - 2026-09-15
 
 ### Fixed - Fresh-install (F-series)

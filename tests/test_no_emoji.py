@@ -1,53 +1,68 @@
 """
-test_no_emoji.py — No-Emoji Lint (Phase 5 / v10.2).
+test_no_emoji.py — No-Emoji Lint (v10.6.3).
 
-Intent: enforce the rule that the UI and source contain zero emoji characters.
-Scans dashboard.py, notifier.py, reporting.py, main.py source with a regex over
-the emoji unicode ranges and fails on any match.
+Intent: enforce the rule that the whole project (code, docs, strings, tests)
+contains zero emoji characters. Scans every text file under the repo root,
+excluding third-party and generated directories, with a regex over the emoji
+unicode ranges.
+
+Invariants:
+  - No emoji in any scanned file.
+  - Third-party (.venv, myenv, site, node_modules) and generated (outputs,
+    __pycache__, htmlcov) directories are excluded.
+  - User data (data/) is excluded: it is not project source.
 """
-import sys as _sys
-from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import re
-import unittest
+from __future__ import annotations
 
-# Emoji unicode ranges: pictographs + misc symbols + dingbats.
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Emoji unicode ranges: pictographs/emoticons, misc symbols, dingbats,
+# misc symbols and arrows, and the variation selector-16 (emoji presentation).
 EMOJI_RE = re.compile(
-    "[\U0001F300-\U0001FAFF\U00002600-\U000027BF]"
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF\U0000FE0F]"
 )
 
-FILES = [
-    "quant/dashboard.py",
-    "quant/reporting/notifier.py",
-    "quant/reporting/reporting.py",
-    "quant/reporting/reporting_advanced.py",
-    "quant/reporting/web.py",
-    "quant/reporting/briefing.py",
-    "quant/reporting/actions.py",
-    "quant/cli/__init__.py",
-    "quant/cli/output.py",
-    "quant/main.py",
-    # v10.5.1: central copy module + UI helpers.
-    "quant/ui/copy.py",
-    "quant/ui/runner.py",
-    "quant/ui/search.py",
-]
+ROOT = Path(__file__).resolve().parents[1]
+
+# Directories never scanned: third-party, generated, or user-owned data.
+EXCLUDE_DIRS = {
+    ".git", ".venv", "myenv", "site", "node_modules", "__pycache__",
+    "htmlcov", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "outputs", "sec_filings", "data", "dist", "build",
+}
+
+# Text file types that must be emoji-free.
+SCAN_SUFFIXES = {
+    ".py", ".md", ".toml", ".yml", ".yaml", ".cfg", ".txt",
+    ".html", ".csv", ".json", ".ini",
+}
 
 
-class TestNoEmoji(unittest.TestCase):
-    def test_no_emoji_in_source(self):
-        failures = []
-        for fname in FILES:
-            try:
-                with open(fname, encoding="utf-8") as f:
-                    content = f.read()
-            except FileNotFoundError:
-                continue
-            for i, line in enumerate(content.splitlines(), 1):
-                if EMOJI_RE.search(line):
-                    failures.append(f"{fname}:{i}: {line}")
-        self.assertEqual(failures, [], "emoji characters found:\n" + "\n".join(failures))
+def _iter_files():
+    """Yield every scannable text file under the repo root."""
+    for path in ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in EXCLUDE_DIRS for part in path.parts):
+            continue
+        if path.suffix.lower() not in SCAN_SUFFIXES:
+            continue
+        yield path
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_no_emoji_in_project():
+    """Fail if any emoji character appears in any scanned project file."""
+    failures: list[str] = []
+    for path in _iter_files():
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for i, line in enumerate(content.splitlines(), 1):
+            if EMOJI_RE.search(line):
+                failures.append(f"{path.relative_to(ROOT)}:{i}: {line.strip()}")
+    assert failures == [], "emoji characters found:\n" + "\n".join(failures)

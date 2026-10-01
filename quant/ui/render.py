@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
-from quant import paths
 import os
 import threading
 from datetime import date as _date
@@ -24,20 +24,28 @@ from datetime import datetime as _dt
 import pandas as pd
 import streamlit as st
 
-from quant import __version__
-from quant.config import STALE_DATA_DAYS, RISK_PROFILES
+from quant import __version__, paths
+from quant.config import RISK_PROFILES, STALE_DATA_DAYS
 from quant.data.database import read_only_connection
-from quant.execution.taxonomy import (
-    resolve_broker, get_structure, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE,
-)
-from quant.execution.routing import holding_routes_to_savings_plan
-from quant.portfolio.account import load_account, save_account, AccountState
-from quant.portfolio.editor import validate_positions, save_portfolio
 from quant.data.news import load_news
+from quant.execution.routing import holding_routes_to_savings_plan
+from quant.execution.taxonomy import (
+    INVERSE_STRUCTURE,
+    LEVERAGED_STRUCTURE,
+    get_structure,
+    resolve_broker,
+)
+from quant.portfolio.account import AccountState, load_account, save_account
 from quant.portfolio.cash_rate import current_cash_apy, current_rate
+from quant.portfolio.editor import save_portfolio, validate_positions
 from quant.reporting.artifacts import (
-    latest_ok_review_ts, latest_review, read_actions, read_history, read_regime,
-    read_scores, read_update_state,
+    latest_ok_review_ts,
+    latest_review,
+    read_actions,
+    read_history,
+    read_regime,
+    read_scores,
+    read_update_state,
 )
 from quant.ui import copy as C
 from quant.ui import runner
@@ -58,7 +66,7 @@ _COLUMN_CONFIG = {
 
 # ── Read-only helpers (spec 4.1: short-lived, always closed) ──────────────────
 
-def q(sql: str, params=None) -> pd.DataFrame:
+def q(sql: str, params: list | None = None) -> pd.DataFrame:
     """Run a read-only query. Returns an empty frame on any failure."""
     try:
         with read_only_connection() as conn:
@@ -68,6 +76,7 @@ def q(sql: str, params=None) -> pd.DataFrame:
 
 
 def load_portfolio() -> pd.DataFrame:
+    """Load the broker-synced portfolio (empty frame on failure)."""
     try:
         from quant.portfolio.portfolio import load_portfolio as _lp
         return _lp(paths.DATA_PORTFOLIO)
@@ -76,6 +85,7 @@ def load_portfolio() -> pd.DataFrame:
 
 
 def latest_bar_date() -> str:
+    """Return the latest market bar date as a string (empty when absent)."""
     df = q("SELECT MAX(Date) AS d FROM market_history")
     if df.empty or df["d"].iloc[0] is None:
         return ""
@@ -139,9 +149,246 @@ def render_action_cards(holdings: list[dict]) -> None:
                 pct=f"{pct:.0f}", target=target))
 
 
+# ── v10.6.2: Three-tier dashboard, emergency liquidity, tax-loss ─────────────
+
+def render_empty_state(tier: str) -> None:
+    """Render a helpful empty state for a tier (v10.6.3)."""
+    if tier == "FORTRESS":
+        st.info(C.EMPTY_FORTRESS)
+    elif tier == "ALPHA":
+        st.info(C.EMPTY_ALPHA)
+    elif tier == "SPECULATIVE":
+        st.info(C.EMPTY_SPECULATIVE)
+    else:
+        st.info(C.EMPTY_TIER)
+
+
+def _add_asset_to_tier(symbol: str, tier: str) -> None:
+    """Append a symbol to data/tiers.csv with the given tier (v10.6.3)."""
+    from quant.portfolio.tier_manager import load_tiers, save_tiers
+
+    symbol = str(symbol).strip().upper()
+    if not symbol:
+        return
+    tiers_df = load_tiers()
+    if not tiers_df.empty and symbol in set(tiers_df["symbol"].astype(str)):
+        return
+    row = pd.DataFrame([{
+        "symbol": symbol, "tier": tier,
+        "last_updated": _date.today().isoformat(),
+        "notes": "Added via onboarding",
+    }])
+    save_tiers(pd.concat([tiers_df, row], ignore_index=True))
+
+
+def render_onboarding_wizard() -> None:
+    """Three-step onboarding wizard for first-time users (v10.6.3)."""
+    if st.session_state.get("onboarding_completed"):
+        return
+    portfolio = load_portfolio()
+    if portfolio is not None and not portfolio.empty:
+        return
+    st.header(C.ONBOARD_TITLE)
+    st.write(C.ONBOARD_INTRO)
+    step = st.session_state.get("onboarding_step", 1)
+    if step == 1:
+        st.subheader(C.ONBOARD_STEP1)
+        sym = st.text_input(C.ONBOARD_SYMBOL_LABEL, value="URTH", key="onboard_fortress")
+        if st.button(C.ONBOARD_ADD_FORTRESS, key="onboard_add_fortress"):
+            _add_asset_to_tier(sym, "FORTRESS")
+            st.session_state["onboarding_step"] = 2
+            st.rerun()
+    elif step == 2:
+        st.subheader(C.ONBOARD_STEP2)
+        sym = st.text_input(C.ONBOARD_SYMBOL_LABEL, value="NVDA", key="onboard_alpha")
+        if st.button(C.ONBOARD_ADD_ALPHA, key="onboard_add_alpha"):
+            _add_asset_to_tier(sym, "ALPHA")
+            st.session_state["onboarding_step"] = 3
+            st.rerun()
+    elif step == 3:
+        st.subheader(C.ONBOARD_STEP3)
+        st.number_input(C.ONBOARD_SPARPLAN_LABEL, min_value=25, max_value=1000,
+                        value=150, key="onboard_sparplan")
+        if st.button(C.ONBOARD_COMPLETE, key="onboard_complete"):
+            st.session_state["onboarding_completed"] = True
+            st.success(C.ONBOARD_DONE)
+            st.rerun()
+    if st.button(C.ONBOARD_SKIP, key="onboard_skip"):
+        st.session_state["onboarding_completed"] = True
+        st.rerun()
+
+
+def render_tier_dashboard(portfolio: pd.DataFrame | None) -> None:
+    """Render the three-tier dashboard (Fortress / Alpha / Speculative tabs)."""
+    st.subheader(C.SEC_TIERS)
+    tiers = ["FORTRESS", "ALPHA", "SPECULATIVE"]
+    labels = [C.TIER_FORTRESS, C.TIER_ALPHA, C.TIER_SPECULATIVE]
+    helps = [C.HELP_TIER_FORTRESS, C.HELP_TIER_ALPHA, C.HELP_TIER_SPECULATIVE]
+    for tab, tier, help_text in zip(st.tabs(labels), tiers, helps):
+        with tab:
+            st.caption(help_text)
+            if portfolio is None or portfolio.empty or "Tier" not in portfolio.columns:
+                render_empty_state(tier)
+                continue
+            sub = portfolio[portfolio["Tier"] == tier]
+            if sub.empty:
+                render_empty_state(tier)
+                continue
+            cols = [c for c in ["Symbol", "Current_Value_EUR", "Broker_PnL_EUR"]
+                    if c in sub.columns]
+            st.dataframe(sub[cols], width="stretch", hide_index=True)
+
+
+def render_emergency_liquidity(portfolio: pd.DataFrame | None) -> None:
+    """Emergency liquidity calculator: amount input -> tier-aware sell order."""
+    st.subheader(C.SEC_EMERGENCY)
+    amount = st.number_input(C.EMERGENCY_PROMPT, min_value=0.0, value=0.0, step=100.0)
+    if amount <= 0:
+        return
+    if portfolio is None or portfolio.empty or "Tier" not in portfolio.columns:
+        st.info(C.EMERGENCY_NONE)
+        return
+    from quant.portfolio.risk import emergency_sell_plan
+    plan = emergency_sell_plan(float(amount), portfolio)
+    if plan["fortress_warning"]:
+        st.warning(plan["fortress_warning"])
+    if not plan["recommendations"]:
+        st.info(C.EMERGENCY_NONE)
+        return
+    st.write(C.EMERGENCY_ORDER)
+    for h in plan["recommendations"]:
+        pnl = float(h.get("pnl_eur", 0) or 0)
+        tax = pnl * 0.26375
+        if pnl < 0:
+            note = "loss, tax-loss harvest"
+        elif pnl > 0:
+            note = "profit, taxable"
+        else:
+            note = "no gain or loss"
+        st.write(C.EMERGENCY_LINE.format(
+            symbol=h["symbol"], value=f"{h['value_eur']:.0f}",
+            tax=f"{tax:.2f}", note=note))
+
+
+def render_tax_loss_alerts(portfolio: pd.DataFrame | None) -> None:
+    """Highlight positions with an unrealized loss (tax-loss candidates)."""
+    st.subheader(C.SEC_TAX_LOSS)
+    if portfolio is None or portfolio.empty or "Broker_PnL_EUR" not in portfolio.columns:
+        st.info(C.TAX_LOSS_NONE)
+        return
+    pnl = pd.to_numeric(portfolio["Broker_PnL_EUR"], errors="coerce")
+    losers = portfolio[pnl < 0]
+    if losers.empty:
+        st.info(C.TAX_LOSS_NONE)
+        return
+    st.write(C.TAX_LOSS_HEADER)
+    for _, r in losers.iterrows():
+        st.write(C.TAX_LOSS_LINE.format(
+            symbol=r.get("Symbol"),
+            pnl=f"{float(r.get('Broker_PnL_EUR', 0)):.2f}"))
+
+
+def render_autobalance_section() -> None:
+    """Render the tier auto-balance section in the Portfolio page (v10.6.4)."""
+    from quant.portfolio.autobalance import (
+        analyze_tier_allocations,
+        apply_rebalance_suggestions,
+        suggest_rebalance,
+    )
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers, save_tiers
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    analysis = analyze_tier_allocations(portfolio_df, tiers_df)
+
+    st.subheader(C.SEC_AUTOBALANCE)
+    for tier, alloc in analysis["allocations"].items():
+        limit_str = f"{alloc['limit']:.0%}" if alloc["limit"] else "no limit"
+        line = C.AUTOBALANCE_LINE.format(
+            tier=tier, value=f"{alloc['value_eur']:.0f}",
+            pct=f"{alloc['pct']:.1%}", limit=limit_str)
+        if alloc["violated"]:
+            st.error(line)
+        else:
+            st.write(line)
+
+    if not analysis["violations"]:
+        st.success(C.AUTOBALANCE_OK)
+        return
+
+    st.warning(C.AUTOBALANCE_VIOLATION.format(tiers=", ".join(analysis["violations"])))
+    suggestions = suggest_rebalance(portfolio_df, tiers_df)
+    if not suggestions:
+        st.info(C.AUTOBALANCE_NONE)
+        return
+
+    st.write(C.AUTOBALANCE_SUGGESTIONS.format(n=len(suggestions)))
+    approved: list[str] = []
+    for i, s in enumerate(suggestions, 1):
+        with st.expander(C.AUTOBALANCE_SUGGESTION_TITLE.format(
+                i=i, symbol=s["symbol"], source=s["current_tier"],
+                target=s["suggested_tier"])):
+            st.write(C.AUTOBALANCE_MOVE.format(
+                source=s["current_tier"], target=s["suggested_tier"]))
+            st.write(C.AUTOBALANCE_VALUE.format(value=f"{s['value_eur']:.2f}"))
+            st.write(s["reason"])
+            if st.checkbox(C.AUTOBALANCE_APPROVE.format(i=i), key=f"approve_{i}"):
+                approved.append(s["symbol"])
+    if approved:
+        if st.button(C.BTN_APPLY_AUTOBALANCE, key="apply_autobalance"):
+            updated = apply_rebalance_suggestions(tiers_df, suggestions, approved)
+            save_tiers(updated)
+            st.success(C.AUTOBALANCE_APPLIED.format(n=len(approved)))
+            st.rerun()
+        st.caption(C.AUTOBALANCE_MANUAL)
+
+
+def render_trade_limit_warning() -> None:
+    """Show a warning when the weekly Alpha trade limit is reached (v10.6.3)."""
+    from datetime import date as _d
+
+    from quant.config import MAX_ALPHA_TRADES_PER_WEEK
+    from quant.portfolio.behavioral_guardrails import track_weekly_trades
+
+    trades = track_weekly_trades(_d.today().isoformat())
+    remaining = max(0, MAX_ALPHA_TRADES_PER_WEEK - trades)
+    if trades >= MAX_ALPHA_TRADES_PER_WEEK:
+        st.error(C.TRADE_LIMIT_REACHED.format(n=trades, max=MAX_ALPHA_TRADES_PER_WEEK))
+    elif remaining == 1:
+        st.warning(C.TRADE_LIMIT_ONE_LEFT)
+
+
+def render_tier_assignment_alerts() -> None:
+    """Show alerts for unclassified assets with an auto-assign action (v10.6.3)."""
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import (
+        auto_assign_tiers,
+        detect_unclassified_assets,
+        load_tiers,
+        save_tiers,
+    )
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    unclassified = detect_unclassified_assets(portfolio_df, tiers_df)
+    if not unclassified:
+        return
+    st.warning(C.TIER_UNCLASSIFIED_WARNING.format(n=len(unclassified)))
+    for rec in unclassified:
+        st.info(C.TIER_UNCLASSIFIED_LINE.format(
+            symbol=rec["symbol"], tier=rec["recommended_tier"], reason=rec["reason"]))
+    if st.button(C.BTN_AUTO_ASSIGN_TIERS, key="auto_assign_tiers"):
+        updated = auto_assign_tiers(unclassified, tiers_df)
+        save_tiers(updated)
+        st.success(C.TIER_AUTO_ASSIGNED)
+        st.rerun()
+
+
 # ── Page: Today (P4) ──────────────────────────────────────────────────────────
 
 def page_today() -> None:
+    """Render the Today page."""
     st.title(C.PAGE_TODAY)
 
     portfolio = load_portfolio()
@@ -259,7 +506,9 @@ def page_today() -> None:
 # ── Page: Portfolio (P5) ──────────────────────────────────────────────────────
 
 def page_portfolio() -> None:
+    """Render the Portfolio page."""
     st.title(C.PAGE_PORTFOLIO)
+    render_onboarding_wizard()
     st.write(C.HELP_BROKER_VALUES)
 
     # Autocomplete add-row (A5): the input says what it does; selecting a match
@@ -312,6 +561,16 @@ def page_portfolio() -> None:
         base, num_rows="dynamic", column_config=_COLUMN_CONFIG,
         width="stretch", key="holdings",
     )
+
+    # v10.6.2: three-tier dashboard, emergency liquidity, tax-loss alerts.
+    from quant.portfolio.portfolio import load_portfolio_with_tiers
+    tiered = load_portfolio_with_tiers()
+    render_tier_assignment_alerts()
+    render_trade_limit_warning()
+    render_tier_dashboard(tiered)
+    render_autobalance_section()
+    render_emergency_liquidity(tiered)
+    render_tax_loss_alerts(tiered)
 
     # Account block.
     st.subheader("Account")
@@ -458,6 +717,7 @@ def _sentiment_available() -> bool:
 
 
 def page_explore() -> None:
+    """Render the Explore page."""
     st.title(C.PAGE_EXPLORE)
 
     query = st.text_input("Search a name, symbol or ISIN", key="ex_q")
@@ -586,6 +846,7 @@ def page_explore() -> None:
 # ── Page: Settings (P7) ───────────────────────────────────────────────────────
 
 def page_settings() -> None:
+    """Render the Settings page."""
     st.title(C.PAGE_SETTINGS)
 
     # Data status (A2): no placeholder sentence. The full sentence renders only
@@ -740,7 +1001,7 @@ def _render_suppression_footnotes(holdings: list[dict]) -> None:
 _RANGE_DAYS = {"1M": 31, "3M": 92, "1Y": 365, "Max": None}
 
 
-def _filter_range(df: "pd.DataFrame", rng: str) -> "pd.DataFrame":
+def _filter_range(df: pd.DataFrame, rng: str) -> pd.DataFrame:
     """Return rows of df within the selected range (days back from the last)."""
     import pandas as _pd
 
@@ -760,7 +1021,7 @@ def _rebase(values):
     return values / base * 100.0
 
 
-def _range_annotation(df: "pd.DataFrame", growth: bool = False) -> str:
+def _range_annotation(df: pd.DataFrame, growth: bool = False) -> str:
     """`+4.2% since 1 Jun 2026 (34.80 EUR)` from the range endpoints.
 
     H3.8 (M3): Growth mode is percent-only (no EUR parenthetical).

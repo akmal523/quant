@@ -330,6 +330,219 @@ def _cmd_all(args: argparse.Namespace) -> int:
     return _cmd_run(args)
 
 
+def _cmd_validate_tiers(_args: argparse.Namespace) -> int:
+    """Validate data/tiers.csv and report issues (v10.6.3)."""
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers, validate_tiers_csv
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    is_valid, errors = validate_tiers_csv(tiers_df, portfolio_df)
+    if is_valid:
+        print("tiers.csv is valid.")
+        return 0
+    print("tiers.csv has issues:")
+    for e in errors:
+        print(f"  - {e}")
+    print("Run 'quant repair-tiers' to attempt automatic repair.")
+    return 1
+
+
+def _cmd_repair_tiers(_args: argparse.Namespace) -> int:
+    """Repair common issues in data/tiers.csv (v10.6.3)."""
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import (
+        load_tiers,
+        repair_tiers_csv,
+        save_tiers,
+        validate_tiers_csv,
+    )
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    repaired = repair_tiers_csv(tiers_df, portfolio_df)
+    is_valid, errors = validate_tiers_csv(repaired, portfolio_df)
+    if is_valid:
+        save_tiers(repaired)
+        print("tiers.csv repaired.")
+        return 0
+    print("Repair failed. Manual intervention required:")
+    for e in errors:
+        print(f"  - {e}")
+    return 1
+
+
+def _cmd_suggest_rebalance(_args: argparse.Namespace) -> int:
+    """Suggest tier reassignments to fix allocation violations (v10.6.4)."""
+    from quant.portfolio.autobalance import analyze_tier_allocations, suggest_rebalance
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    analysis = analyze_tier_allocations(portfolio_df, tiers_df)
+
+    print("Current tier allocations:")
+    print(f"Total portfolio value: {analysis['total_value_eur']:.2f} EUR")
+    for tier, alloc in analysis["allocations"].items():
+        status = "VIOLATED" if alloc["violated"] else "OK"
+        limit_str = f"{alloc['limit']:.1%}" if alloc["limit"] else "no limit"
+        print(f"  {tier:<12} {alloc['value_eur']:>10.2f} EUR  "
+              f"{alloc['pct']:>6.1%}  limit {limit_str:<10} {status}")
+
+    if not analysis["violations"]:
+        print("All tier allocations are within limits. No rebalancing needed.")
+        return 0
+
+    suggestions = suggest_rebalance(portfolio_df, tiers_df)
+    if not suggestions:
+        print("Violations detected but no suitable reassignments found. "
+              "Manual review required.")
+        return 0
+
+    print(f"Suggested reassignments ({len(suggestions)}):")
+    for i, s in enumerate(suggestions, 1):
+        print(f"  {i}. {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']} "
+              f"({s['value_eur']:.2f} EUR)")
+        print(f"     {s['reason']}")
+    print("These are suggestions only. No changes have been made.")
+    print("Use 'quant apply-rebalance --symbols SYM1,SYM2' to apply specific suggestions.")
+    return 0
+
+
+def _cmd_apply_rebalance(args: argparse.Namespace) -> int:
+    """Apply approved tier reassignments (v10.6.4)."""
+    from quant.portfolio.autobalance import apply_rebalance_suggestions, suggest_rebalance
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers, save_tiers
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    approved = [s.strip() for s in str(args.symbols).split(",") if s.strip()]
+    suggestions = suggest_rebalance(portfolio_df, tiers_df)
+    approved_suggestions = [s for s in suggestions if s["symbol"] in approved]
+
+    if not approved_suggestions:
+        print("No suggestions found for the specified symbols.")
+        return 0
+
+    if getattr(args, "dry_run", False):
+        print("Dry run - changes that would be applied:")
+        for s in approved_suggestions:
+            print(f"  {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']}")
+        print("No changes made (dry-run mode).")
+        return 0
+
+    updated = apply_rebalance_suggestions(tiers_df, suggestions, approved)
+    save_tiers(updated)
+    print(f"Applied {len(approved_suggestions)} reassignment(s):")
+    for s in approved_suggestions:
+        print(f"  {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']}")
+    print("Tier changes do not execute trades. Buy or sell manually in Trade Republic.")
+    return 0
+
+
+def _cmd_autobalance_wizard(_args: argparse.Namespace) -> int:
+    """Interactively review and apply rebalancing suggestions (v10.6.4)."""
+    from quant.portfolio.autobalance import (
+        analyze_tier_allocations,
+        apply_rebalance_suggestions,
+        suggest_rebalance,
+    )
+    from quant.portfolio.portfolio import load_portfolio
+    from quant.portfolio.tier_manager import load_tiers, save_tiers
+
+    portfolio_df = load_portfolio()
+    tiers_df = load_tiers()
+    analysis = analyze_tier_allocations(portfolio_df, tiers_df)
+    if not analysis["violations"]:
+        print("All tier allocations are within limits. No rebalancing needed.")
+        return 0
+
+    suggestions = suggest_rebalance(portfolio_df, tiers_df)
+    if not suggestions:
+        print("Violations detected but no suitable reassignments found.")
+        return 0
+
+    print(f"Found {len(suggestions)} rebalancing suggestion(s).")
+    approved: list[str] = []
+    for i, s in enumerate(suggestions, 1):
+        print(f"--- Suggestion {i}/{len(suggestions)} ---")
+        print(f"Symbol: {s['symbol']}")
+        print(f"Move: {s['current_tier']} -> {s['suggested_tier']}")
+        print(f"Value: {s['value_eur']:.2f} EUR")
+        print(f"Reason: {s['reason']}")
+        try:
+            response = input("Apply this suggestion? [y/N]: ").strip().lower()
+        except EOFError:
+            response = "n"
+        if response in ("y", "yes"):
+            approved.append(s["symbol"])
+            print("Approved.")
+        else:
+            print("Skipped.")
+
+    if not approved:
+        print("No suggestions approved. No changes made.")
+        return 0
+
+    updated = apply_rebalance_suggestions(tiers_df, suggestions, approved)
+    save_tiers(updated)
+    print(f"Applied {len(approved)} reassignment(s).")
+    print("Tier changes do not execute trades. Buy or sell manually in Trade Republic.")
+    return 0
+
+
+def _cmd_clear_cache(_args: argparse.Namespace) -> int:
+    """Clear all cached calculations (v10.6.5)."""
+    from quant.analytics.cache import clear_cache, get_cache_stats
+
+    before = get_cache_stats()
+    removed = clear_cache()
+    print(f"Cleared {removed} cache entries ({before['total_size_mb']:.2f} MB).")
+    return 0
+
+
+def _cmd_cache_stats(_args: argparse.Namespace) -> int:
+    """Show cache statistics (v10.6.5)."""
+    from quant.analytics.cache import get_cache_stats
+
+    stats = get_cache_stats()
+    print("Cache statistics:")
+    print(f"  Entries: {stats['num_entries']}")
+    print(f"  Total size: {stats['total_size_mb']:.2f} MB")
+    print(f"  Location: {stats['cache_dir']}")
+    return 0
+
+
+def _cmd_health_check(_args: argparse.Namespace) -> int:
+    """Run the system health check (v10.6.4)."""
+    from quant.cli.health import run_health_check
+
+    result = run_health_check()
+    print(f"System health: {result['status']}")
+    for check in result["checks"]:
+        print(f"  {check['name']:<20} {check['status']:<9} {check['message']}")
+    return 1 if result["status"] == "CRITICAL" else 0
+
+
+def _cmd_weekly_report(args: argparse.Namespace) -> int:
+    """Generate the Weekly Friday Report (Markdown + self-contained HTML).
+
+    v10.6.2 (R-PDF-1): the HTML carries print CSS; the user prints to PDF from
+    the browser. No PDF library is used.
+    """
+    from quant.reporting.weekly_report import save_weekly_report
+
+    as_of = getattr(args, "as_of", None) or dt.date.today().isoformat()
+    emergency = getattr(args, "emergency", None)
+    md_path, html_path = save_weekly_report(as_of, emergency_amount=emergency)
+    print(f"weekly report: {md_path}")
+    print(f"weekly report: {html_path}")
+    print("Open the HTML file in a browser and print to PDF.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``quant`` argument parser."""
     from quant import __version__
@@ -358,6 +571,30 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("all", help="run update then run (full daily cycle)")
     sub.add_parser("publish", help="render the static Published Briefing")
     sub.add_parser("doctor", help="read-only diagnosis (no writes, safe to paste)")
+    sub.add_parser("validate-tiers", help="validate data/tiers.csv and report issues")
+    sub.add_parser("repair-tiers", help="repair common issues in data/tiers.csv")
+    sub.add_parser("suggest-rebalance",
+                   help="suggest tier reassignments to fix allocation violations")
+    apply_reb = sub.add_parser("apply-rebalance", help="apply approved tier reassignments")
+    apply_reb.add_argument("--symbols", required=True,
+                           help="comma-separated symbols to rebalance")
+    apply_reb.add_argument("--dry-run", action="store_true",
+                           help="preview changes without applying")
+    sub.add_parser("autobalance-wizard",
+                   help="interactively review and apply rebalancing suggestions")
+    sub.add_parser("health-check", help="run the system health check")
+    sub.add_parser("clear-cache", help="clear all cached calculations")
+    sub.add_parser("cache-stats", help="show cache statistics")
+    weekly = sub.add_parser(
+        "weekly-report", help="generate the Weekly Friday Report (Markdown + HTML)"
+    )
+    weekly.add_argument(
+        "--as-of", default=None, help="report date (YYYY-MM-DD); defaults to today"
+    )
+    weekly.add_argument(
+        "--emergency", type=float, default=None,
+        help="cash amount (EUR) for the emergency sell order",
+    )
     dash = sub.add_parser("dash", help="launch the local interactive workspace")
     dash.add_argument(
         "--lan", action="store_true",
@@ -396,6 +633,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "publish": _cmd_publish,
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,
+        "weekly-report": _cmd_weekly_report,
+        "validate-tiers": _cmd_validate_tiers,
+        "repair-tiers": _cmd_repair_tiers,
+        "suggest-rebalance": _cmd_suggest_rebalance,
+        "apply-rebalance": _cmd_apply_rebalance,
+        "autobalance-wizard": _cmd_autobalance_wizard,
+        "health-check": _cmd_health_check,
+        "clear-cache": _cmd_clear_cache,
+        "cache-stats": _cmd_cache_stats,
     }
     try:
         return dispatch[args.command](args)

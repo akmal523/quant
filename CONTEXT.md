@@ -743,3 +743,190 @@ per step; ruling protocol for contradictions; manual passes gate steps; doctor
 first for any live anomaly; never fabricate identifiers, names, screenshots, or
 test vectors; doctrine P1-P14, F1, D1 binding; the W definition is immutable
 without a recorded ruling.
+
+---
+
+## v10.6.2 Domain Additions (Three-Tier Architecture)
+
+### Rulings
+
+- **R-TIER-1 (tier model).** The legacy 4-tier system (CORE / SATELLITE /
+  ACTIVE / SECTOR) is replaced by the 3-tier system (FORTRESS / ALPHA /
+  SPECULATIVE). Tier assignments live in a new user-editable
+  [`data/tiers.csv`](data/tiers.csv) (`symbol,tier,last_updated,notes`);
+  [`data/portfolio.csv`](data/portfolio.csv) stays broker-synced and untouched.
+  Legacy mapping: CORE -> FORTRESS; SATELLITE / ACTIVE / SECTOR -> ALPHA;
+  default ALPHA. The legacy `classify_asset` and `enhanced_portfolio_audit` are
+  retained unchanged for backward compatibility.
+- **R-PDF-1 (report export).** The Weekly Friday Report ships as Markdown plus a
+  self-contained HTML file with print CSS. The user prints to PDF from the
+  browser. No PDF library is added; new lightweight deps are `markdown` and
+  `jinja2`.
+- **R-DSR-1 (deflated Sharpe).** The v10.6.2 spec's
+  `Phi^-1(1 - p_adj/2) * se` form returns +inf for a highly significant result
+  (p_adj underflows to 0). The standard expected-max-Sharpe deflation is used
+  instead; it is finite and returns the raw Sharpe for a single trial.
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Fortress** | Tier 1. Eternal holdings, never sold to avoid capital gains tax. Broad ETFs + 3-5 core stocks via Sparplan. Structural grade only; tactical and NLP ignored. Quarterly review of Sparplan amounts only. |
+| **Alpha** | Tier 2. Active accumulation, the liquid reserve. Full scoring pipeline; weekly rebalancing on Fridays; sell when cash is needed. |
+| **Speculative** | Tier 3. High-risk bets, hard 2 percent cap. Momentum and volume only. Stop-loss -50 percent, take-profit +100 percent. |
+| **tiers.csv** | `data/tiers.csv`: user-editable tier assignments. The single source of the 3-tier classification. |
+| **Conviction** | Signal-quality word for Alpha: `0.3*structural + 0.4*tactical + 0.3*nlp`; HIGH > 75, MEDIUM > 60, else LOW. |
+| **Liquidity score** | 0-100 measure of how quickly/cheaply an asset can be sold. `0.4*volume + 0.4*spread - time_penalty`. |
+| **Weekly VaR** | 5-day VaR: `VaR_daily * sqrt(5)`. The Alpha risk horizon. |
+| **Signal cache** | `outputs/signal_cache.json`: Friday signals served Monday through Thursday. |
+| **Weekly report** | `outputs/reports/weekly_<date>.md` + `.html` (print-to-PDF). |
+
+### Module dependencies (v10.6.2)
+
+```
+quant.portfolio.tier_manager ─> quant.paths, quant.config
+quant.portfolio.fortress ─────> quant.analytics.scoring, quant.config
+quant.portfolio.alpha ────────> quant.analytics.scoring, quant.portfolio.risk
+quant.portfolio.speculative ──> quant.config
+quant.portfolio.signal_cache ─> quant.paths, quant.portfolio.alpha
+quant.portfolio.portfolio ────> quant.portfolio.tier_manager, quant.portfolio.{fortress,speculative}
+quant.reporting.weekly_report > quant.portfolio.{portfolio,risk}, markdown, jinja2
+quant.reporting.actions ──────> quant.config (tier caps)
+quant.execution.reconciliation > quant.execution.tca
+quant.ui.render ──────────────> quant.portfolio.{portfolio,risk}, quant.ui.copy
+quant.cli ────────────────────> quant.reporting.weekly_report
+```
+
+### Source-of-truth additions (v10.6.2)
+
+| Fact | Writer | Reader(s) |
+|------|--------|-----------|
+| Tier assignment | user via `data/tiers.csv` / migration script | tier_audit, actions, UI, report |
+| Friday signals | `quant run` (Friday) | signal cache, UI, report |
+| Weekly report | `quant weekly-report` | user (browser print-to-PDF) |
+
+### Test suite (v10.6.2)
+
+21 tests in [`tests/test_three_tier.py`](tests/test_three_tier.py) across 7
+categories: look-ahead bias, survivorship bias, mathematical soundness, data
+integrity, behavioral biases, economic realism, system robustness. Coverage
+ratchet raised 42 -> 55 (measured 57.64 percent).
+
+---
+
+## v10.6.3 Domain Additions (Three-Tier Completion and Polish)
+
+### Corrections
+
+- The three-tier release is **10.6.2** (not 10.6.22). Every reference was
+  renamed. This release is **10.6.3**.
+- **No emoji anywhere.** [`tests/test_no_emoji.py`](tests/test_no_emoji.py)
+  scans the whole project (quant, scripts, tests, docs, root markdown) and the
+  full emoji ranges (pictographs, misc symbols, dingbats, variation selectors).
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Unclassified asset** | A symbol in `portfolio.csv` with no row in `tiers.csv`. Detected and given a recommended tier (ETF/CASH to FORTRESS, EQUITY to ALPHA, else SPECULATIVE). |
+| **Tier validation** | `validate_tiers_csv`: missing columns, invalid tiers, duplicates, orphans, and allocation-cap violations. |
+| **Tier repair** | `repair_tiers_csv`: dedupe, drop orphans, default invalid tiers to ALPHA. Does not change allocations. |
+| **Emergency sell plan** | `emergency_sell_plan`: tier-aware order (ALPHA, SPECULATIVE, then FORTRESS as a last resort with a tax warning). |
+| **Tax-aware prioritization** | `prioritize_sells_with_tax`: losers first, then winners within the 1000 EUR Freistellungsauftrag. |
+| **Stale signal cache** | A cache older than `max_age_days` (default 7) is invalidated. |
+| **Weekly trade cap** | `check_alpha_weekly_limit` returns `{allowed, trades_remaining, warning, override_required}`; `track_weekly_trades` counts the week's trades from `trade_log`. |
+| **Batch scoring** | `batch_score_assets` scores many assets in parallel, routed by tier, with a cached structural grade. |
+
+### Module dependencies (v10.6.3)
+
+```
+quant.portfolio.tier_manager ─> quant.execution.taxonomy (get_instrument_class)
+quant.portfolio.risk ─────────> quant.portfolio.tier_manager (tier_map)
+quant.portfolio.behavioral_guardrails ─> quant.data.database (trade_log)
+quant.analytics.scoring ──────> quant.portfolio.{alpha,speculative}
+quant.reporting.weekly_report > quant.portfolio.risk (emergency_sell_plan)
+quant.ui.render ──────────────> quant.portfolio.{tier_manager,behavioral_guardrails}
+quant.cli ────────────────────> quant.portfolio.tier_manager (validate/repair)
+```
+
+### Test suite (v10.6.3)
+
+13 edge-case tests in [`tests/test_v10_6_3.py`](tests/test_v10_6_3.py):
+unclassified detection, auto-assign, tier validation/repair, allocation limits,
+empty-portfolio emergency plan, all-FORTRESS plan, tax-aware prioritization,
+empty-portfolio report, stale cache, the dict guardrail, `track_weekly_trades`,
+and batch scoring.
+
+---
+
+## v10.6.4 Domain Additions (Auto-Balance and Final Polish)
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Tier allocation** | Per-tier value, percent, limit, and violation flag from `analyze_tier_allocations`. |
+| **Auto-balance suggestion** | A proposed tier reassignment that reduces a violated tier. Advisory only; the user approves or rejects each one. |
+| **Apply rebalance** | `apply_rebalance_suggestions`: change the tier of approved symbols in `data/tiers.csv` only. Never executes a trade. |
+| **Safe tier load** | `load_tiers_safe`: never crashes on a missing, empty, or corrupted tiers file; returns `(tiers_df, warnings)`. |
+| **Corruption repair** | `_repair_corrupted_csv`: recover valid rows from a malformed tiers file. |
+| **Health check** | `run_health_check`: data freshness, tiers validation, tier allocations, database integrity, signal cache, data source. Status in {HEALTHY, WARNING, CRITICAL}. |
+| **Parallel batch scoring** | `batch_score_assets_parallel`: process pool for 50+ assets; thread path below 20. |
+
+### Module dependencies (v10.6.4)
+
+```
+quant.portfolio.autobalance ──> quant.config, quant.execution.taxonomy
+quant.cli.health ─────────────> quant.data.database, quant.portfolio.{portfolio,tier_manager,autobalance,signal_cache}
+quant.analytics.scoring ──────> quant.portfolio.{alpha,speculative} (parallel workers)
+quant.ui.render ──────────────> quant.portfolio.autobalance
+quant.cli ────────────────────> quant.portfolio.autobalance, quant.cli.health
+```
+
+### Source-of-truth additions (v10.6.4)
+
+| Fact | Writer | Reader(s) |
+|------|--------|-----------|
+| Tier reassignment | user via `quant apply-rebalance` / UI / wizard | tier_audit, actions, UI, report |
+| Health status | `quant health-check` (read-only) | user |
+
+### Test suite (v10.6.4)
+
+8 tests in [`tests/test_autobalance.py`](tests/test_autobalance.py) and 4 tests
+in [`tests/test_v10_6_4.py`](tests/test_v10_6_4.py) (batch-scoring performance,
+safe load, corruption repair, health check).
+
+---
+
+## v10.6.5 Domain Additions (Final Optimization and Polish)
+
+No new features; behavior is preserved.
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Batch query** | `batch_query_portfolio_data`: one `IN (...)` query for many symbols (prices from `market_history`). |
+| **Lazy load** | `load_prices_lazy`: stream `market_history` rows in chunks to bound memory. |
+| **Optimized batch scoring** | `batch_score_assets_optimized`: one query, then parallel scoring. |
+| **Graceful degradation** | `score_asset_with_fallbacks`: neutral fallback values with a `data_quality` marker (FULL / PARTIAL / FALLBACK). |
+| **Disk cache** | `disk_cache`: JSON result cache keyed by function name and arguments, with a max age. |
+| **Error hierarchy** | `quant.errors`: `QuantError` and subclasses. Existing functions keep their contracts. |
+| **Retry** | `quant.utils.retry.retry_with_backoff`: exponential backoff for transient external failures. |
+
+### Module dependencies (v10.6.5)
+
+```
+quant.errors ─────────────────> (pure)
+quant.utils.retry ────────────> (pure)
+quant.analytics.cache ────────> quant.paths
+quant.data.database ──────────> (batch query, lazy load)
+quant.analytics.scoring ──────> quant.data.database (batch query)
+quant.cli ────────────────────> quant.analytics.cache
+```
+
+### Test suite (v10.6.5)
+
+3 integration tests in [`tests/test_integration.py`](tests/test_integration.py),
+4 stress tests in [`tests/test_stress.py`](tests/test_stress.py), and 3
+performance tests in [`tests/test_performance.py`](tests/test_performance.py).

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quant-AI Weekly Report - {{ as_of }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.6;
+            color: #1a1a1a;
+        }
+        h1 { border-bottom: 2px solid #1F3B73; padding-bottom: 0.5rem; }
+        h2 { color: #1F3B73; margin-top: 2rem; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+        th { background: #f5f5f5; font-weight: 600; }
+        .source { font-size: 0.85rem; color: #666; font-style: italic; }
+        .no-print {
+            background: #eef2f8; padding: 1rem; margin-bottom: 2rem;
+            border-radius: 4px; border: 1px solid #cdd8e8;
+        }
+        @media print {
+            body { max-width: 100%; margin: 0; padding: 0.5in; font-size: 11pt; }
+            h1 { page-break-after: avoid; }
+            h2 { page-break-after: avoid; }
+            table { page-break-inside: avoid; }
+            .no-print { display: none; }
+            @page { margin: 0.75in; size: A4; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <strong>Print instructions:</strong> press Ctrl+P (Cmd+P on Mac) to save as PDF.
+        Recommended: A4 paper, default margins, background graphics enabled.
+    </div>
+
+    <h1>Quant-AI Weekly Report</h1>
+    <p class="source">Generated: {{ generated_at }} | As-of: {{ as_of }} | Version: {{ version }}</p>
+
+    {{ content }}
+
+    <footer style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #ddd; font-size: 0.85rem; color: #666;">
+        <p>This report is informational only. Past performance does not guarantee future results. Verify data before executing trades.</p>
+        <p class="source">Data sources: {{ data_sources }}</p>
+    </footer>
+</body>
+</html>

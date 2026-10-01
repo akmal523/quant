@@ -240,3 +240,78 @@ REGIME_CONSTRAINTS = {
 MIN_TRADE_VOL_MULT = 2.0
 # Default participation cap for TCA slippage estimation (fraction of ADV).
 TCA_PARTICIPATION_CAP = 0.01
+
+# ── v10.6.2: Three-Tier Architecture (FORTRESS / ALPHA / SPECULATIVE) ────────
+# Ruling R-TIER-1: the legacy 4-tier system (CORE/SATELLITE/ACTIVE/SECTOR) is
+# replaced by the 3-tier system. Tier assignments live in data/tiers.csv
+# (user-editable); portfolio.csv stays broker-synced. Legacy symbols map through
+# LEGACY_TIER_MAPPING; an unlisted symbol defaults to ALPHA.
+VALID_TIERS = ("FORTRESS", "ALPHA", "SPECULATIVE")
+DEFAULT_TIER = "ALPHA"
+
+LEGACY_TIER_MAPPING = {
+    "CORE": "FORTRESS",
+    "SATELLITE": "ALPHA",
+    "ACTIVE": "ALPHA",
+    "SECTOR": "ALPHA",
+}
+
+# Per-tier behaviour. max_allocation is a hard cap (None = uncapped).
+TIER_CONSTRAINTS = {
+    "FORTRESS": {
+        "rebalance_frequency": "QUARTERLY",
+        "liquidity_score": "LOW",
+        "tax_implications": "NEVER_SELL_TO_AVOID_TAXES",
+        "max_allocation": None,
+    },
+    "ALPHA": {
+        "rebalance_frequency": "WEEKLY_FRIDAY",
+        "liquidity_score": "CALCULATED",
+        "tax_implications": "CONSIDER_TAX_LOSS_HARVESTING",
+        "max_allocation": 0.50,
+    },
+    "SPECULATIVE": {
+        "rebalance_frequency": "WEEKLY_FRIDAY",
+        "liquidity_score": "VARIABLE",
+        "tax_implications": "HIGH_RISK_HIGH_REWARD",
+        "max_allocation": 0.02,
+    },
+}
+
+# Fortress: never sell unless the structural grade collapses below this floor
+# for FORTRESS_GRADE_FLOOR_MONTHS consecutive months.
+FORTRESS_GRADE_FLOOR = 30.0
+FORTRESS_GRADE_FLOOR_MONTHS = 6
+FORTRESS_SPARPLAN_INCREASE_GRADE = 70.0
+
+# Alpha: weekly rebalancing, max 2 trades per week (overtrading cooldown).
+MAX_ALPHA_TRADES_PER_WEEK = 2
+ALPHA_CONVICTION_HIGH = 75.0
+ALPHA_CONVICTION_MEDIUM = 60.0
+
+# Speculative: hard 2 percent cap, momentum/volume only.
+SPECULATIVE_MAX_ALLOCATION = 0.02
+SPECULATIVE_MOMENTUM_BUY = 50.0     # 3-month momentum percent
+SPECULATIVE_MOMENTUM_SELL = -30.0
+SPECULATIVE_VOLUME_SURGE = 3.0
+SPECULATIVE_STOP_LOSS = -0.50       # cut losses at -50 percent
+SPECULATIVE_TAKE_PROFIT = 1.00      # take profit at +100 percent
+
+# ── v10.6.2: Conviction score weights (must sum to 1.0) ──────────────────────
+CONVICTION_WEIGHT_STRUCTURAL = 0.30
+CONVICTION_WEIGHT_TACTICAL = 0.40
+CONVICTION_WEIGHT_NLP = 0.30
+
+# ── v10.6.2: Weekly risk (5-day VaR) ─────────────────────────────────────────
+WEEKLY_VAR_HORIZON_DAYS = 5
+
+# ── v10.6.2: Deflated Sharpe Ratio (Bailey & Lopez de Prado) ─────────────────
+DSR_NUM_TRIALS = 1          # multiple-comparison count; raise when many strategies tried
+
+# ── v10.6.2: Emergency liquidity scoring ─────────────────────────────────────
+LIQUIDITY_VOLUME_REF_EUR = 100_000.0   # 100k EUR/day -> volume score 100
+LIQUIDITY_LOW_VOLUME_EUR = 50_000.0    # below -> 30 point time penalty
+LIQUIDITY_MED_VOLUME_EUR = 200_000.0   # below -> 15 point time penalty
+LIQUIDITY_VOLUME_WEIGHT = 0.40
+LIQUIDITY_SPREAD_WEIGHT = 0.40
+LIQUIDITY_FORTRESS_SCORE = 20.0        # Fortress assets are never recommended for sale

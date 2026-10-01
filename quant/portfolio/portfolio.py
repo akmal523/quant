@@ -4,15 +4,23 @@ Schema: Symbol,Buy_Price,Amount_EUR,Original_Amount.
 Original_Amount tracks original cost basis for PnL tracking.
 """
 from __future__ import annotations
-from quant import paths
+
 import os
+
 import pandas as pd
 
+from quant import paths
 from quant.config import (
-    CORE_ASSETS, SATELLITE_ASSETS, ACTIVE_ASSETS, SECTOR_ASSETS,
-    TARGET_WEIGHTS, REBALANCE_FREQUENCY_DAYS, REBALANCE_DRIFT_TIERS,
+    ACTIVE_ASSETS,
+    CORE_ASSETS,
+    REBALANCE_DRIFT_TIERS,
+    REBALANCE_FREQUENCY_DAYS,
+    SATELLITE_ASSETS,
+    SECTOR_ASSETS,
+    TARGET_WEIGHTS,
 )
 from quant.data.currency import get_fx_to_eur
+
 
 def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
     """Load portfolio.csv (Plan 3 broker-synced schema).
@@ -193,6 +201,7 @@ def should_rebalance_asset(
 
 
 def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.DataFrame:
+    """Naive per-position audit: PnL, decision, and reasoning from the scan."""
     rows = []
     scan_map = scan_df.set_index("Symbol").to_dict("index")
 
@@ -200,7 +209,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         symbol = p_row["Symbol"]
         buy_price = p_row["Buy_Price"]
         orig_amount = p_row.get("Original_Amount", p_row["Amount_EUR"])
-        
+
         if symbol not in scan_map:
             rows.append({**p_row, "Audit_Decision": "NOT SCANNED", "Reasoning": "Asset not in current universe", "Active_Score": 0, "Signal": "N/A"})
             continue
@@ -209,10 +218,10 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         curr_price = s.get("Current_Price", 0)
         no_price_data = (curr_price is None or curr_price == 0 or
                          (isinstance(curr_price, float) and pd.isna(curr_price)))
-        
+
         decision = "HOLD"
         reasoning = "Maintain position"
-        
+
         if no_price_data:
             pnl_pct = float('nan')
             pnl_eur = float('nan')
@@ -224,7 +233,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
             shares = orig_amount / buy_price if buy_price > 0 else 0.0
             current_value = curr_price * shares
             pnl_eur = current_value - orig_amount
-            
+
             if s["Signal"] == "SELL":
                 decision = "URGENT SELL"
                 reasoning = "Scoring model indicates exit"
@@ -234,7 +243,7 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
             elif s["Signal"] == "BUY" and pnl_pct < 15:
                 decision = "BUY MORE (DCA OK)"
                 reasoning = "High quality setup with room for position expansion"
-        
+
         rows.append({
             "Symbol": symbol,
             "PnL_pct": round(pnl_pct, 2),
@@ -438,20 +447,21 @@ def enhanced_portfolio_audit(
 
 
 def print_audit_report(audit_df: pd.DataFrame) -> None:
+    """Print the portfolio audit table to stdout."""
     w = 180
     print("\n" + "=" * w)
     print("  PORTFOLIO AUDIT REPORT")
     print("=" * w)
-    
+
     print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>8} {'PnL €':>10} {'Score':>6} {'Signal':<8} {'Reasoning'}")
     print("  " + "-" * 140)
-    
+
     for _, row in audit_df.iterrows():
         pnl = row.get("PnL_pct", 0)
         pnl_str = f"{pnl:+.1f}%" if pd.notnull(pnl) else "N/A"
         pnl_eur = row.get("PnL_EUR", 0)
         pnl_eur_str = f"€{pnl_eur:+.2f}" if pd.notnull(pnl_eur) else "N/A"
-        
+
         print(f"  {str(row.get('Symbol', '')):<10} "
               f"{str(row.get('Audit_Decision', '')):<20} "
               f"{pnl_str:>8} "
@@ -487,13 +497,13 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
                 "Buy_Price": float(buy) if pd.notna(buy) and buy > 0 else 0.0,
                 "Original_Amount": float(orig) if pd.notna(orig) and orig > 0 else 0.0,
             }
-    
+
     total_invested = 0.0
     total_value = 0.0
     weighted_score_sum = 0.0
     position_count = 0
     active_count = 0
-    
+
     for _, row in audit_df.iterrows():
         sym = row["Symbol"]
         p_info = port_map.get(sym, {"Buy_Price": 0, "Original_Amount": 0})
@@ -539,7 +549,7 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
             weighted_score_sum += float(score) * value
         position_count += 1
         active_count += 1
-    
+
     # Broker truth: sum the reported PnL directly (== value - invested by
     # construction, but explicit is safer against rounding drift).
     total_pnl_eur = 0.0
@@ -548,7 +558,7 @@ def account_effectiveness(audit_df: pd.DataFrame, portfolio_df: pd.DataFrame) ->
             total_pnl_eur += float(row.get("Real_PnL_EUR") or 0)
     total_pnl_pct = (total_pnl_eur / total_invested * 100) if total_invested > 0 else 0.0
     weighted_score = (weighted_score_sum / total_value) if total_value > 0 else 0.0
-    
+
     return {
         "total_invested": round(total_invested, 2),
         "total_value": round(total_value, 2),
@@ -571,7 +581,7 @@ def print_effectiveness_report(eff: dict) -> None:
     print(f"  Current value:       €{eff['total_value']:>10,.2f}")
     print(f"  Total PnL:           €{eff['total_pnl_eur']:>+10,.2f}  ({eff['total_pnl_pct']:+.2f}%)")
     print(f"  Portfolio avg score:  {eff['weighted_score']:>5.1f} / 100")
-    
+
     # Qualitative rating
     if eff['total_pnl_pct'] > 20:
         rating = "EXCELLENT"
@@ -585,3 +595,125 @@ def print_effectiveness_report(eff: dict) -> None:
         rating = "DRAWDOWN — REVIEW ALL POSITIONS"
     print(f"  Rating:              {rating}")
     print("=" * w)
+
+
+# ── v10.6.2: Three-tier routing (R-TIER-1) ───────────────────────────────────
+# The legacy 4-tier classify_asset() above is retained for backward
+# compatibility. The functions below add the 3-tier system on top: tier
+# assignments come from data/tiers.csv, and each holding is routed to its tier
+# scorer. portfolio.csv is never modified.
+
+_TIER_AUDIT_COLUMNS = [
+    "Symbol", "Tier", "Signal", "Structural_Grade", "Tactical_Grade",
+    "Conviction", "Liquidity_Score", "Recommendation",
+]
+
+
+def classify_tier(symbol: str, tiers_df: pd.DataFrame | None = None) -> str:
+    """Return the 3-tier classification (FORTRESS / ALPHA / SPECULATIVE).
+
+    Intent (v10.6.2): the new tier lookup, delegating to tier_manager so the
+    default and validation rules live in one place. Invariants: always returns a
+    member of VALID_TIERS; pure when a frame is supplied.
+    """
+    from quant.portfolio.tier_manager import get_asset_tier
+    return get_asset_tier(symbol, tiers_df)
+
+
+def load_portfolio_with_tiers(
+    filepath: str | None = None,
+    tiers_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Load portfolio.csv and merge the Tier column from data/tiers.csv.
+
+    Intent (v10.6.2): the broker-synced portfolio plus the user's tier
+    classification, without touching portfolio.csv. Invariants: returns the
+    load_portfolio frame with a Tier column; an empty portfolio yields an empty
+    frame with the Tier column present.
+    """
+    from quant.config import DEFAULT_TIER
+    from quant.portfolio.tier_manager import load_tiers, tier_map
+
+    df = load_portfolio(filepath or paths.DATA_PORTFOLIO)
+    if df.empty:
+        df["Tier"] = pd.Series(dtype=str)
+        return df
+    tmap = tier_map(tiers_df if tiers_df is not None else load_tiers())
+    df["Tier"] = df["Symbol"].map(lambda s: tmap.get(str(s), DEFAULT_TIER))
+    return df
+
+
+def tier_audit(
+    portfolio_df: pd.DataFrame,
+    scan_df: pd.DataFrame,
+    tiers_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Route each holding to its tier scorer and return a tier-aware audit.
+
+    Intent (v10.6.2): Fortress uses the structural grade only and never sells;
+    Alpha uses the conviction word (BUY only on HIGH); Speculative uses momentum
+    and volume. Invariants: returns a DataFrame with the tier-audit columns;
+    never raises; a symbol absent from the scan is NOT SCANNED. Pure (no I/O).
+    """
+    from quant.analytics.scoring import calculate_conviction
+    from quant.config import DEFAULT_TIER
+    from quant.portfolio.fortress import fortress_signal
+    from quant.portfolio.speculative import speculative_signal
+    from quant.portfolio.tier_manager import load_tiers, tier_map
+
+    if portfolio_df is None or portfolio_df.empty:
+        return pd.DataFrame(columns=_TIER_AUDIT_COLUMNS)
+
+    tmap = tier_map(tiers_df if tiers_df is not None else load_tiers())
+    scan_map = (
+        scan_df.set_index("Symbol").to_dict("index")
+        if scan_df is not None and not scan_df.empty else {}
+    )
+
+    rows = []
+    for _, p in portfolio_df.iterrows():
+        symbol = str(p["Symbol"])
+        tier = tmap.get(symbol, DEFAULT_TIER)
+        s = scan_map.get(symbol)
+        if s is None:
+            rows.append({
+                "Symbol": symbol, "Tier": tier, "Signal": "N/A",
+                "Structural_Grade": None, "Tactical_Grade": None,
+                "Conviction": None, "Liquidity_Score": None,
+                "Recommendation": "NOT SCANNED",
+            })
+            continue
+
+        structural = float(s.get("Structural_Grade", 50) or 50)
+        tactical = float(s.get("Tactical_Grade", 50) or 50)
+        raw_nlp = s.get("nlp_score")
+        nlp_0_100 = (
+            max(0.0, min(100.0, (float(raw_nlp) + 100.0) / 2.0))
+            if raw_nlp is not None else 50.0
+        )
+
+        if tier == "FORTRESS":
+            signal = fortress_signal(structural)
+            conviction = None
+            reco = "Never sell; adjust the savings plan only."
+        elif tier == "SPECULATIVE":
+            momentum = float(s.get("momentum_3m", 0) or 0)
+            surge = float(s.get("volume_surge", 0) or 0)
+            signal = speculative_signal(momentum, surge)
+            conviction = None
+            reco = "Max 2 percent allocation; stop-loss -50 percent, take-profit +100 percent."
+        else:
+            conviction = calculate_conviction(structural, tactical, nlp_0_100)
+            signal = "BUY" if conviction == "HIGH" else "HOLD"
+            reco = "Weekly rebalancing on Fridays."
+
+        rows.append({
+            "Symbol": symbol, "Tier": tier, "Signal": signal,
+            "Structural_Grade": round(structural, 1),
+            "Tactical_Grade": round(tactical, 1),
+            "Conviction": conviction,
+            "Liquidity_Score": s.get("Liquidity_Score"),
+            "Recommendation": reco,
+        })
+
+    return pd.DataFrame(rows, columns=_TIER_AUDIT_COLUMNS)

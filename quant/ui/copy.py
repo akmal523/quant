@@ -76,6 +76,82 @@ ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Ad
                          "to data/isin_curated.csv (from your broker app or the fund factsheet), "
                          "then run Repair registry again.")
 
+# ── v10.6.2: Three-tier dashboard, emergency liquidity, tax-loss ─────────────
+SEC_TIERS = "Your three tiers"
+SEC_EMERGENCY = "Emergency liquidity"
+SEC_TAX_LOSS = "Tax-loss harvesting"
+TIER_FORTRESS = "Fortress"
+TIER_ALPHA = "Alpha"
+TIER_SPECULATIVE = "Speculative"
+HELP_TIER_FORTRESS = ("Never sold, to avoid capital gains tax. Quarterly review of "
+                      "savings-plan amounts only.")
+HELP_TIER_ALPHA = "Weekly rebalancing on Fridays. Sell when cash is needed."
+HELP_TIER_SPECULATIVE = ("Hard cap 2 percent of the portfolio. Stop-loss -50 percent, "
+                         "take-profit +100 percent.")
+EMPTY_TIER = "No holdings in this tier."
+EMERGENCY_PROMPT = "How much cash do you need (EUR)?"
+EMERGENCY_ORDER = "Sell in this order:"
+EMERGENCY_NONE = "No Alpha holdings available for an emergency sale."
+EMERGENCY_LINE = "{symbol} ({value} EUR) - tax {tax} EUR ({note})"
+TAX_LOSS_HEADER = "Positions with an unrealized loss (candidates for tax-loss harvesting):"
+TAX_LOSS_NONE = "No positions with an unrealized loss."
+TAX_LOSS_LINE = "{symbol}: {pnl} EUR unrealized loss"
+
+# ── v10.6.3: Tier assignment alerts ───────────────────────────────────────────
+TIER_UNCLASSIFIED_WARNING = "{n} assets have no tier assignment."
+TIER_UNCLASSIFIED_LINE = "{symbol}: recommended tier {tier}. {reason}"
+BTN_AUTO_ASSIGN_TIERS = "Auto-assign recommended tiers"
+TIER_AUTO_ASSIGNED = "Tiers auto-assigned."
+TIER_VALIDATION_HEADER = "Tier file issues:"
+BTN_REPAIR_TIERS = "Repair tier file"
+TIER_REPAIRED = "Tier file repaired."
+TRADE_LIMIT_REACHED = ("Weekly Alpha trade limit reached ({n}/{max}). "
+                       "Wait until next Friday.")
+TRADE_LIMIT_ONE_LEFT = "Only 1 Alpha trade remaining this week. Use it wisely."
+
+# ── v10.6.4: Auto-balance ─────────────────────────────────────────────────────
+SEC_AUTOBALANCE = "Tier balance"
+AUTOBALANCE_LINE = "{tier}: {value} EUR ({pct}), limit {limit}"
+AUTOBALANCE_OK = "All tier allocations are within limits."
+AUTOBALANCE_VIOLATION = "Tier allocation violations: {tiers}."
+AUTOBALANCE_NONE = ("Violations detected but no suitable reassignments found. "
+                    "Manual review required.")
+AUTOBALANCE_SUGGESTIONS = "Suggested reassignments ({n}):"
+AUTOBALANCE_SUGGESTION_TITLE = "Suggestion {i}: {symbol} ({source} to {target})"
+AUTOBALANCE_MOVE = "Move: {source} to {target}"
+AUTOBALANCE_VALUE = "Value: {value} EUR"
+AUTOBALANCE_APPROVE = "Approve suggestion {i}"
+BTN_APPLY_AUTOBALANCE = "Apply selected suggestions"
+AUTOBALANCE_APPLIED = "Applied {n} reassignment(s)."
+AUTOBALANCE_MANUAL = ("Tier changes do not execute trades. Buy or sell manually "
+                      "in Trade Republic.")
+
+# ── v10.6.3: Empty states and onboarding ──────────────────────────────────────
+EMPTY_FORTRESS = ("No FORTRESS assets yet. FORTRESS is for eternal holdings you "
+                  "never sell (tax-free accumulation). Recommended: broad ETFs via "
+                  "a savings plan (URTH, SPY, VWRL). Add assets to data/tiers.csv "
+                  "with tier FORTRESS.")
+EMPTY_ALPHA = ("No ALPHA assets yet. ALPHA is for active trading (weekly "
+               "rebalancing, sell when money is needed). Recommended: 5-15 tactical "
+               "stocks (NVDA, TSM, AMD, AAPL, MSFT). Add assets to data/tiers.csv "
+               "with tier ALPHA.")
+EMPTY_SPECULATIVE = ("No SPECULATIVE assets yet. SPECULATIVE is for high-risk bets "
+                     "(max 2 percent of the portfolio). Examples: penny stocks, meme "
+                     "stocks, recent IPOs. These assets can go to zero; only invest "
+                     "what you can afford to lose.")
+ONBOARD_TITLE = "Welcome to Quant-AI"
+ONBOARD_INTRO = "Set up your three-tier portfolio in three steps."
+ONBOARD_STEP1 = "Step 1: add your first FORTRESS asset (an ETF you never sell)."
+ONBOARD_STEP2 = "Step 2: add your first ALPHA asset (a stock you actively trade)."
+ONBOARD_STEP3 = "Step 3: set your monthly savings-plan amount."
+ONBOARD_SYMBOL_LABEL = "Symbol"
+ONBOARD_ADD_FORTRESS = "Add to FORTRESS"
+ONBOARD_ADD_ALPHA = "Add to ALPHA"
+ONBOARD_SPARPLAN_LABEL = "Monthly savings plan (EUR)"
+ONBOARD_COMPLETE = "Complete setup"
+ONBOARD_DONE = "Setup complete. Add your holdings in the Portfolio editor, then save and review."
+ONBOARD_SKIP = "Skip onboarding"
+
 # ── Errors (spec 3.2) ─────────────────────────────────────────────────────────
 ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open. "
                  "Close other tabs or terminals, then try again.")

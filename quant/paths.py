@@ -86,6 +86,10 @@ DATA_NAMES_CURATED: str = str(DATA_DIR / "names_curated.csv")
 # v10.6.0 (H3.4): prose theme tags for Explore search (theme,symbols). Themes are
 # human labels, NOT financial identifiers (F1 does not apply). User-editable.
 DATA_THEMES: str = str(DATA_DIR / "themes.csv")
+# v10.6.2 (R-TIER-1): user-editable tier assignments (symbol,tier,last_updated,
+# notes). portfolio.csv stays broker-synced; this file holds the 3-tier
+# classification (FORTRESS / ALPHA / SPECULATIVE).
+DATA_TIERS: str = str(DATA_DIR / "tiers.csv")
 
 # Runtime dirs that must exist before any write.
 RUNTIME_DIRS: tuple[Path, ...] = (PROJECT_ROOT, DATA_DIR, OUTPUTS_DIR, SEC_FILINGS_DIR)

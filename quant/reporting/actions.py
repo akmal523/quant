@@ -20,7 +20,10 @@ import re
 
 import pandas as pd
 
-from quant.config import REBALANCE_DRIFT_TIERS, MIN_TRADE_SIZE_EUR
+from quant.config import (
+    REBALANCE_DRIFT_TIERS, MIN_TRADE_SIZE_EUR,
+    MAX_ALPHA_TRADES_PER_WEEK, SPECULATIVE_MAX_ALLOCATION,
+)
 from quant.execution.taxonomy import resolve_broker
 from quant.ui import copy as ui_copy
 
@@ -110,3 +113,58 @@ def format_action_line(a: dict) -> str:
         f"    {a['action']:<9} {a['symbol']:<9} "
         f"{sign}{a['amount_eur']:.0f} EUR   {a['reason']}"
     )
+
+
+# ── v10.6.2: Tier-aware actions (R-TIER-1) ───────────────────────────────────
+# The canonical action list above is drift-driven (legacy 4-tier). The builder
+# below is driven by the 3-tier audit: Fortress never sells, Alpha buys only on
+# HIGH conviction, Speculative is capped at 2 percent.
+
+def build_tier_actions(audit_df: pd.DataFrame | None) -> list[dict]:
+    """Build the canonical action list from the 3-tier audit.
+
+    Intent (v10.6.2): one source of tier-aware actions for the CLI, dashboard,
+    and web. Invariants:
+      - A FORTRESS row never yields a sell; its action is INCREASE_SPARPLAN or
+        MAINTAIN, and ``sell_allowed`` is False.
+      - An ALPHA row yields BUY MORE only when conviction == "HIGH", else HOLD.
+      - A SPECULATIVE row carries the 2 percent cap and its speculative signal.
+    Pure function (no I/O).
+    """
+    if audit_df is None or audit_df.empty:
+        return []
+
+    actions: list[dict] = []
+    for _, r in audit_df.iterrows():
+        sym = str(r.get("Symbol", ""))
+        tier = str(r.get("Tier", "ALPHA"))
+        signal = str(r.get("Signal", "HOLD"))
+        conviction = r.get("Conviction")
+        if isinstance(conviction, float) and conviction != conviction:
+            conviction = None  # NaN
+
+        if tier == "FORTRESS":
+            action = "INCREASE_SPARPLAN" if signal == "INCREASE_SPARPLAN" else "MAINTAIN"
+            actions.append({
+                "symbol": sym, "tier": tier, "action": action,
+                "signal": signal, "conviction": None,
+                "sell_allowed": False, "max_allocation": None,
+                "reason": "Fortress holdings are never sold; adjust the savings plan only.",
+            })
+        elif tier == "SPECULATIVE":
+            actions.append({
+                "symbol": sym, "tier": tier, "action": signal,
+                "signal": signal, "conviction": None,
+                "sell_allowed": True, "max_allocation": SPECULATIVE_MAX_ALLOCATION,
+                "reason": "Speculative: max 2 percent allocation; stop-loss -50 percent, take-profit +100 percent.",
+            })
+        else:
+            action = "BUY MORE" if (signal == "BUY" and conviction == "HIGH") else "HOLD"
+            actions.append({
+                "symbol": sym, "tier": tier, "action": action,
+                "signal": signal, "conviction": conviction,
+                "sell_allowed": True, "max_allocation": None,
+                "reason": f"Alpha: weekly rebalancing; max {MAX_ALPHA_TRADES_PER_WEEK} trades per week.",
+            })
+
+    return actions

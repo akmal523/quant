@@ -141,3 +141,70 @@ def load_snapshot(snapshot_date: str) -> pd.DataFrame:
         return pd.DataFrame(
             columns=["snapshot_date", "symbol", "shares", "price_eur", "value_eur"]
         )
+
+
+# ── v10.6.2: Saturday reconciliation (signaled vs executed) ──────────────────
+
+_RECON_COLUMNS = [
+    "symbol", "side", "signal_price", "fill_price", "slippage_bps", "status",
+]
+
+
+def reconcile_weekly_trades(
+    signals: list[dict],
+    executed: list[dict],
+) -> pd.DataFrame:
+    """Compare Friday signals against Saturday executed trades.
+
+    Intent (v10.6.2): the Saturday step. Each signal is matched to an executed
+    trade by (symbol, side); the implementation shortfall is computed for
+    matches. Invariants: returns a DataFrame with columns
+    ``symbol, side, signal_price, fill_price, slippage_bps, status`` where status
+    is EXECUTED, MISSED (signaled, not executed), or UNPLANNED (executed, not
+    signaled); never raises; pure (no I/O).
+    """
+    signals = signals or []
+    executed = executed or []
+
+    def _key(d: dict) -> tuple[str, str]:
+        return (str(d.get("symbol", "")), str(d.get("side", "")).upper())
+
+    exec_map: dict[tuple[str, str], dict] = {}
+    for e in executed:
+        exec_map[_key(e)] = e
+
+    from quant.execution.tca import implementation_shortfall
+
+    rows = []
+    matched: set[tuple[str, str]] = set()
+    for s in signals:
+        k = _key(s)
+        e = exec_map.get(k)
+        if e is None:
+            rows.append({
+                "symbol": k[0], "side": k[1],
+                "signal_price": s.get("signal_price"),
+                "fill_price": None, "slippage_bps": None, "status": "MISSED",
+            })
+            continue
+        matched.add(k)
+        sig_p = float(s.get("signal_price", 0) or 0)
+        fill_p = float(e.get("fill_price", 0) or 0)
+        rows.append({
+            "symbol": k[0], "side": k[1],
+            "signal_price": sig_p, "fill_price": fill_p,
+            "slippage_bps": round(implementation_shortfall(sig_p, fill_p, k[1]), 2),
+            "status": "EXECUTED",
+        })
+
+    for e in executed:
+        k = _key(e)
+        if k in matched:
+            continue
+        rows.append({
+            "symbol": k[0], "side": k[1],
+            "signal_price": None, "fill_price": e.get("fill_price"),
+            "slippage_bps": None, "status": "UNPLANNED",
+        })
+
+    return pd.DataFrame(rows, columns=_RECON_COLUMNS)

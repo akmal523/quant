@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from quant.config import MAX_ALPHA_TRADES_PER_WEEK
+
 
 class BehavioralGuardrails:
     """Prevents common algorithmic trading mistakes."""
@@ -25,6 +27,8 @@ class BehavioralGuardrails:
         self.weekly_trade_count = 0
         self.weekly_start = pd.Timestamp.now().normalize() - pd.Timedelta(days=7)
         self.trade_history: list[dict] = []
+        # v10.6.2: Alpha trades are capped separately (max 2 per week).
+        self.alpha_trade_count = 0
 
     def check_cooldown(self, symbol: str) -> tuple[bool, str]:
         """Prevent re-trading the same asset within the cooldown window."""
@@ -54,3 +58,73 @@ class BehavioralGuardrails:
         self.cooldown_registry[symbol] = pd.Timestamp.now() + pd.Timedelta(days=cooldown_days)
         self.weekly_trade_count += 1
         self.trade_history.append({"symbol": symbol, "pnl": pnl})
+
+    # ── v10.6.2: Alpha weekly cap (max 2 trades per week) ────────────────────
+
+    def check_alpha_weekly_limit(
+        self,
+        trades_this_week: int | None = None,
+        max_trades: int = MAX_ALPHA_TRADES_PER_WEEK,
+        override: bool = False,
+    ) -> dict:
+        """Check the weekly Alpha trade cap.
+
+        Intent (v10.6.3): the Alpha tier rebalances weekly; the cap prevents
+        overtrading. Returns a dict
+        ``{allowed, trades_remaining, warning, override_required}``. When
+        ``trades_this_week`` is None the instance counter is used. Invariants:
+        never raises; pure.
+        """
+        count = self.alpha_trade_count if trades_this_week is None else int(trades_this_week)
+        remaining = max(0, int(max_trades) - count)
+        if count >= int(max_trades) and not override:
+            return {
+                "allowed": False,
+                "trades_remaining": 0,
+                "warning": (
+                    f"Weekly Alpha trade limit reached ({count}/{max_trades}). "
+                    f"Overtrading increases transaction costs and reduces returns. "
+                    f"Wait until next Friday or override with explicit confirmation."
+                ),
+                "override_required": True,
+            }
+        return {
+            "allowed": True,
+            "trades_remaining": remaining,
+            "warning": None,
+            "override_required": False,
+        }
+
+    def register_alpha_trade(self, symbol: str, pnl: float = 0.0) -> None:
+        """Register an Alpha trade and increment the weekly Alpha counter."""
+        self.alpha_trade_count += 1
+        self.register_trade(symbol, pnl=pnl)
+
+
+def track_weekly_trades(as_of: str) -> int:
+    """Count trades executed this week (Monday to as_of) from trade_log.
+
+    Intent (v10.6.3): the weekly cap needs a persistent count across sessions.
+    Reads the DuckDB ``trade_log`` table. Invariants: returns an int; never
+    raises; 0 when the table is missing or empty.
+    """
+    try:
+        from quant.data.database import get_connection
+        conn = get_connection()
+        rows = conn.execute("SELECT ts FROM trade_log").fetchall()
+    except Exception:  # noqa: BLE001
+        return 0
+    try:
+        as_of_date = pd.Timestamp(as_of).normalize()
+    except Exception:  # noqa: BLE001
+        return 0
+    week_start = as_of_date - pd.Timedelta(days=as_of_date.weekday())
+    count = 0
+    for (ts,) in rows:
+        try:
+            d = pd.Timestamp(ts).normalize()
+        except Exception:  # noqa: BLE001
+            continue
+        if week_start <= d <= as_of_date:
+            count += 1
+    return count

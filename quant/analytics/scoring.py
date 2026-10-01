@@ -7,19 +7,37 @@ false BUY signals from default neutral scores.
 from __future__ import annotations
 
 import math
+import warnings
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
-import warnings
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 
 from quant.config import (
-    WEIGHT_STEWARDSHIP, WEIGHT_TECHNICAL,
-    FILTER_MAX_PE, FILTER_MIN_ROE,
-    STRUCT_MAX_PEG, STW_GEN_MAX_DE, STW_GEN_MID_DE, STW_GEN_MIN_ROE, STW_GEN_HI_ROE, STW_GEN_MIN_ICR,
-    STW_FIN_MIN_PB, STW_FIN_MAX_PB, STW_FIN_MIN_ICR,
-    MIN_STRUCT_GRADE_FOR_BUY, MIN_TACT_GRADE_FOR_BUY,
+    ALPHA_CONVICTION_HIGH,
+    ALPHA_CONVICTION_MEDIUM,
+    CONVICTION_WEIGHT_NLP,
+    CONVICTION_WEIGHT_STRUCTURAL,
+    CONVICTION_WEIGHT_TACTICAL,
+    DSR_NUM_TRIALS,
+    FILTER_MAX_PE,
+    FILTER_MIN_ROE,
+    MIN_STRUCT_GRADE_FOR_BUY,
+    MIN_TACT_GRADE_FOR_BUY,
     SENTIMENT_NO_DATA_PENALTY,
+    STRUCT_MAX_PEG,
+    STW_FIN_MAX_PB,
+    STW_FIN_MIN_ICR,
+    STW_FIN_MIN_PB,
+    STW_GEN_HI_ROE,
+    STW_GEN_MAX_DE,
+    STW_GEN_MID_DE,
+    STW_GEN_MIN_ICR,
+    STW_GEN_MIN_ROE,
+    WEIGHT_STEWARDSHIP,
+    WEIGHT_TECHNICAL,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -82,6 +100,7 @@ def hmm_market_state_score(
     garch_vol: pd.Series,
     max_points: float = WEIGHT_TECHNICAL,
 ) -> float:
+    """Score the macro regime from a per-asset HMM fit (0 to max_points)."""
     if len(hist_close) < 252 or garch_vol.isna().all():
         return max_points / 2.0
 
@@ -116,6 +135,7 @@ def hmm_market_state_score(
 # ── Stewardship ───────────────────────────────────────────────────────────────
 
 def stewardship_score_v2(f_data: dict, sector: str = "Technology") -> float:
+    """Score balance-sheet stewardship (0 to WEIGHT_STEWARDSHIP)."""
     score = 0.0
     pb = f_data.get("PB")
     de = f_data.get("DebtToEquity")
@@ -159,6 +179,7 @@ def stewardship_score_v2(f_data: dict, sector: str = "Technology") -> float:
 # ── Structural & Tactical Grades ──────────────────────────────────────────────
 
 def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | None, stewardship_val: float) -> float:
+    """Long-term fundamental quality grade (0-100) from PE, PEG, ROE, stewardship."""
     if pe is None and roe is None:
         return 85.0
 
@@ -233,6 +254,7 @@ def etf_tactical_grade(
 # ── Horizon Synchronization ───────────────────────────────────────────────────
 
 def allocate_capital_regime(structural_grade: float, tactical_grade: float, stewardship_val: float) -> dict:
+    """Map grades to a horizon, signal, and active score."""
     if stewardship_val < (WEIGHT_STEWARDSHIP / 2) or structural_grade < 50:
         horizon = "SPECULATIVE"
         signal = "BUY" if tactical_grade >= MIN_TACT_GRADE_FOR_BUY else "SELL"
@@ -311,6 +333,7 @@ def generate_signal_for_tier(
 # ── Position Sizing ───────────────────────────────────────────────────────────
 
 def kelly_position_size(win_rate: float, avg_win: float, avg_loss: float) -> float:
+    """Fractional Kelly position size, capped at MAX_POSITION_PCT."""
     from quant.config import KELLY_FRACTION, MAX_POSITION_PCT
     if avg_loss <= 0 or avg_win <= 0 or not (0.0 < win_rate < 1.0):
         return 0.0
@@ -320,7 +343,8 @@ def kelly_position_size(win_rate: float, avg_win: float, avg_loss: float) -> flo
     return float(np.clip(fractional, 0.0, MAX_POSITION_PCT))
 
 def target_volatility_size(asset_annual_vol: float) -> float:
-    from quant.config import TARGET_VOLATILITY, MAX_POSITION_PCT
+    """Volatility-target position size, capped at MAX_POSITION_PCT."""
+    from quant.config import MAX_POSITION_PCT, TARGET_VOLATILITY
     if asset_annual_vol <= 0:
         return float(MAX_POSITION_PCT)
     size = TARGET_VOLATILITY / asset_annual_vol
@@ -332,6 +356,7 @@ def position_size(
     avg_loss:         float | None,
     asset_annual_vol: float | None,
 ) -> dict:
+    """Combine Kelly and volatility-target sizing into one recommendation."""
     kelly = kelly_position_size(win_rate or 0.0, avg_win or 0.0, avg_loss or 0.0)
     tv = target_volatility_size(asset_annual_vol or 0.30)
     final = min(kelly, tv) if kelly > 0 else tv
@@ -485,6 +510,7 @@ def sector_neutral_rank(features: pd.DataFrame) -> pd.DataFrame:
 # ── Fast Filter ───────────────────────────────────────────────────────────────
 
 def apply_fast_filter(f_data: dict) -> bool:
+    """True when PE and ROE pass the fast screener thresholds."""
     if not f_data:
         return False
     pe = f_data.get("PE")
@@ -495,3 +521,293 @@ def apply_fast_filter(f_data: dict) -> bool:
     if roe is None or roe < FILTER_MIN_ROE:
         return False
     return True
+
+
+# ── v10.6.2: Conviction + Deflated Sharpe ────────────────────────────────────
+
+def calculate_conviction(structural: float, tactical: float, nlp: float) -> str:
+    """Signal-quality score (conviction level) for an Alpha asset.
+
+    Intent (v10.6.2): combine the structural grade, the tactical grade, and the
+    NLP sentiment into one conviction word. All three inputs are on a 0-100
+    scale. Formula:
+        score = 0.3*structural + 0.4*tactical + 0.3*nlp
+    HIGH when score > ALPHA_CONVICTION_HIGH, MEDIUM when > ALPHA_CONVICTION_MEDIUM,
+    else LOW. Invariants: returns one of {HIGH, MEDIUM, LOW}; inputs clamped to
+    0-100; pure function (no I/O).
+    """
+    def _clamp(v: float) -> float:
+        try:
+            return max(0.0, min(100.0, float(v)))
+        except (TypeError, ValueError):
+            return 0.0
+
+    score = (
+        _clamp(structural) * CONVICTION_WEIGHT_STRUCTURAL
+        + _clamp(tactical) * CONVICTION_WEIGHT_TACTICAL
+        + _clamp(nlp) * CONVICTION_WEIGHT_NLP
+    )
+    if score > ALPHA_CONVICTION_HIGH:
+        return "HIGH"
+    if score > ALPHA_CONVICTION_MEDIUM:
+        return "MEDIUM"
+    return "LOW"
+
+
+def deflated_sharpe_ratio(
+    sharpe: float,
+    num_trials: int = DSR_NUM_TRIALS,
+    skew: float = 0.0,
+    kurtosis: float = 3.0,
+    n: int = 252,
+) -> float:
+    """Deflated Sharpe Ratio (Bailey & Lopez de Prado).
+
+    Intent (v10.6.2): penalize a Sharpe ratio for the number of trials
+    (multiple comparisons) and for non-normal returns (skew, kurtosis). A raw
+    Sharpe from a strategy chosen among many trials is optimistic; the DSR
+    subtracts the expected maximum Sharpe under the null (SR0). Formula:
+        se  = sqrt((1 - skew*SR + (kurtosis-1)/4*SR^2) / n)
+        SR0 = se * ((1-g)*Phi^-1(1 - 1/N) + g*Phi^-1(1 - 1/(N*e)))
+        DSR = SR - SR0
+    where g is the Euler-Mascheroni constant and N is the number of trials.
+    Ruling R-DSR-1: the v10.6.2 spec's ``Phi^-1(1 - p_adj/2) * se`` form
+    returns +inf for a highly significant result (p_adj underflows to 0), so the
+    standard expected-max-Sharpe deflation is used instead; it is finite and
+    returns the raw Sharpe for a single trial. Invariants: returns a float;
+    degrades to the raw Sharpe when n <= 1, N == 1, or the variance term is
+    non-positive; pure function (no I/O).
+    """
+    from scipy.stats import norm
+
+    sr = float(sharpe)
+    trials = max(1, int(num_trials))
+    if n <= 1 or trials == 1:
+        return sr
+    denom = 1.0 - float(skew) * sr + (float(kurtosis) - 1.0) / 4.0 * sr ** 2
+    if denom <= 0:
+        denom = 1e-9
+    se = math.sqrt(denom / float(n))
+    if se <= 0:
+        return sr
+    gamma = 0.5772156649015329  # Euler-Mascheroni
+    sr0 = se * (
+        (1.0 - gamma) * norm.ppf(1.0 - 1.0 / trials)
+        + gamma * norm.ppf(1.0 - 1.0 / (trials * math.e))
+    )
+    return float(sr - sr0)
+
+
+# ── v10.6.3: Batch scoring + structural-grade cache ───────────────────────────
+
+@lru_cache(maxsize=256)
+def cached_structural_grade(
+    pe: float | None,
+    peg: float | None,
+    roe: float | None,
+    stewardship: float,
+) -> float:
+    """Cached structural grade for repeated inputs (v10.6.3).
+
+    Intent: a 50+ asset portfolio re-scores the same fundamentals across runs;
+    the cache avoids recomputation. Invariants: pure; returns a float.
+    """
+    return evaluate_structural_grade(pe=pe, peg=peg, roe=roe, stewardship_val=stewardship)
+
+
+def batch_score_assets(
+    symbols: list[str],
+    price_data: dict,
+    fundamentals: dict,
+    news: dict,
+    tiers: dict,
+) -> pd.DataFrame:
+    """Score many assets in parallel, routed by tier (v10.6.3).
+
+    Intent: keep full scoring under about 10 seconds for a 50+ asset portfolio.
+    FORTRESS uses the cached structural grade; SPECULATIVE uses momentum and
+    volume; ALPHA runs the full pipeline. Invariants: returns a DataFrame with
+    one row per symbol; never raises (a failed symbol yields an error row).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _score_one(symbol: str) -> dict:
+        tier = tiers.get(symbol, "ALPHA")
+        if tier == "FORTRESS":
+            f = fundamentals.get(symbol, {}) or {}
+            s_val = stewardship_score_v2(f)
+            grade = cached_structural_grade(
+                f.get("PE"), f.get("PEG"), f.get("ROE"), s_val,
+            )
+            return {"symbol": symbol, "tier": tier,
+                    "structural_grade": round(float(grade), 1)}
+        if tier == "SPECULATIVE":
+            from quant.portfolio.speculative import calculate_momentum, volume_surge
+            ph = price_data.get(symbol)
+            return {"symbol": symbol, "tier": tier,
+                    "momentum_3m": round(calculate_momentum(ph, 90), 1),
+                    "volume_surge": round(volume_surge(ph), 2)}
+        from quant.portfolio.alpha import score_alpha_asset
+        return score_alpha_asset(
+            symbol, price_data.get(symbol), fundamentals.get(symbol, {}),
+            news.get(symbol, []),
+        )
+
+    results: list[dict] = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(_score_one, s): s for s in symbols}
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception:  # noqa: BLE001
+                results.append({"symbol": futures[future], "error": "scoring failed"})
+    return pd.DataFrame(results)
+
+
+def _score_single_asset(
+    symbol: str,
+    price_hist,
+    fundamentals: dict,
+    news: list,
+    tier: str,
+) -> dict:
+    """Score a single asset (worker function for parallel execution, v10.6.4).
+
+    Invariants: returns a dict; never raises for a valid tier; pure.
+    """
+    if tier == "FORTRESS":
+        f = fundamentals or {}
+        s_val = stewardship_score_v2(f)
+        grade = cached_structural_grade(f.get("PE"), f.get("PEG"), f.get("ROE"), s_val)
+        return {"symbol": symbol, "tier": tier,
+                "structural_grade": round(float(grade), 1)}
+    if tier == "SPECULATIVE":
+        from quant.portfolio.speculative import calculate_momentum, volume_surge
+        return {"symbol": symbol, "tier": tier,
+                "momentum_3m": round(calculate_momentum(price_hist, 90), 1),
+                "volume_surge": round(volume_surge(price_hist), 2)}
+    from quant.portfolio.alpha import score_alpha_asset
+    return score_alpha_asset(symbol, price_hist, fundamentals or {}, news or [])
+
+
+def batch_score_assets_parallel(
+    symbols: list[str],
+    price_data: dict,
+    fundamentals: dict,
+    news: dict,
+    tiers: dict,
+    max_workers: int = 4,
+) -> pd.DataFrame:
+    """Batch score assets, using processes for large portfolios (v10.6.4).
+
+    Intent: a 50+ asset portfolio is CPU-bound; a process pool avoids the GIL.
+    Small portfolios (< 20 symbols) use the thread path to avoid process
+    overhead. Invariants: returns a DataFrame with one row per symbol; never
+    raises (a failed symbol yields an error row).
+    """
+    if len(symbols) < 20:
+        return batch_score_assets(symbols, price_data, fundamentals, news, tiers)
+
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    results: list[dict] = []
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _score_single_asset, s, price_data.get(s),
+                fundamentals.get(s, {}), news.get(s, []), tiers.get(s, "ALPHA"),
+            ): s
+            for s in symbols
+        }
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception:  # noqa: BLE001
+                results.append({"symbol": futures[future], "error": "scoring failed"})
+    return pd.DataFrame(results)
+
+
+def batch_score_assets_optimized(
+    symbols: list[str],
+    tiers: dict,
+    max_workers: int = 4,
+) -> pd.DataFrame:
+    """Batch score with a single database query (v10.6.5).
+
+    Intent: load all market history in one query, then score in parallel.
+    Fundamentals and news are not in ``market_history``; they are passed empty
+    here and the tier scorers degrade gracefully. Invariants: returns a
+    DataFrame with one row per symbol; never raises.
+    """
+    from quant.data.database import batch_query_portfolio_data
+
+    data = batch_query_portfolio_data(symbols)
+    return batch_score_assets_parallel(
+        symbols=symbols,
+        price_data=data["prices"],
+        fundamentals=data["fundamentals"],
+        news=data["news"],
+        tiers=tiers,
+        max_workers=max_workers,
+    )
+
+
+def score_asset_with_fallbacks(
+    symbol: str,
+    tier: str,
+    price_hist: pd.DataFrame | None = None,
+    fundamentals: dict | None = None,
+    news: list | None = None,
+) -> dict:
+    """Score an asset with graceful degradation (v10.6.5).
+
+    Intent: never crash on missing data; use neutral fallback values and mark
+    ``data_quality`` as PARTIAL or FALLBACK. Invariants: returns a dict; never
+    raises; pure (no I/O beyond a log line).
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    result: dict = {"symbol": symbol, "tier": tier, "data_quality": "FULL"}
+
+    missing: list[str] = []
+    if price_hist is None or getattr(price_hist, "empty", True):
+        missing.append("price_history")
+    if not fundamentals:
+        missing.append("fundamentals")
+    if news is None:
+        missing.append("news")
+    if missing:
+        result["data_quality"] = "PARTIAL"
+        result["missing_data"] = missing
+        logger.warning(
+            "Scoring %s with missing data: %s. Using fallback values.",
+            symbol, ", ".join(missing),
+        )
+
+    if tier == "FORTRESS":
+        if fundamentals:
+            s_val = stewardship_score_v2(fundamentals)
+            result["structural_grade"] = round(float(cached_structural_grade(
+                fundamentals.get("PE"), fundamentals.get("PEG"),
+                fundamentals.get("ROE"), s_val)), 1)
+        else:
+            result["structural_grade"] = 50.0
+            result["data_quality"] = "FALLBACK"
+    elif tier == "SPECULATIVE":
+        from quant.portfolio.speculative import calculate_momentum
+        if price_hist is not None and not getattr(price_hist, "empty", True):
+            result["momentum_3m"] = round(calculate_momentum(price_hist, 90), 1)
+        else:
+            result["momentum_3m"] = 0.0
+            result["data_quality"] = "FALLBACK"
+    else:  # ALPHA
+        if price_hist is not None and not getattr(price_hist, "empty", True):
+            from quant.portfolio.alpha import score_alpha_asset
+            scored = score_alpha_asset(symbol, price_hist, fundamentals or {}, news or [])
+            result.update({k: v for k, v in scored.items() if k not in ("symbol", "tier")})
+        else:
+            result["structural_grade"] = 50.0
+            result["tactical_grade"] = 50.0
+            result["data_quality"] = "FALLBACK"
+    return result

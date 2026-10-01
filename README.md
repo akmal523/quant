@@ -21,6 +21,64 @@ Live briefing: https://akmal523.github.io/quant/
 
 ---
 
+## What's new in 10.6.5
+
+- **Performance** — batch database queries, lazy chunked loading, and a disk
+  cache for expensive calculations. `quant cache-stats` and `quant clear-cache`
+  manage the cache.
+- **Reliability** — a standardized error hierarchy, retry with exponential
+  backoff, and graceful degradation when data is missing.
+- **Docs** — a [performance tuning guide](docs/performance.md).
+
+---
+
+## What's new in 10.6.4
+
+- **Auto-balance** — `quant suggest-rebalance` proposes tier reassignments to
+  fix allocation violations; `quant apply-rebalance --symbols ...` applies the
+  ones you approve; `quant autobalance-wizard` reviews them interactively. It
+  edits `data/tiers.csv` only and never executes a trade.
+- **Health check** — `quant health-check` reports data freshness, tiers
+  validation, tier allocations, database integrity, signal cache, and the data
+  source.
+- **Robustness** — a corrupted `tiers.csv` no longer crashes the load; parallel
+  batch scoring keeps 50+ asset portfolios fast.
+
+---
+
+## What's new in 10.6.3
+
+- **Tier validation and repair** — `quant validate-tiers` and
+  `quant repair-tiers`; the Portfolio page flags unclassified assets and can
+  auto-assign a recommended tier.
+- **Tier-aware emergency liquidity** — sell ALPHA first, then SPECULATIVE, and
+  only as a last resort FORTRESS (with a capital gains tax warning).
+- **Tax-aware sell order** — losers first, then winners within the 1000 EUR
+  Freistellungsauftrag.
+- **Onboarding wizard** and per-tier empty states for first-time users.
+- **Stale signal cache** invalidates after 7 days; the weekly trade cap is
+  tracked from the trade log.
+- **No emoji anywhere** — enforced by a project-wide guard test.
+
+---
+
+## What's new in 10.6.2
+
+- **Three-tier architecture** — Fortress (never sell), Alpha (weekly trading),
+  Speculative (2 percent cap). Tier assignments live in a new user-editable
+  [`data/tiers.csv`](data/tiers.csv); [`data/portfolio.csv`](data/portfolio.csv)
+  stays broker-synced.
+- **Weekly cadence** — signals generate on Friday and are cached Monday through
+  Thursday. `quant weekly-report` writes a Markdown + self-contained HTML report
+  (print to PDF from the browser).
+- **Emergency liquidity** — enter a cash amount and get a tax-aware sell order
+  (most liquid first, losers first for tax-loss harvesting).
+- **Tax-loss alerts** — positions with an unrealized loss are highlighted.
+- **21-test suite** across 7 categories (look-ahead, survivorship, math, data
+  integrity, behavioral, economic realism, robustness).
+
+---
+
 ## What's new in 10.6.0
 
 - **Four-page workspace** — Today decides, Portfolio edits, Explore explains,
@@ -83,8 +141,26 @@ The terminal is optional. Three commands cover the daily cycle:
 | `quant run` | Review the portfolio and write the briefing (step 2) |
 | `quant publish` | Render the static Published Briefing for the web |
 | `quant doctor` | Read-only diagnosis (registry, names, news, search, advice) |
+| `quant health-check` | System health (data, tiers, allocations, database, cache) |
+| `quant suggest-rebalance` | Suggest tier reassignments to fix allocation violations |
+| `quant apply-rebalance` | Apply approved tier reassignments (`--symbols`, `--dry-run`) |
+| `quant autobalance-wizard` | Interactively review and apply rebalancing suggestions |
+| `quant cache-stats` | Show cache statistics (entries, size, location) |
+| `quant clear-cache` | Clear all cached calculations |
 
 Add `--verbose` for per-symbol detail. Logs live under `outputs/run_*/`.
+
+### Performance and verification
+
+```bash
+python scripts/benchmark.py          # measure batch query, scoring, lazy load
+python scripts/audit_type_hints.py   # type-hint coverage
+python scripts/audit_docstrings.py   # docstring coverage
+python scripts/final_verification.py # tests + ruff + audits + docs + benchmarks
+```
+
+See [`docs/performance.md`](docs/performance.md) for the tuning guide and the
+measured benchmarks.
 
 The External URL Streamlit prints is your public IP only if your router forwards
 the port; by default it does not. Never expose Quant-AI to the internet without
@@ -120,6 +196,51 @@ profile in `data/account.yaml` overrides the bucket defaults in
 a savings plan, Today shows the countdown under the actions block
 (`Savings plan executes in {n} days ({date}); additions before that date apply
 this month.`), or `Savings plan executes today.` on the day itself.
+
+### Tier file (`data/tiers.csv`)
+
+```csv
+symbol,tier,last_updated,notes
+EUNL.DE,FORTRESS,2026-10-01,Migrated from legacy CORE
+AMZN,ALPHA,2026-10-01,Migrated from legacy ACTIVE
+GME,SPECULATIVE,2026-10-01,Meme stock, max 2 percent
+```
+
+`tier` is one of `FORTRESS` / `ALPHA` / `SPECULATIVE`. An unlisted symbol
+defaults to `ALPHA`. Run `python scripts/migrate_tiers.py` once to seed the file
+from the existing portfolio; edit it freely afterwards. `portfolio.csv` is never
+modified.
+
+### Weekly report
+
+```bash
+quant weekly-report --as-of 2026-10-02 --emergency 300
+```
+
+Writes `outputs/reports/weekly_<date>.md` and `.html`. Open the HTML file in a
+browser and print to PDF (Ctrl+P / Cmd+P). The `--emergency` amount adds a
+tax-aware sell order to the report.
+
+### Tier validation
+
+```bash
+quant validate-tiers   # report issues in data/tiers.csv
+quant repair-tiers     # fix duplicates, orphans, and invalid tiers
+```
+
+### Automated Friday report
+
+To generate the report automatically every Friday at 06:00, add a cron entry:
+
+```cron
+0 6 * * 5 cd /path/to/quant && python -m quant.cli weekly-report
+```
+
+### Migration
+
+Upgrading from the legacy four-tier system? See
+[`docs/migration_v10.6.2.md`](docs/migration_v10.6.2.md). A sample tier file is
+in [`examples/tiers_example.csv`](examples/tiers_example.csv).
 
 ---
 

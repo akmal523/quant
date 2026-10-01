@@ -150,6 +150,14 @@ def _today(monkeypatch, portfolio_symbols, instrument_class, savings_day):
                                               "Amount_EUR": [100.0] * len(portfolio_symbols)}))
     monkeypatch.setattr(render, "load_account",
                         lambda: AccountState("EUR", 10.0, "balanced", True, savings_day))
+    # Pin "today" so the countdown is deterministic (the 1st of a month would
+    # otherwise render the same-day variant and break the assertion).
+    class _FixedDate:
+        @staticmethod
+        def today():
+            return date(2026, 9, 14)
+
+    monkeypatch.setattr(render, "_date", _FixedDate)
     monkeypatch.setattr(render, "resolve_broker",
                         lambda s: {"isin": "X", "instrument_class": instrument_class})
     monkeypatch.setattr(render, "get_structure", lambda s: "PLAIN")
