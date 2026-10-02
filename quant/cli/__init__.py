@@ -219,6 +219,34 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"news pillar: unreadable ({e})")
 
+    # v10.7.4 (Part 5.2): portfolio data issues and unpriceable holdings.
+    try:
+        from quant.portfolio.portfolio import portfolio_issues
+
+        for issue in portfolio_issues():
+            print(issue)
+    except Exception as e:  # noqa: BLE001
+        print(f"portfolio issues: unreadable ({e})")
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import valuation
+
+        with read_only_connection() as conn:
+            def _price(sym: str):
+                try:
+                    row = conn.execute(
+                        "SELECT Close FROM market_history WHERE Symbol = ? "
+                        "ORDER BY Date DESC LIMIT 1", [sym]).fetchone()
+                    return float(row[0]) if row and row[0] is not None else None
+                except Exception:  # noqa: BLE001
+                    return None
+
+            unpriceable = valuation.unpriceable_symbols(conn, _price)
+        if unpriceable:
+            print(f"unpriceable: {sorted(unpriceable)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"unpriceable: unreadable ({e})")
+
     try:
         from quant.ui.search import load_index, search
 

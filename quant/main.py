@@ -421,6 +421,7 @@ def main() -> None:
     # Funnel survivors (top ~24): read the cache written by data_updater.py.
     # This keeps the documented 2-step flow (data_updater -> main) and avoids
     # re-fetching the 1000+ symbol universe / re-tripping Yahoo rate limits.
+    cached_survivors: list = []
     try:
         from quant.data.funnel import load_survivors
         cached_survivors = load_survivors()
@@ -432,6 +433,15 @@ def main() -> None:
                            "Scanning CORE + ACTIVE + portfolio only.")
     except Exception as e:
         logger.warning("Funnel survivor cache read failed: %s", e)
+    # v10.7.3 (Part 2.3): funnel survivors not yet in the registry get their names
+    # probed and stored, so candidate cards never render "MU (MU)".
+    try:
+        from quant.data.names import probe_and_store
+
+        for _sym in cached_survivors:
+            probe_and_store(_sym, conn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Funnel survivor name probe failed: %s", e)
     grouped_data = {s: df for s, df in grouped_data.items() if s in active_symbols}
     logger.info("Scan universe (funnel + CORE + ACTIVE + portfolio): %d symbols",
                 len(grouped_data))

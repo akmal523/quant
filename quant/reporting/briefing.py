@@ -21,6 +21,16 @@ from quant.engine.advice import build_advice
 from quant.reporting.actions import _holdings_from_audit, _tier, build_actions
 from quant.ui import copy as ui_copy
 
+
+def _display_name(symbol: str) -> str:
+    """Company name for a symbol (v10.7.3, Part 2.2). Never raises."""
+    try:
+        from quant.data.names import display_name
+
+        return display_name(symbol)
+    except Exception:  # noqa: BLE001
+        return str(symbol)
+
 _ACTION_WORD = {
     "sell_part": ui_copy.ADVICE_SELL_PART,
     "buy": ui_copy.ADVICE_BUY,
@@ -123,7 +133,7 @@ def build_briefing_md(
     lines.append(f"- Total profit or loss: {pnl_eur:+.2f} EUR ({pnl_pct:+.2f}%)")
     lines.append(f"- Cash: {cash}")
     lines.append(f"- Risk profile: {account.risk_profile}")
-    lines.append(f"- Market trend: {regime_label}, confidence {regime_prob:.2f}")
+    lines.append(f"- Market regime: {regime_label}, confidence {regime_prob:.2f}")
     lines.append("")
 
     # ── Holdings (v10.7.1: dictionary tier words + plain verdicts) ───────────
@@ -137,7 +147,7 @@ def build_briefing_md(
             symbol = str(r.get("Symbol", ""))
             kind = verdict_by_symbol.get(symbol, "keep")
             lines.append(
-                f"| {r.get('Name', symbol)} | {ui_copy.tier_word(_tier(r.get('Tier')))} | "
+                f"| {_display_name(symbol)} | {ui_copy.tier_word(_tier(r.get('Tier')))} | "
                 f"{r.get('Current_Weight', '')} | {r.get('Target_Weight', '')} | "
                 f"{r.get('Drift', '')} | {_VERDICT.get(kind, ui_copy.ADVICE_KEEP)} |"
             )

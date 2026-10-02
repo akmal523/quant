@@ -7,6 +7,211 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.7.4] - 2026-10-02
+
+"Classification and Decision Test Grid." Versions 10.7.0 through 10.7.3
+delivered the conversational redesign, the engine, the advice pipeline with
+sizing laws, real-world hardening, and the UI truth pass. Live usage showed that
+while individual modules behaved correctly in unit tests, there was no coherent
+grid verifying the END-TO-END correctness of the core decision flow. This
+version builds that grid: every invariant has at least one test, and the tests
+assert BEHAVIOR, not implementation. All v10.7.0 hard constraints remain: no
+emojis, broker is truth, plain English via `quant/ui/copy.py`, argparse-and-print
+CLI, golden files unmoved, suite green after each phase.
+
+### Added - Classification grid (Part 1)
+
+- `tests/test_classification_grid.py`: the FORTRESS matrix (drift x regime x
+  cooldown), the six ALPHA sizing laws, the SPECULATIVE advisories, and the tier
+  transitions. Each row asserts the ADVICE SET, not a single action.
+- R2: a FORTRESS holding far OVER target now gets a `change_savings_plan` note
+  ("Consider lowering or pausing the savings-plan leg ..."), never a sell.
+- R3: an ALPHA holding under target with MEDIUM conviction emits an explicit
+  `keep` plus a rejected note; silence is forbidden for a considered action.
+- R4: the untouchable law now applies to ACTIVE buys (no buy below 100 EUR);
+  savings-plan legs (fee 0) remain exempt.
+- R5: SPECULATIVE take-profit (+100 percent) and 2 percent cap-violation
+  advisories are notes, never forced sells.
+- R9: in a bear regime, HIGH-conviction ALPHA buys are suppressed; the pipeline
+  emits one `to_cash` advice plus one rejected note per suppressed buy.
+
+### Added - Advice grid (Part 2)
+
+- `tests/test_advice_grid.py`: the fee hurdle (`expected_alpha_bps * amount >=
+  fee`), conviction vs action, the allocator math (36 fixtures), and Modified
+  Dietz correctness.
+- R1: the sizing laws are the contract; the spec's illustrative numbers are
+  corrected (500 EUR at +6.9 percent yields a 30 EUR sell; a 45 EUR buy rounds
+  to 40).
+- R10: the long base goes to the SINGLE largest-gap FORTRESS holding (ties break
+  alphabetically); the split sums to the budget exactly; every leg's reason
+  states the actual gap in percentage points; the bets pool is carved out of the
+  active pool.
+
+### Added - Freedom grid (Part 3)
+
+- `tests/test_freedom_grid.py`: cooldown respect, emergency liquidity rights,
+  monthly decision rights, the sync reminder, and alert dismissal.
+- R6: at equal liquidity, losers (negative broker PnL) sort before winners in the
+  emergency sell order.
+- R7: the 35-day sync reminder appears at most once per 7 days, never on the same
+  day as a successful sync, and lists pending positions by name.
+- R8: a dismissed alert does not reopen unless the underlying condition re-arms
+  (reads false at least once, then true again).
+- A system-wide lockdown pauses non-emergency sells but never blocks emergency
+  liquidity.
+
+### Added - Consistency grid (Part 4)
+
+- `tests/test_consistency_grid.py`: `TARGET_WEIGHTS_INVESTED` is the sole target
+  map (advice and allocator fall back to it), `tiers.csv` is the sole tier
+  source, and `revalue_holdings` is the sole estimated-value source.
+
+### Added - Adversarial grid (Part 5)
+
+- `tests/test_adversarial_grid.py`: empty and degenerate portfolios, adversarial
+  data, race/timing, and notification correctness.
+- `load_portfolio` raises `DataError` on a negative position value and
+  deduplicates rows by symbol; `portfolio_issues` reports duplicates and
+  negatives; `valuation.unpriceable_symbols` reports holdings with no price; the
+  doctor renders all three.
+
+### Added - Property-based tests (Part 6)
+
+- `tests/test_properties.py` (Hypothesis, 200 examples per property): advice
+  kinds are a subset of the allowed kinds per tier; the allocator conserves the
+  budget; the sizing law is monotone across the 100 EUR threshold; Modified Dietz
+  is bounded by the best/worst flow interpretations; a buy is independent of the
+  symbol's cooldown.
+- `hypothesis` added to the test-only dependencies.
+
+### Added - Regression grid (Part 7)
+
+- `tests/test_regression_grid.py`: ten `[regression]`-tagged tests, one per known
+  bug from v10.7.0 through v10.7.3.
+
+### Added - Fixtures (Part 8)
+
+- `tests/fixtures/live_portfolio.py`: `live_shaped()`, `synthetic_portfolio(n)`,
+  `degenerate_cases()`, `adversarial()`, and scenario builders. No grid test
+  hardcodes magic numbers inline.
+
+### Version
+
+- Bumped to **10.7.4** (`quant/__init__.py`, `pyproject.toml`); the stale
+  `bumpversion.current_version` is corrected.
+
+---
+
+## [10.7.3] - 2026-10-02
+
+"UI Truth Pass: Every Number Named, Every Button With a Job." Live usage and a
+screenshot review found surfaces that still violated the project's own rules:
+old copy strings survived, raw internal keys leaked, company names were missing
+in half the UI, two screens gave contradictory advice because they used
+different target maps, values did not move when the user recorded a purchase,
+and several buttons and cards did nothing. This version makes every visible
+element truthful, named, and purposeful. All v10.7.0 hard constraints remain: no
+emojis, broker is truth, plain English via `quant/ui/copy.py`, argparse-and-print
+CLI, golden files unmoved, suite green after each phase.
+
+### Fixed - Copy truth pass (Part 1)
+
+- Overview header "Review prepared ..." becomes "Report as of ...".
+- The market line becomes "Market is rising, high confidence. This affects only
+  the Active part; the Long-term part is untouched." and lives only inside the
+  Market expander.
+- The broker-values caption now says estimates are shown between syncs.
+- Settings "Broker registry" becomes "Broker reference".
+- Monthly leg lines carry no raw keys: "140 EUR to Global Aero & Defense
+  (5J50.DE), Long-term (never sell), via savings plan. Fee 0 EUR." and the cash
+  leg "60 EUR to operational cash at 2.5 percent per year." with no fee suffix.
+- One "My holdings" heading; the editable broker table moves into a "Broker
+  statement (editable)" expander after the verdicts table.
+- A scores caption under the verdicts table; position expanders use company
+  names; the "Not this week" empty state no longer repeats the first phrase.
+- Account buttons: "Save and run review" and "Save only", each with a helper.
+- "If you need cash now" shows a hint at zero; big plaques show whole EUR.
+
+### Added - Names everywhere (Part 2)
+
+- `quant/data/names.py`: `display_name(symbol)` (registry -> cached yfinance
+  probe -> symbol) and `probe_and_store`. Applied to every user-facing surface.
+- Funnel survivors not in the registry get names probed and stored during the
+  daily run, so candidate cards never render "MU (MU)".
+- Candidate cards gain a "View analysis" expander; Find investments gains the
+  funnel transparency line and a "Near misses" expander.
+
+### Added - One value source (Part 3)
+
+- The Overview Invested plaque, the holdings Value column, and the per-asset
+  expanders read the revalued estimate (shares times latest close) when
+  `holdings_meta` is newer than the CSV, labeled "estimated, as of <date>". The
+  broker statement keeps the CSV numbers, labeled with the last sync date.
+- Average entry price per share is estimated and live (invested / shares).
+- `enter_actuals` ADDS to the existing estimated position, so a recorded buy
+  moves the visible balance; a buy for an unheld symbol creates an estimated
+  position with a pending-sync marker. The sync reminder mentions pending
+  positions.
+
+### Fixed - Advice truth and one target source (Parts 4, 5)
+
+- The holdings Verdict column renders ONLY from `build_advice` kinds; the legacy
+  status mapping is removed from the render path. A FORTRESS row can only show
+  "Keep, do nothing" or the savings-plan top-up sentence.
+- The Overview steps include `change_savings_plan` and `buy` advice, so the
+  Overview names the same asset as `quant run` for the same reason.
+- The Overview Savings plan block shows the standing budget and a "Set this
+  month's budget" button; Block A gains the income line.
+- `TARGET_WEIGHTS_INVESTED` in `quant/config.py` is the ONE per-symbol
+  invested-pool target map (overridable by an optional `target_pct` column in
+  `data/tiers.csv`). `build_advice`, the allocator, the split reason lines, and
+  the drift computations all read it; the equal-split logic is removed. The
+  allocator and the advice now name the same top-up symbol.
+
+### Fixed - Monthly decision (Part 6)
+
+- Pre-approval actuals are ad-hoc buys with the honest wording; the
+  reconciliation deviation line never appears for them.
+- After approval, the actuals form prefills the plan legs and offers an "Add
+  another symbol" row with type-ahead autocomplete (registry + universe); the
+  same autocomplete replaces the quick-events selectbox.
+- "Change split" opens inline editable number inputs with a live weights line.
+- "New ideas this month" candidate lines match the Find investments cards.
+- After Approve, the impact line is shown and the status updates immediately.
+
+### Changed - Overview chart and layout (Part 7)
+
+- Default Value view; full width; fixed 320 px; portfolio line only, no fill;
+  dotted baseline at period start; axis not from zero.
+- The benchmark checkbox adds exactly one line; Growth is an explicit opt-in and
+  per-asset growth lines are removed from the main chart.
+- Legend entries use company names; the Market expander moves below the Savings
+  plan block.
+
+### Documentation (Part 8)
+
+- `docs/first_week.md` and README: Trade Republic does not export a portfolio
+  CSV; document the manual four-field entry with a worked example and the
+  "about 5 minutes once per month" note.
+- New "Where each number comes from" section, linked from an Overview caption.
+- `docs/conversation.md`: the monthly allocator example with the single target
+  map, documenting the EUNL-vs-5J50 contradiction as resolved.
+
+### Tests (Part 9)
+
+- New `tests/test_v10_7_3_copy.py`, `test_v10_7_3_names.py`,
+  `test_v10_7_3_value.py`, `test_v10_7_3_advice.py`, `test_v10_7_3_monthly.py`:
+  forbidden old strings, required new strings, names everywhere, the FORTRESS
+  verdict law, the allocator-advice agreement, value movement, the autocomplete,
+  the funnel line, and pre-approval actuals.
+
+### Version
+
+- Bumped to **10.7.3** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
 ## [10.7.2] - 2026-10-01
 
 "Real-World Hardening: Locks, News Pillar, Backup, First Week." Four real-world

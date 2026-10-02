@@ -25,7 +25,8 @@ Live briefing: https://akmal523.github.io/quant/
 - **Three-tier portfolio** — Fortress (never sell), Alpha (weekly trading),
   Speculative (2 percent cap). Assign tiers in the user-editable
   [`data/tiers.csv`](data/tiers.csv); [`data/portfolio.csv`](data/portfolio.csv)
-  stays broker-synced.
+  holds the four fields you enter from the broker app (Trade Republic does not
+  export a portfolio CSV).
 - **Daily advice** — drift versus target drives add/trim; a rebalance cooldown
   surfaces as "Waiting until {date}", never silence.
 - **Weekly cadence** — signals generate on Friday and are cached Monday through
@@ -190,6 +191,12 @@ only; to serve on your local network (phone on the same Wi-Fi), run
 
 ### Portfolio file (`data/portfolio.csv`)
 
+Trade Republic does not export a portfolio CSV. You enter four fields per
+position by hand from the app screens (Symbol, average entry price per share,
+current value in EUR, profit in EUR). Four positions take about 5 minutes once
+per month. The app's **My holdings** page has an editable **Broker statement**
+table for exactly this.
+
 ```csv
 Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR
 EUNL.DE,125.03,281.25,12.00
@@ -197,7 +204,9 @@ AMZN,220.55,150.41,5.20
 ```
 
 `Invested_EUR = Current_Value_EUR - Broker_PnL_EUR` is derived; `Broker_PnL_EUR`
-is broker truth, never price-guessed. Comments after `#` are stripped.
+is broker truth, never price-guessed. Comments after `#` are stripped. Between
+syncs the app shows estimates from known shares and the latest price, labeled
+estimated.
 
 ### Account file (`data/account.yaml`)
 

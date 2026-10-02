@@ -1048,3 +1048,101 @@ conservative with the user's money):
   recorded `sync_date`, so the 35-day reminder still reflects the user's last CSV
   export. `quant doctor` shows the last broker sync date.
 - **Golden backtest**: unmoved.
+
+---
+
+## v10.7.3 Domain Additions ("UI Truth Pass")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **display_name** | `quant/data/names.py`: the ONE resolver (registry `display_name` -> cached yfinance `longName` probe -> symbol). Every user-facing surface calls it. |
+| **TARGET_WEIGHTS_INVESTED** | `quant/config.py`: the ONE per-symbol invested-pool target map. `build_advice`, the allocator, the split reason lines, and the drift computations all read it. |
+| **target_pct** | An optional column in `data/tiers.csv` that overrides a symbol's `TARGET_WEIGHTS_INVESTED` value (a value > 1 is read as a percent). |
+| **Estimated value** | `shares * latest close`, shown when `holdings_meta` is newer than the broker CSV. Labeled "estimated, as of <date>". |
+| **Broker statement** | The four fields the user typed, exactly as the broker reported them at the last sync. The truth for profit and loss. |
+| **Ad-hoc buy** | A purchase recorded before the monthly plan is approved. Flow type `buy`, source `ad-hoc`; no reconciliation deviation line. |
+
+### v10.7.3 rulings
+
+- **One target map (Part 5).** `TARGET_WEIGHTS_INVESTED` is the single source of
+  per-symbol invested-pool targets, seeded `EUNL.DE 0.50, SXRV.DE 0.20, AMZN
+  0.20, 5J50.DE 0.10` and overridable by an optional `target_pct` column in
+  `data/tiers.csv`. The equal-split-within-Fortress logic is removed. The
+  allocator and `build_advice` therefore name the same top-up symbol; the
+  EUNL-vs-5J50 contradiction is resolved.
+- **Estimated-value rule (Part 3).** When `holdings_meta` has a sync or actuals
+  newer than the broker CSV (or the pending-sync marker exists), the Overview
+  Invested plaque, the holdings Value column, the per-asset expanders, and the
+  average entry price read the REVALUED estimate, labeled "estimated, as of
+  <date>". The broker statement table keeps the CSV numbers, labeled "broker
+  statement, as of <sync date>". `enter_actuals` ADDS to the existing estimated
+  position, so a recorded buy moves the visible balance.
+- **Verdict law (Part 4).** The holdings Verdict column renders ONLY from
+  `build_advice` kinds; the legacy status mapping is removed from the render
+  path. A FORTRESS row can only show "Keep, do nothing" or the savings-plan
+  top-up sentence.
+- **One top-up sentence (Part 4.2).** `copy.STEP_TOP_UP` is rendered by both
+  `quant run` and the Overview steps, so the two surfaces can never disagree.
+- **Pre-approval actuals (Part 6.1).** Actuals saved while the month is not
+  approved are ad-hoc buys; the reconciliation deviation line never appears for
+  them.
+- **Golden backtest**: unmoved.
+
+---
+
+## v10.7.4 Domain Additions ("Classification and Decision Test Grid")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Decision grid** | The end-to-end test suite that proves a ticker enters, is classified, flows through scoring and advice, and yields (or suppresses) actionable signals under every realistic portfolio state. |
+| **Advice set** | The set of advice kinds a tier may produce; grid rows assert the SET, not a single action. |
+| **Fee hurdle** | A buy is allowed only when `expected_alpha_bps / 10000 * amount_eur >= fee_eur`. |
+| **Re-arm** | A dismissed alert may reopen only after its underlying condition reads false at least once, then true again. |
+| **Budget conservation** | The allocator's legs sum to the budget exactly; the rounding residual goes to cash. |
+
+### v10.7.4 rulings
+
+- **R1 (numeric rows).** The sizing laws are the contract; the spec's table
+  numbers were illustrative and are corrected. 500 EUR at +6.9 percent drift
+  yields a 30 EUR sell (min of drift and value minus 1, floored to 5-EUR steps,
+  suppressed below 25); a 45 EUR buy rounds to 40. The fee hurdle boundary is
+  inclusive (`>=`).
+- **R2 (FORTRESS far over target).** A FORTRESS holding more than 10 points over
+  target gets `change_savings_plan` with the wording "Consider lowering or
+  pausing the savings-plan leg for <name>; it is X percent of invested vs Y
+  percent target." It never implies selling. Under-target gaps keep the top-up
+  wording.
+- **R3 (ALPHA MEDIUM under target).** Emit an explicit `keep` plus a rejected
+  note ("conviction MEDIUM, needs HIGH for a buy"). Silence is forbidden for any
+  action that was considered. LOW conviction generates no advice.
+- **R4 (buy below 100 EUR).** The untouchable law applies to ACTIVE buys: no buy,
+  rejected note "position below 100 EUR; the 1 EUR fee makes small buys
+  inefficient." Savings-plan legs (fee 0) are exempt.
+- **R5 (SPECULATIVE advisories).** A take-profit advisory at +100 percent and a
+  cap-violation advisory when the bets weight exceeds 2 percent. Both are notes,
+  never forced sells.
+- **R6 (emergency ordering).** At equal liquidity, losers (negative broker PnL)
+  sort before winners. The order stays stable and deterministic.
+- **R7 (sync reminder).** The 35-day reminder appears at most once per 7 days,
+  never on the same day as a successful sync, and lists pending estimated
+  positions by name. The throttle stamp lives in the `meta` table.
+- **R8 (dismissed alerts).** A dismissed alert must not reopen unless re-armed:
+  the underlying condition must read false for at least one full run and then
+  become true again. The `alerts.condition_cleared` column records the re-arm.
+- **R9 (regime override).** In a bear regime, HIGH-conviction ALPHA buys are
+  suppressed; the pipeline emits a single `to_cash` advice plus one rejected note
+  per suppressed buy. Sells and FORTRESS savings-plan advice are unaffected. The
+  regime input exists to override micro signals in adverse macro conditions;
+  allowing HIGH-conviction buys in bear would make the regime decorative and
+  would let the advice pipeline contradict the monthly allocator, which already
+  routes the active pool to cash in bear.
+- **R10 (allocator).** The long base goes to the SINGLE largest-gap FORTRESS
+  holding (ties break alphabetically by symbol); with no FORTRESS holding it goes
+  to one broad ETF. The split sums to the budget exactly (the residual goes to
+  cash). Every leg's reason states the actual gap in percentage points. The bets
+  pool is carved out of the active pool.
+- **Golden backtest**: unmoved.

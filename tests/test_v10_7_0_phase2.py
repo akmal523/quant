@@ -102,6 +102,8 @@ def test_revalue_holdings_uses_latest_close():
 def test_sync_reminder_after_threshold():
     conn = get_connection()
     conn.execute("DELETE FROM holdings_meta")
+    # v10.7.4 (R7): clear the 7-day throttle stamp so the reminder can fire.
+    conn.execute("DELETE FROM meta")
     df = pd.DataFrame([{"Symbol": "EUNL.DE", "Current_Value_EUR": 1000.0,
                         "Invested_EUR": 900.0}])
     valuation.sync_holdings_meta(conn, df, {"EUNL.DE": 100.0}, date(2026, 1, 1))

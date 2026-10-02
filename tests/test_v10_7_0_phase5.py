@@ -83,14 +83,18 @@ def test_actuals_missing_after_seven_days():
 
 
 def test_fortress_gap_suggestion_only_over_ten_points():
+    # v10.7.3 (Part 4.2): the FORTRESS top-up now comes from the ONE advice
+    # pipeline (change_savings_plan), not a separate steps source.
+    from quant.engine.advice import build_advice
+
     holdings = [{"symbol": "EUNL.DE", "name": "MSCI World", "tier": "FORTRESS",
-                 "current_weight": 0.34, "target_weight": 0.50}]
-    built = steps.build_steps(date(2026, 10, 1), holdings=holdings)
-    assert any(s["source"] == "fortress_gap" for s in built)
+                 "current_weight": 0.34, "target_weight": 0.50, "value_eur": 1000.0}]
+    advice, _ = build_advice(holdings=holdings, tiers={"EUNL.DE": "FORTRESS"})
+    assert any(a["kind"] == "change_savings_plan" for a in advice)
     small = [{"symbol": "EUNL.DE", "name": "MSCI World", "tier": "FORTRESS",
-              "current_weight": 0.45, "target_weight": 0.50}]
-    assert not any(s["source"] == "fortress_gap"
-                   for s in steps.build_steps(date(2026, 10, 1), holdings=small))
+              "current_weight": 0.45, "target_weight": 0.50, "value_eur": 1000.0}]
+    advice2, _ = build_advice(holdings=small, tiers={"EUNL.DE": "FORTRESS"})
+    assert not any(a["kind"] == "change_savings_plan" for a in advice2)
 
 
 def test_rejected_actions_explain_small_positions():

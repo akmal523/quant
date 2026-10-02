@@ -108,8 +108,9 @@ def build_data(run_dir: str) -> dict:
     regime = metrics.get("regime") or {}
     rstate = regime.get("state", "insufficient_history")
     if rstate == "estimated":
-        trend = ui_copy.MARKET_TREND.format(label=regime.get("label"),
-                                            confidence=regime.get("confidence"))
+        # v10.7.3 (Part 1.2): the regime line names both parts explicitly.
+        trend = ui_copy.MARKET_REGIME_LINE.format(label=regime.get("label"),
+                                                  confidence=regime.get("confidence"))
     elif rstate == "failed":
         trend = ui_copy.MARKET_TREND_FAILED
     else:

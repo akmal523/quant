@@ -54,6 +54,8 @@ from quant.ui.search import discovery_candidates, label_for, load_index, search
 
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 _COLUMN_CONFIG = {
+    # v10.7.3 (Part 2.2): the broker statement shows the company name (read-only).
+    "Name": st.column_config.TextColumn("Name"),
     "Symbol": st.column_config.TextColumn(C.COLUMN_HEADERS["Symbol"]),
     "Avg_Entry_Price": st.column_config.NumberColumn(
         C.COLUMN_HEADERS["Avg_Entry_Price"], format="%.2f"),
@@ -82,6 +84,16 @@ def load_portfolio() -> pd.DataFrame:
         return _lp(paths.DATA_PORTFOLIO)
     except Exception:  # noqa: BLE001
         return pd.DataFrame()
+
+
+def _display_name(symbol: str) -> str:
+    """Company name for a symbol (v10.7.3, Part 2): registry -> cache -> symbol."""
+    try:
+        from quant.data.names import display_name
+
+        return display_name(symbol)
+    except Exception:  # noqa: BLE001
+        return str(symbol)
 
 
 def latest_bar_date() -> str:
@@ -250,6 +262,8 @@ def render_emergency_liquidity(portfolio: pd.DataFrame | None) -> None:
     st.subheader(C.SEC_EMERGENCY)
     amount = st.number_input(C.EMERGENCY_PROMPT, min_value=0.0, value=0.0, step=100.0)
     if amount <= 0:
+        # v10.7.3 (Part 1.11): a zero amount is a hint, not an empty block.
+        st.caption(C.EMERGENCY_HINT)
         return
     if portfolio is None or portfolio.empty or "Tier" not in portfolio.columns:
         st.info(C.EMERGENCY_NONE)
@@ -272,7 +286,7 @@ def render_emergency_liquidity(portfolio: pd.DataFrame | None) -> None:
         else:
             note = "no gain or loss"
         st.write(C.EMERGENCY_LINE.format(
-            symbol=h["symbol"], value=f"{h['value_eur']:.0f}",
+            symbol=_display_name(h["symbol"]), value=f"{h['value_eur']:.0f}",
             tax=f"{tax:.2f}", note=note))
 
 
@@ -290,7 +304,7 @@ def render_tax_loss_alerts(portfolio: pd.DataFrame | None) -> None:
     st.write(C.TAX_LOSS_HEADER)
     for _, r in losers.iterrows():
         st.write(C.TAX_LOSS_LINE.format(
-            name=r.get("Name") or r.get("Symbol"),
+            name=_display_name(str(r.get("Symbol"))),
             pnl=f"{float(r.get('Broker_PnL_EUR', 0)):.2f}"))
 
 
@@ -436,8 +450,18 @@ def _render_overview_money(portfolio, account) -> None:
     st.subheader(C.SEC_YOUR_MONEY)
     invested = 0.0
     pnl = 0.0
+    estimated = False
+    est_as_of = None
     if portfolio is not None and not portfolio.empty:
-        if "Current_Value_EUR" in portfolio.columns:
+        # v10.7.3 (Part 3.1): the plaque reads the revalued estimate when
+        # holdings_meta is newer than the broker CSV.
+        disp = _holding_display_values(portfolio)
+        if disp:
+            invested = sum(v["value"] for v in disp.values())
+            estimated = any(v["estimated"] for v in disp.values())
+            est_as_of = next((v["as_of"] for v in disp.values()
+                              if v["estimated"] and v["as_of"]), None)
+        elif "Current_Value_EUR" in portfolio.columns:
             invested = float(portfolio["Current_Value_EUR"].sum())
         if "Broker_PnL_EUR" in portfolio.columns:
             pnl = float(portfolio["Broker_PnL_EUR"].sum())
@@ -445,13 +469,26 @@ def _render_overview_money(portfolio, account) -> None:
     pct = (pnl / cost * 100) if cost > 0 else 0.0
     cash = account.cash_eur if account.cash_is_set else 0.0
     cols = st.columns(2)
-    cols[0].metric("Invested", C.fmt_eur(invested))
+    # v10.7.3 (Part 1.12): big plaques show whole EUR; cents live in the caption.
+    cols[0].metric("Invested", C.fmt_eur_whole(invested))
     cols[0].caption(C.INVESTED_LINE.format(
         amount=f"{invested:.0f}", pnl=f"{pnl:+.2f}", pct=f"{pct:+.1f}",
-        date=C.fmt_date(_date.today())))
-    cols[1].metric("Operational cash", C.fmt_eur(cash))
+        date=C.fmt_date(est_as_of or _date.today())))
+    if estimated:
+        cols[0].caption(C.ESTIMATED_LABEL.format(
+            date=C.fmt_date(est_as_of or _date.today())))
+    cols[1].metric("Operational cash", C.fmt_eur_whole(cash))
     cols[1].caption(C.OPERATIONAL_CASH_LINE.format(
         amount=f"{cash:.0f}", date=C.fmt_date(_date.today()), apy="2.5"))
+    # v10.7.3 (Part 4.4): the income line.
+    dividends, cash_yield = _income_12m(cash)
+    if dividends > 0:
+        st.caption(C.INCOME_LINE.format(
+            dividends=f"{dividends:.0f}", cash_yield=f"{cash_yield:.0f}"))
+    else:
+        st.caption(C.INCOME_NONE)
+    # v10.7.3 (Part 8.2): link the provenance section.
+    st.caption(C.WHERE_NUMBERS)
 
 
 def _render_overview_steps(holdings) -> None:
@@ -469,14 +506,6 @@ def _render_overview_steps(holdings) -> None:
     except Exception:  # noqa: BLE001
         open_now, plan = [], None
     built = steps_mod.build_steps(_date.today(), open_now, plan, holdings)
-    if built:
-        for i, step in enumerate(built, 1):
-            st.write(f"{i}. {step['what']}")
-            if step.get("amount_eur"):
-                st.caption(f"{C.fmt_eur(step['amount_eur'])}. {step['why']}")
-    else:
-        st.write(C.NOTHING_TO_DO_WEEK)
-    st.write(C.SEC_NOT_THIS_WEEK)
     # v10.7.1: the "Not this week" block renders the advice pipeline's rejected
     # notes (the system showing its work), not a second computation.
     try:
@@ -485,12 +514,30 @@ def _render_overview_steps(holdings) -> None:
         _advice, rejected = build_advice(
             _monthly_holdings(), open_alerts=open_now, plans=plan)
     except Exception:  # noqa: BLE001
-        rejected = []
+        _advice, rejected = [], []
+    # v10.7.3 (Part 4.2): change_savings_plan and buy advice become steps, so the
+    # Overview names the same asset as quant run for the same reason.
+    advice_steps = [a for a in _advice
+                    if a.get("kind") in ("change_savings_plan", "buy")]
+    if built or advice_steps:
+        i = 0
+        for step in built:
+            i += 1
+            st.write(f"{i}. {step['what']}")
+            if step.get("amount_eur"):
+                st.caption(f"{C.fmt_eur(step['amount_eur'])}. {step['why']}")
+        for a in advice_steps:
+            i += 1
+            st.write(f"{i}. {a['why']}")
+    else:
+        st.write(C.NOTHING_TO_DO_WEEK)
+    st.write(C.SEC_NOT_THIS_WEEK)
     if rejected:
         for note in rejected:
             st.caption(f"{note['symbol']}: {note['plain_reason']}")
     else:
-        st.caption(C.NOTHING_TO_DO_WEEK)
+        # v10.7.3 (Part 1.9): never repeat the first block's phrase.
+        st.caption(C.NOTHING_REJECTED)
 
 
 def _render_overview_savings(plan) -> None:
@@ -500,7 +547,14 @@ def _render_overview_savings(plan) -> None:
         st.write(f"Budget: {plan['budget_eur']:.0f} EUR per month. This month: "
                  f"approved on {C.fmt_date(plan.get('approved_date'))}.")
     else:
-        st.write("No plan approved yet for this month.")
+        # v10.7.3 (Part 4.3): never a bare dead end. Show the standing budget and
+        # a button that navigates to the Monthly decision.
+        st.write(C.SAVINGS_NO_PLAN)
+        standing = _standing_budget()
+        if standing:
+            st.caption(C.SAVINGS_STANDING_BUDGET.format(amount=f"{standing:.0f}"))
+        if st.button(C.BTN_SET_BUDGET, key="overview_set_budget"):
+            st.switch_page("pages/monthly.py")
 
 
 def _render_market_expander(has_review: bool) -> None:
@@ -514,8 +568,9 @@ def _render_market_expander(has_review: bool) -> None:
         if has_review:
             reg = read_regime()
             if reg.get("state") == "estimated":
-                st.write(C.MARKET_TREND.format(label=reg.get("label"),
-                                               confidence=reg.get("confidence")))
+                # v10.7.3 (Part 1.2): the regime line lives ONLY here.
+                st.write(C.MARKET_REGIME_LINE.format(
+                    label=reg.get("label"), confidence=reg.get("confidence")))
             elif reg.get("state") == "failed":
                 st.write(C.MARKET_TREND_FAILED)
             else:
@@ -564,14 +619,7 @@ def page_today() -> None:
             st.write(C.HEADER_REVIEW.format(date=bar, prepared=prepared))
         else:
             st.write(C.HEADER_REVIEW_PREPARED.format(prepared=prepared))
-        reg = read_regime()
-        if reg.get("state") == "estimated":
-            st.write(C.MARKET_TREND.format(label=reg.get("label"),
-                                           confidence=reg.get("confidence")))
-        elif reg.get("state") == "failed":
-            st.write(C.MARKET_TREND_FAILED)
-        else:
-            st.write(C.MARKET_TREND_INSUFFICIENT)
+        # v10.7.3 (Part 1.2): the market line moved into the Market expander only.
 
     # R8: markets-closed freshness line (header-level, independent of review).
     _closed = _markets_closed_line()
@@ -608,7 +656,8 @@ def page_today() -> None:
     if not portfolio.empty:
         import plotly.graph_objects as go
         values = list(portfolio["Amount_EUR"])
-        labels = list(portfolio["Symbol"])
+        # v10.7.3 (Part 2.2): the donut legend uses company names.
+        labels = [_display_name(s) for s in portfolio["Symbol"].astype(str)]
         total = sum(values) or 1.0
         pcts = [v / total * 100 for v in values]
         legend_labels = [f"{lbl} {p:.0f}%" for lbl, p in zip(labels, pcts)]
@@ -678,6 +727,138 @@ def _latest_close(symbol: str) -> float | None:
         return None
 
 
+def _standing_budget() -> float | None:
+    """The most recent approved monthly budget, or None (v10.7.3, Part 4.3)."""
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            row = conn.execute(
+                "SELECT budget_eur FROM monthly_plans ORDER BY month DESC LIMIT 1"
+            ).fetchone()
+        return float(row[0]) if row and row[0] is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _income_12m(cash: float) -> tuple[float, float]:
+    """Dividends from flows (last 12 months) and the cash yield (Part 4.4)."""
+    dividends = 0.0
+    try:
+        from datetime import timedelta
+
+        from quant.data.database import read_only_connection
+        from quant.engine import flows
+
+        start = _date.today() - timedelta(days=365)
+        with read_only_connection() as conn:
+            for f in flows.load_flows(conn, start=start):
+                if str(f.get("type")) == "dividend":
+                    dividends += float(f.get("amount_eur", 0) or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return dividends, float(cash) * 0.025
+
+
+def _last_sync_date():
+    """The newest holdings_meta sync_date, or None (v10.7.3, Part 3.2)."""
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
+        return row[0] if row else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _holdings_meta_row(symbol: str):
+    """(shares, sync_date, invested_at_sync) for a symbol, or None."""
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            row = conn.execute(
+                "SELECT shares, sync_date, invested_at_sync FROM holdings_meta "
+                "WHERE symbol = ?", [symbol]).fetchone()
+        return row
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _estimate_is_fresher() -> bool:
+    """True when holdings_meta is newer than the broker CSV (v10.7.3, Part 3.1).
+
+    A pending-sync marker (actuals or a quick event recorded since the last CSV
+    export) always means the estimate is fresher. Otherwise the newest
+    holdings_meta sync_date is compared to the CSV file's modification date.
+    """
+    try:
+        from quant.engine import plans
+
+        if plans.is_pending_sync():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import os
+
+        from quant.data.database import read_only_connection
+
+        csv_mtime = os.path.getmtime(paths.DATA_PORTFOLIO)
+        with read_only_connection() as conn:
+            row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
+        if not row or row[0] is None:
+            return False
+        last = row[0]
+        if isinstance(last, str):
+            last = _date.fromisoformat(last[:10])
+        return last.toordinal() > _date.fromtimestamp(csv_mtime).toordinal()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _holding_display_values(portfolio) -> dict:
+    """Per-symbol display value/entry, estimated when holdings_meta is fresher.
+
+    v10.7.3 (Part 3.1/3.2): value = shares * latest close; entry = invested /
+    shares. Falls back to the broker CSV numbers when the estimate is not
+    fresher. Returns {symbol: {value, entry, estimated, as_of}}.
+    """
+    out: dict = {}
+    fresher = _estimate_is_fresher()
+    meta: dict = {}
+    if fresher:
+        try:
+            from quant.data.database import read_only_connection
+
+            with read_only_connection() as conn:
+                for sym, shares, sync_date, invested in conn.execute(
+                        "SELECT symbol, shares, sync_date, invested_at_sync "
+                        "FROM holdings_meta").fetchall():
+                    meta[str(sym)] = (float(shares or 0), sync_date,
+                                      float(invested or 0))
+        except Exception:  # noqa: BLE001
+            meta = {}
+    if portfolio is not None and not portfolio.empty:
+        for _, r in portfolio.iterrows():
+            sym = str(r["Symbol"])
+            if fresher and sym in meta:
+                shares, sync_date, invested = meta[sym]
+                price = _latest_close(sym)
+                value = (shares * price) if price is not None else \
+                    float(r.get("Current_Value_EUR", 0) or 0)
+                entry = (invested / shares) if shares else \
+                    float(r.get("Avg_Entry_Price", 0) or 0)
+                out[sym] = {"value": value, "entry": entry,
+                            "estimated": True, "as_of": sync_date}
+            else:
+                out[sym] = {"value": float(r.get("Current_Value_EUR", 0) or 0),
+                            "entry": float(r.get("Avg_Entry_Price", 0) or 0),
+                            "estimated": False, "as_of": None}
+    return out
+
+
 def _render_asset_chart(symbol: str) -> None:
     """Per-asset line chart: normalized to 100, 1M/3M/1Y/Max, no fill."""
     import plotly.graph_objects as go
@@ -707,26 +888,112 @@ def _render_asset_chart(symbol: str) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
+def _verdict_word(a) -> str:
+    """The Verdict cell from a build_advice record (v10.7.3, Part 4.1).
+
+    The legacy status mapping is removed from the render path: a FORTRESS row
+    can only show "Keep, do nothing" or the savings-plan top-up sentence.
+    """
+    if not a:
+        return C.STATUS_NOT_REVIEWED
+    kind = a.get("kind")
+    if kind == "keep":
+        return C.ADVICE_KEEP
+    if kind == "change_savings_plan":
+        return a.get("why") or C.ADVICE_TOP_UP
+    if kind == "sell_part":
+        amt = a.get("eur")
+        return (C.STATUS_SELL_PART_AMOUNT.format(amount=f"{amt:.0f}")
+                if amt else C.ADVICE_SELL_PART)
+    if kind == "buy":
+        amt = a.get("eur")
+        return f"Buy (about {amt:.0f} EUR)" if amt else C.ADVICE_BUY
+    if kind == "to_cash":
+        return C.ADVICE_TO_CASH
+    return C.ADVICE_KEEP
+
+
+def _estimated_only_positions(portfolio) -> dict:
+    """holdings_meta rows not in the broker CSV (v10.7.3, Part 3.4).
+
+    A buy recorded for a symbol not yet held creates an estimated position that
+    appears in the verdicts table with the estimated label.
+    """
+    out: dict = {}
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            rows = conn.execute(
+                "SELECT symbol, shares, sync_date FROM holdings_meta").fetchall()
+    except Exception:  # noqa: BLE001
+        return out
+    csv_syms = set(portfolio["Symbol"].astype(str)) if (
+        portfolio is not None and not portfolio.empty) else set()
+    for sym, shares, sync_date in rows:
+        s = str(sym)
+        if s in csv_syms:
+            continue
+        price = _latest_close(s)
+        if price is None:
+            continue
+        out[s] = {"value": float(shares) * float(price), "as_of": sync_date}
+    return out
+
+
 def _render_holdings_table(portfolio, holdings) -> None:
-    """Block 2: the holdings table (no per-share columns, B7)."""
-    st.subheader(C.PAGE_HOLDINGS)
-    by_sym = {h["symbol"]: h for h in holdings}
+    """Block 2: the holdings table (no per-share columns, B7).
+
+    v10.7.3 (Part 1.6): the page already has ONE "My holdings" heading; this
+    table must not repeat it. v10.7.3 (Part 3.1): the Value column reads the
+    revalued estimate when holdings_meta is newer than the broker CSV.
+    """
+    # v10.7.3 (Part 4.1): the Verdict column renders ONLY from build_advice.
+    from quant.engine.advice import build_advice
+    from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+
+    try:
+        tiers_df, _ = load_tiers_safe()
+        tmap = tier_map(tiers_df)
+    except Exception:  # noqa: BLE001
+        tmap = {}
+    advice, _rejected = build_advice(holdings=_monthly_holdings(), tiers=tmap)
+    verdict_by_sym = {a["symbol"]: a for a in advice if a.get("symbol")}
+    disp = _holding_display_values(portfolio)
     rows = []
+    estimated_any = False
     if portfolio is not None and not portfolio.empty:
         for _, r in portfolio.iterrows():
             sym = str(r["Symbol"])
-            h = by_sym.get(sym, {})
             scores = read_scores(sym)
+            d = disp.get(sym, {})
+            if d.get("estimated"):
+                estimated_any = True
             rows.append({
-                "Name": label_for(r.get("Name") or sym, sym),
-                "Value (EUR)": C.fmt_eur(r.get("Current_Value_EUR")),
+                "Name": _display_name(sym),
+                "Value (EUR)": C.fmt_eur(d.get("value", r.get("Current_Value_EUR"))),
                 "Profit (EUR)": C.fmt_eur(r.get("Broker_PnL_EUR")),
                 "Structure": scores.get("structural_grade") or "",
                 "Tactics": scores.get("tactical_grade") or "",
-                "Verdict": h.get("status", C.STATUS_NOT_REVIEWED),
+                "Verdict": _verdict_word(verdict_by_sym.get(sym)),
             })
+    # v10.7.3 (Part 3.4): a buy for an unheld symbol appears as an estimated
+    # position with a pending-sync marker.
+    for sym, d in _estimated_only_positions(portfolio).items():
+        rows.append({
+            "Name": _display_name(sym),
+            "Value (EUR)": C.fmt_eur(d["value"]),
+            "Profit (EUR)": "",
+            "Structure": "", "Tactics": "",
+            "Verdict": C.ESTIMATED_PENDING,
+        })
+        estimated_any = True
     if rows:
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        # v10.7.3 (Part 1.7): one-line scores caption under the verdicts table.
+        st.caption(C.SCORES_CAPTION)
+        if estimated_any:
+            st.caption(C.ESTIMATED_LABEL.format(date=C.fmt_date(_date.today())))
 
 
 def _render_holding_expanders(portfolio, holdings) -> None:
@@ -734,17 +1001,22 @@ def _render_holding_expanders(portfolio, holdings) -> None:
     if portfolio is None or portfolio.empty:
         return
     by_sym = {h["symbol"]: h for h in holdings}
+    disp = _holding_display_values(portfolio)
     for _, r in portfolio.iterrows():
         sym = str(r["Symbol"])
-        name = label_for(r.get("Name") or sym, sym)
+        # v10.7.3 (Part 1.8 / 2.2): expanders are labeled with company names.
+        name = _display_name(sym)
         with st.expander(name):
             _render_asset_chart(sym)
-            entry = float(r.get("Avg_Entry_Price", 0) or 0)
+            d = disp.get(sym, {})
+            # v10.7.3 (Part 3.2): entry price is estimated and live.
+            entry = float(d.get("entry", r.get("Avg_Entry_Price", 0) or 0))
             current = _latest_close(sym)
             st.write(C.ENTRY_PRICE_LINE.format(
                 entry=f"{entry:.2f}",
                 current=f"{current:.2f}" if current is not None else "not available yet",
-                estimated=C.ESTIMATED_LABEL.format(date=C.fmt_date(_date.today()))))
+                estimated=C.ESTIMATED_LABEL.format(
+                    date=C.fmt_date(d.get("as_of") or _date.today()))))
             try:
                 from quant.data.database import read_only_connection
 
@@ -803,43 +1075,40 @@ def _render_split_lines(portfolio) -> None:
 def _render_quick_events(portfolio) -> None:
     """Block 7: record a buy, sell, or dividend in five seconds."""
     st.subheader(C.SEC_QUICK_EVENTS)
-    symbols = list(portfolio["Symbol"].astype(str)) if (
-        portfolio is not None and not portfolio.empty) else []
-    if not symbols:
-        st.caption(C.EMPTY_TIER)
-        return
-    cols = st.columns(4)
+    cols = st.columns(3)
     kind = cols[0].selectbox("Type", ["buy", "sell", "dividend"], key="qe_type")
-    symbol = cols[1].selectbox("Symbol", symbols, key="qe_symbol")
-    amount = cols[2].number_input("Amount (EUR)", min_value=0.0, value=0.0,
+    amount = cols[1].number_input("Amount (EUR)", min_value=0.0, value=0.0,
                                   step=10.0, key="qe_amount")
-    when = cols[3].date_input("Date", value=_date.today(), key="qe_date")
+    when = cols[2].date_input("Date", value=_date.today(), key="qe_date")
+    # v10.7.3 (Part 6.2): the same type-ahead autocomplete as the monthly form.
+    symbol = _symbol_autocomplete("Symbol", "qe_symbol")
     if st.button("Record", key="qe_save"):
-        try:
-            from quant.data.database import connect_with_retry
-            from quant.engine import flows
-
-            conn = connect_with_retry()
+        if not symbol:
+            st.warning("Choose a symbol first.")
+        else:
             try:
-                flows.record_flow(conn, when, kind, amount, symbol)
-            finally:
-                conn.close()
-            st.success(C.QUICK_EVENT_SAVED.format(
-                type=kind, amount=f"{amount:.0f}", name=symbol,
-                date=C.fmt_date(when)))
-        except Exception:  # noqa: BLE001
-            st.warning("Could not record the event. Try again.")
+                from quant.data.database import connect_with_retry
+                from quant.engine import flows
+
+                conn = connect_with_retry()
+                try:
+                    flows.record_flow(conn, when, kind, amount, symbol)
+                finally:
+                    conn.close()
+                st.success(C.QUICK_EVENT_SAVED.format(
+                    type=kind, amount=f"{amount:.0f}", name=_display_name(symbol),
+                    date=C.fmt_date(when)))
+            except Exception:  # noqa: BLE001
+                st.warning("Could not record the event. Try again.")
     st.caption(C.QUICK_EVENT_CASH_NOTE)
 
 
-def page_portfolio() -> None:
-    """Render the My holdings page (v10.7.1, Section 10.2)."""
-    st.title(C.PAGE_PORTFOLIO)
-    render_onboarding_wizard()
-    st.write(C.HELP_BROKER_VALUES)
+def _render_broker_editor(portfolio) -> pd.DataFrame:
+    """The editable broker statement table + the add-row (v10.7.3, Part 1.6).
 
-    # Autocomplete add-row (A5): the input says what it does; selecting a match
-    # appends an empty-value row and shows one helper line. No silent add.
+    The autocomplete input says what it does; selecting a match appends an
+    empty-value row and shows one helper line. No silent add.
+    """
     query = st.text_input(
         C.PLACEHOLDER_ADD_HOLDING, key="add_q",
         placeholder=C.PLACEHOLDER_ADD_HOLDING, label_visibility="collapsed",
@@ -877,17 +1146,55 @@ def page_portfolio() -> None:
         else:
             st.caption(C.EMPTY_NO_MATCHES.format(query=query))
 
-    # Holdings editor.
-    portfolio = load_portfolio()
     base = portfolio[_EDIT_COLS] if not portfolio.empty and \
         set(_EDIT_COLS).issubset(portfolio.columns) else pd.DataFrame(columns=_EDIT_COLS)
     extra = st.session_state.get("_extra", [])
     if extra:
         base = pd.concat([base, pd.DataFrame(extra)], ignore_index=True)
-    edited = st.data_editor(
+    # v10.7.3 (Part 2.2): show the company name next to the symbol (read-only).
+    base = base.copy()
+    base.insert(0, "Name", [_display_name(s) for s in base["Symbol"].astype(str)])
+    return st.data_editor(
         base, num_rows="dynamic", column_config=_COLUMN_CONFIG,
-        width="stretch", key="holdings",
+        width="stretch", key="holdings", disabled=["Name"],
     )
+
+
+def _symbol_autocomplete(label: str, key: str) -> str | None:
+    """Type-ahead over registry + universe; returns the chosen symbol or None.
+
+    v10.7.3 (Part 6.2): matches a name, symbol, or ISIN. Used by the monthly
+    "Add another symbol" row and the quick-events form.
+    """
+    query = st.text_input(label, key=f"{key}_q", placeholder=label)
+    if not query:
+        return None
+    results = search(load_index(), query, 10)
+    disc = discovery_candidates(query, 10)
+    sym_by_label: dict[str, str] = {}
+    labels: list[str] = []
+    for r in results:
+        sym_by_label[r["label"]] = r["symbol"]
+        labels.append(r["label"])
+    for r in disc:
+        lbl = C.NOT_TRACKED_LABEL.format(label=r["label"])
+        if lbl not in sym_by_label:
+            sym_by_label[lbl] = r["symbol"]
+            labels.append(lbl)
+    if not labels:
+        st.caption(C.EMPTY_NO_MATCHES.format(query=query))
+        return None
+    choice = st.selectbox("Matches", labels, key=f"{key}_choice")
+    return sym_by_label.get(choice)
+
+
+def page_portfolio() -> None:
+    """Render the My holdings page (v10.7.1, Section 10.2)."""
+    st.title(C.PAGE_PORTFOLIO)
+    render_onboarding_wizard()
+    st.write(C.HELP_BROKER_VALUES)
+
+    portfolio = load_portfolio()
 
     # v10.7.1 My holdings blocks (Section 10.2).
     from quant.portfolio.portfolio import load_portfolio_with_tiers
@@ -899,6 +1206,17 @@ def page_portfolio() -> None:
     # Block 2 + 3: the table and the per-holding expanders.
     _render_holdings_table(portfolio, holdings)
     _render_holding_expanders(portfolio, holdings)
+
+    # v10.7.3 (Part 1.6): the editable broker table lives in an expander AFTER
+    # the verdicts table, with an honest caption.
+    with st.expander(C.SEC_BROKER_STATEMENT):
+        st.caption(C.BROKER_STATEMENT_CAPTION)
+        # v10.7.3 (Part 3.2): the broker statement keeps the CSV numbers, labeled
+        # with the last sync date.
+        _sync = _last_sync_date()
+        if _sync:
+            st.caption(C.BROKER_STATEMENT_AS_OF.format(date=C.fmt_date(_sync)))
+        edited = _render_broker_editor(portfolio)
 
     # Block 4: how your money is split.
     _render_split_lines(portfolio)
@@ -939,7 +1257,9 @@ def page_portfolio() -> None:
     universe = set(registry["symbol"].astype(str)) if not registry.empty else set()
 
     def _save_inputs() -> None:
-        cleaned, warnings, errors = validate_positions(edited, universe)
+        # v10.7.3 (Part 2.2): the read-only Name column is not part of the CSV.
+        cleaned, warnings, errors = validate_positions(
+            edited.drop(columns=["Name"], errors="ignore"), universe)
         if errors:
             for e in errors:
                 st.error(e)
@@ -952,6 +1272,8 @@ def page_portfolio() -> None:
 
     _run_operation(C.BTN_SAVE_AND_REVIEW, C.BTN_REVIEWING, runner.SAVE_AND_REVIEW,
                    "save_review", primary=True, on_click=_save_inputs)
+    # v10.7.3 (Part 1.10): each button states what it does.
+    st.caption(C.BTN_SAVE_AND_REVIEW_HELP)
     # Open Today only after a successful review; advice is read from the run
     # artifact on Today, never from session state (fixes the dead-button symptom).
     if st.session_state.get("_review_ok"):
@@ -960,13 +1282,14 @@ def page_portfolio() -> None:
     if st.button(C.BTN_SAVE_ONLY, width="stretch"):
         _save_inputs()
         st.success(C.SAVE_ONLY_DONE)
+    st.caption(C.BTN_SAVE_ONLY_HELP)
     unknown = st.session_state.get("_saved_unknown")
     if unknown:
         tpl = C.VALIDATION_UNIVERSE_ONE if unknown == 1 else C.VALIDATION_UNIVERSE
         st.caption(tpl.format(n=unknown))
 
-    # Broker registry (read-only, collapsed).
-    with st.expander("Broker registry"):
+    # Broker reference (read-only, collapsed). v10.7.3 (Part 1.4): renamed.
+    with st.expander(C.SEC_BROKER_REFERENCE):
         broker = pd.read_csv(paths.DATA_BROKER_REGISTRY) if os.path.exists(
             paths.DATA_BROKER_REGISTRY) else pd.DataFrame()
         # isin_source is internal provenance; never shown (decision memo 1.4).
@@ -1081,21 +1404,105 @@ def _candidate_list() -> dict:
         sc = read_scores(sym)
         struct = sc.get("structural_grade")
         tact = sc.get("tactical_grade")
-        name = label_for(sym, sym)
+        conv = sc.get("active_score")
+        name = _display_name(sym)
         if struct is not None and float(struct) >= SPARPLAN_STRUCT_MIN:
-            out["long"].append({"symbol": sym, "name": name, "structure": struct})
+            out["long"].append({"symbol": sym, "name": name, "structure": struct,
+                                "conviction": conv, "reason": C.CAND_LONG_REASON})
         elif tact is not None and float(tact) >= ACTIVE_TACT_MIN:
             out["active"].append({"symbol": sym, "name": name,
-                                  "structure": struct, "tactics": tact})
+                                  "structure": struct, "tactics": tact,
+                                  "conviction": conv, "reason": C.CAND_ACTIVE_REASON})
     return out
+
+
+def _funnel_counts() -> dict:
+    """Funnel transparency counts (v10.7.3, Part 2.5). Never raises."""
+    out = {"entered": 0, "survived": 0}
+    try:
+        df = q("SELECT COUNT(*) AS n FROM universe_master")
+        out["entered"] = int(df["n"].iloc[0]) if not df.empty else 0
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        df = q("SELECT COUNT(*) AS n FROM funnel_survivors")
+        out["survived"] = int(df["n"].iloc[0]) if not df.empty else 0
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _near_misses(limit: int = 5) -> list[dict]:
+    """Top survivors below the conviction bar (v10.7.3, Part 2.5)."""
+    from quant.config import ACTIVE_TACT_MIN, SPARPLAN_STRUCT_MIN
+
+    out: list[dict] = []
+    try:
+        surv = q("SELECT symbol FROM funnel_survivors ORDER BY score DESC LIMIT 30")
+    except Exception:  # noqa: BLE001
+        return out
+    if surv is None or surv.empty:
+        return out
+    for sym in surv["symbol"].astype(str):
+        sc = read_scores(sym)
+        struct = sc.get("structural_grade")
+        tact = sc.get("tactical_grade")
+        s = float(struct) if struct is not None else None
+        t = float(tact) if tact is not None else None
+        if s is not None and s >= SPARPLAN_STRUCT_MIN:
+            continue
+        if t is not None and t >= ACTIVE_TACT_MIN:
+            continue
+        if t is not None:
+            detail = C.FUNNEL_NEAR_MISS_TACTICS.format(score=t, needs=ACTIVE_TACT_MIN)
+        elif s is not None:
+            detail = C.FUNNEL_NEAR_MISS_STRUCTURE.format(score=s, needs=SPARPLAN_STRUCT_MIN)
+        else:
+            detail = "no scores yet"
+        out.append({"symbol": sym, "name": _display_name(sym), "detail": detail})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _render_candidate_card(c: dict, section: str, active_used: float,
+                           bets_used: float, total: float) -> None:
+    """One actionable candidate card (v10.7.3, Part 2.4). No dead text cards."""
+    from quant.config import ACTIVE_MAX, BETS_MAX
+
+    st.write(f"{c['name']} ({c['symbol']})")
+    with st.expander(C.CAND_VIEW_ANALYSIS):
+        if c.get("structure") is not None:
+            st.write(C.CAND_ANALYSIS_STRUCTURE.format(score=float(c["structure"])))
+        if c.get("tactics") is not None:
+            st.write(C.CAND_ANALYSIS_TACTICS.format(score=float(c["tactics"])))
+        conv = c.get("conviction")
+        st.write(C.CAND_ANALYSIS_CONVICTION.format(
+            conviction=f"{float(conv):.0f}" if conv is not None else "not scored"))
+        st.write(C.CAND_ANALYSIS_REASON.format(reason=c.get("reason", "")))
+        if section == "long":
+            st.caption(C.CAND_LONG_REASON)
+        elif section == "active":
+            st.caption(C.CAND_ACTIVE_LIMIT.format(
+                used=f"{active_used / total * 100:.0f}" if total else "0",
+                max=f"{ACTIVE_MAX * 100:.0f}"))
+        else:
+            st.caption(C.CAND_BETS_LIMIT.format(
+                used=f"{bets_used / total * 100:.0f}" if total else "0",
+                max=f"{BETS_MAX * 100:.0f}"))
 
 
 def _render_candidates() -> None:
     """Three grouped candidate sections (v10.7.1, Section 10.4)."""
-    from quant.config import ACTIVE_MAX, BETS_MAX
     from quant.portfolio.tier_manager import load_tiers_safe, tier_map
 
     cands = _candidate_list()
+    counts = _funnel_counts()
+    counts["conviction"] = len(cands["long"]) + len(cands["active"]) + len(cands["bets"])
+    # v10.7.3 (Part 2.5): funnel transparency line above the sections.
+    st.caption(C.FUNNEL_LINE.format(
+        entered=counts["entered"], survived=counts["survived"],
+        conviction=counts["conviction"]))
     try:
         tiers_df, _ = load_tiers_safe()
         tmap = tier_map(tiers_df)
@@ -1118,32 +1525,31 @@ def _render_candidates() -> None:
     st.subheader(C.SEC_CAND_LONG)
     if cands["long"]:
         for c in cands["long"][:3]:
-            st.write(f"{c['name']} ({c['symbol']})")
-            st.caption(f"Structure {float(c['structure']):.0f}. {C.CAND_LONG_REASON}")
+            _render_candidate_card(c, "long", active_used, bets_used, total)
     else:
         st.caption(C.CAND_EMPTY.format(section="long-term"))
 
     st.subheader(C.SEC_CAND_ACTIVE)
     if cands["active"]:
         for c in cands["active"][:3]:
-            st.write(f"{c['name']} ({c['symbol']})")
-            st.caption(f"Structure {float(c['structure'] or 0):.0f}, "
-                       f"tactics {float(c['tactics'] or 0):.0f}. "
-                       + C.CAND_ACTIVE_LIMIT.format(
-                           used=f"{active_used / total * 100:.0f}" if total else "0",
-                           max=f"{ACTIVE_MAX * 100:.0f}"))
+            _render_candidate_card(c, "active", active_used, bets_used, total)
     else:
         st.caption(C.CAND_EMPTY.format(section="active"))
 
     st.subheader(C.SEC_CAND_BETS)
     if cands["bets"]:
         for c in cands["bets"][:3]:
-            st.write(f"{c['name']} ({c['symbol']})")
-            st.caption(C.CAND_BETS_LIMIT.format(
-                used=f"{bets_used / total * 100:.0f}" if total else "0",
-                max=f"{BETS_MAX * 100:.0f}"))
+            _render_candidate_card(c, "bets", active_used, bets_used, total)
     else:
         st.caption(C.CAND_EMPTY.format(section="small bets"))
+
+    # v10.7.3 (Part 2.5): near misses below the conviction bar.
+    misses = _near_misses()
+    if misses:
+        with st.expander(C.FUNNEL_NEAR_MISSES):
+            for m in misses:
+                st.caption(C.FUNNEL_NEAR_MISS_LINE.format(
+                    name=m["name"], symbol=m["symbol"], detail=m["detail"]))
 
 
 def page_explore() -> None:
@@ -1546,7 +1952,13 @@ def _annotation_kwargs(text: str) -> dict:
 
 
 def _render_value_chart(history, holdings) -> None:
-    """Today value chart: range selector, baseline, annotation, Value|Growth."""
+    """Today value chart: range selector, baseline, annotation, Value|Growth.
+
+    v10.7.3 (Part 7): default Value; full width; fixed 320 px; portfolio line
+    only, no fill; dotted baseline at period start; axis not from zero; the
+    benchmark checkbox adds exactly ONE line; Growth is an explicit opt-in and
+    per-asset growth lines are removed (they live in position expanders).
+    """
     import plotly.graph_objects as go
 
     if history is None or len(history) < 3:
@@ -1561,9 +1973,9 @@ def _render_value_chart(history, holdings) -> None:
     if len(df) < 2:
         st.info(C.CHART_BUILDING)
         return
-    mode = st.segmented_control(C.LABEL_VIEW, [C.VALUE, C.GROWTH],
+    mode = st.segmented_control(C.LABEL_VIEW, [C.VALUE, C.GROWTH_VIEW],
                                 default=C.VALUE, key="val_mode") or C.VALUE
-    growth = mode == C.GROWTH
+    growth = mode == C.GROWTH_VIEW
 
     fig = go.Figure()
     port = _rebase(df["value_eur"]) if growth else df["value_eur"]
@@ -1572,33 +1984,26 @@ def _render_value_chart(history, holdings) -> None:
         x=df["review_ts"], y=port, mode="lines", name="Portfolio",
         line=dict(width=2, color="#1F3B73"), fill=None))
 
-    palette = ["#3B5C99", "#5B83BF", "#8FA9CF"]
-    if growth:
-        shown = [h for h in (holdings or []) if not h.get("blocked")][:3]
-        for i, h in enumerate(shown):
-            mh = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
-                   "ORDER BY Date ASC", [h["symbol"]])
-            if mh.empty:
-                continue
-            mh["d"] = pd.to_datetime(mh["d"], errors="coerce")
-            mh = mh.dropna(subset=["d"])
-            mh = mh[mh["d"] >= df["review_ts"].min()]
-            if len(mh) < 2:
-                continue
-            fig.add_trace(go.Scatter(x=mh["d"], y=_rebase(mh["Close"]),
-                                     mode="lines", name=h["symbol"],
-                                     line=dict(width=1.5, color=palette[i % 3])))
-        if st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
-            bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
-                      "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
-            if not bench.empty:
-                bench["d"] = pd.to_datetime(bench["d"], errors="coerce")
-                bench = bench.dropna(subset=["d"])
-                bench = bench[bench["d"] >= df["review_ts"].min()]
-                if len(bench) >= 2:
-                    fig.add_trace(go.Scatter(x=bench["d"], y=_rebase(bench["Close"]),
-                                             mode="lines", name=C.BENCHMARK_SYMBOL,
-                                             line=dict(width=1.5, color="#8A8F99")))
+    # v10.7.3 (Part 7.2): exactly one benchmark line, in either view. In Value
+    # view it is scaled to the portfolio's start value so it overlays in EUR.
+    if st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
+        bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
+                  "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
+        if not bench.empty:
+            bench["d"] = pd.to_datetime(bench["d"], errors="coerce")
+            bench = bench.dropna(subset=["d"])
+            bench = bench[bench["d"] >= df["review_ts"].min()]
+            if len(bench) >= 2:
+                close = bench["Close"]
+                if growth:
+                    y = _rebase(close)
+                else:
+                    b0 = float(close.iloc[0]) or 1.0
+                    y = close / b0 * float(df["value_eur"].iloc[0])
+                fig.add_trace(go.Scatter(
+                    x=bench["d"], y=y, mode="lines",
+                    name=_display_name(C.BENCHMARK_SYMBOL),
+                    line=dict(width=1.5, color="#8A8F99")))
 
     base = 100.0 if growth else float(df["value_eur"].iloc[0])
     fig.add_hline(y=base, line_dash="dot", line_color="#888")
@@ -1612,7 +2017,8 @@ def _render_value_chart(history, holdings) -> None:
         lo, hi = min(vals), max(vals)
         pad = (hi - lo) * 0.1 or max(1.0, abs(hi) * 0.01)
         yaxis = dict(range=[lo - pad, hi + pad])
-    fig.update_layout(height=280, margin=dict(l=8, r=8, t=30, b=8),
+    # v10.7.3 (Part 7.1): fixed 320 px height, full container width.
+    fig.update_layout(height=320, margin=dict(l=8, r=8, t=30, b=8),
                       xaxis=dict(tickformat=_axis_tickformat(df)), yaxis=yaxis,
                       showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
@@ -1636,33 +2042,38 @@ def _month_name() -> str:
 
 
 def _monthly_holdings() -> list[dict]:
-    """Build holding dicts for the allocator (value, tier, weights)."""
-    from quant.config import LONG_TERM_MIN
+    """Build holding dicts for the allocator (value, tier, weights).
+
+    v10.7.3 (Part 5.1): the target comes from the ONE invested-pool target map
+    (config.TARGET_WEIGHTS_INVESTED, overridable by tiers.csv target_pct), not
+    from an equal split within FORTRESS.
+    """
     from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+    from quant.portfolio.tier_manager import (
+        load_tiers_safe,
+        target_weights_invested,
+        tier_map,
+    )
 
     try:
         df = load_portfolio()
         tiers_df, _ = load_tiers_safe()
         tmap = tier_map(tiers_df)
+        targets = target_weights_invested(tiers_df)
     except Exception:  # noqa: BLE001
         return []
     if df is None or df.empty:
         return []
     total = float(df["Current_Value_EUR"].sum()) or 1.0
-    fortress = [s for s in df["Symbol"].astype(str)
-                if str(tmap.get(s, "ALPHA")).upper() == "FORTRESS"]
-    n_fortress = max(1, len(fortress))
     out: list[dict] = []
     for _, row in df.iterrows():
         symbol = str(row["Symbol"])
         tier = str(tmap.get(symbol, "ALPHA")).upper()
         value = float(row.get("Current_Value_EUR", 0) or 0)
-        target = (LONG_TERM_MIN / n_fortress) if tier == "FORTRESS" else 0.0
         out.append({
-            "symbol": symbol, "name": symbol, "tier": tier, "value_eur": value,
-            "current_weight": value / total, "target_weight": target,
-            "conviction": 0.0,
+            "symbol": symbol, "name": _display_name(symbol), "tier": tier,
+            "value_eur": value, "current_weight": value / total,
+            "target_weight": targets.get(symbol, 0.0), "conviction": 0.0,
         })
     return out
 
@@ -1684,6 +2095,9 @@ def _approve_plan(month: str, budget: float, legs: list[dict]) -> None:
         finally:
             conn.close()
         st.success(C.MONTHLY_APPROVED)
+        # v10.7.3 (Part 6.5): the impact line, then the status updates at once.
+        st.write(C.MONTHLY_PLAN_SAVED.format(date=C.fmt_date(_date.today())))
+        st.rerun()
     except Exception:  # noqa: BLE001
         st.warning("Could not save the plan. Try again.")
 
@@ -1716,25 +2130,31 @@ def page_monthly() -> None:
 
     st.write(C.MONTHLY_SPLIT_HEADER)
     for leg in legs:
-        st.write(C.MONTHLY_LEG_LINE.format(
-            amount=f"{leg['amount_eur']:.0f}", name=leg["name"],
-            symbol=leg["symbol"] or "cash", kind=leg["kind"]))
-        st.caption(C.MONTHLY_LEG_REASON.format(
-            reason=leg["reason"], fee=f"{leg['fee_eur']:.0f}"))
+        # v10.7.3 (Part 1.5): no raw keys. The cash leg is its own sentence with
+        # no fee suffix; buy legs name the tier word and the route.
+        if leg.get("kind") == "cash":
+            st.write(C.MONTHLY_CASH_LEG_LINE.format(
+                amount=f"{leg['amount_eur']:.0f}"))
+            st.caption(C.MONTHLY_LEG_REASON.format(reason=leg["reason"]))
+        else:
+            st.write(C.MONTHLY_LEG_LINE.format(
+                amount=f"{leg['amount_eur']:.0f}",
+                name=_display_name(leg["symbol"]) if leg.get("symbol") else leg["name"],
+                symbol=leg["symbol"] or "cash",
+                kind=C.monthly_leg_kind(leg["kind"]),
+                fee=f"{leg['fee_eur']:.0f}"))
+            st.caption(C.MONTHLY_LEG_REASON.format(reason=leg["reason"]))
 
     # New ideas this month (v10.7.1: live candidates + regime).
     st.write(C.MONTHLY_NEW_IDEAS)
     _cands = _candidate_list()
     _shown = False
+    # v10.7.3 (Part 6.4): candidate lines match the Find investments cards.
     for c in _cands["long"][:1]:
-        st.caption(C.MONTHLY_CANDIDATE_LINE.format(
-            name=c["name"], detail=f"structure {float(c['structure']):.0f}, "
-            f"long-term candidate."))
+        _render_candidate_card(c, "long", 0.0, 0.0, 0.0)
         _shown = True
     for c in _cands["active"][:1]:
-        st.caption(C.MONTHLY_CANDIDATE_LINE.format(
-            name=c["name"], detail=f"tactics {float(c['tactics'] or 0):.0f}, "
-            f"active candidate."))
+        _render_candidate_card(c, "active", 0.0, 0.0, 0.0)
         _shown = True
     if not _shown:
         st.caption(C.CAND_EMPTY.format(section="new ideas"))
@@ -1745,30 +2165,134 @@ def page_monthly() -> None:
     if cols[1].button(C.BTN_CHANGE_SPLIT, key="monthly_change"):
         st.session_state["_monthly_edit"] = True
 
+    # v10.7.3 (Part 6.3): Change split opens inline editable number inputs.
+    if st.session_state.get("_monthly_edit"):
+        _render_change_split(legs, budget)
+
     # Entering actuals (Section 8.4).
     st.subheader(C.MONTHLY_ACTUALS_HEADER)
-    buy_legs = [leg for leg in legs
-                if leg.get("kind") in ("long_term", "active", "bet") and leg.get("symbol")]
+    approved = plan is not None
+    if approved:
+        buy_legs = [leg for leg in plan.get("legs", [])
+                    if leg.get("kind") in ("long_term", "active", "bet")
+                    and leg.get("symbol")]
+    else:
+        buy_legs = []
     actuals: list[dict] = []
     for leg in buy_legs:
         amount = st.number_input(
-            f"{leg['name']} ({leg['symbol']})",
-            min_value=0.0, value=float(leg["amount_eur"]), step=5.0,
+            f"{_display_name(leg['symbol'])} ({leg['symbol']})",
+            min_value=0.0, value=float(leg.get("amount_eur", 0) or 0), step=5.0,
             key=f"actual_{leg['symbol']}")
         actuals.append({"symbol": leg["symbol"], "amount_eur": amount,
                         "date": _date.today()})
+    # v10.7.3 (Part 6.2): an "Add another symbol" row with type-ahead autocomplete.
+    extra_sym = _symbol_autocomplete("Add another symbol", "monthly_extra")
+    if extra_sym:
+        extra_amt = st.number_input(
+            f"Amount for {_display_name(extra_sym)} (EUR)", min_value=0.0,
+            value=0.0, step=5.0, key="monthly_extra_amount")
+        if extra_amt > 0:
+            actuals.append({"symbol": extra_sym, "amount_eur": extra_amt,
+                            "date": _date.today()})
     if st.button(C.BTN_SAVE_ACTUALS, key="monthly_save_actuals"):
-        try:
-            from quant.data.database import connect_with_retry
-            from quant.engine import plans as plans_mod
+        _save_actuals(month, actuals, approved)
 
-            conn = connect_with_retry()
-            try:
-                recon = plans_mod.enter_actuals(conn, month, actuals)
-            finally:
-                conn.close()
+
+def _render_change_split(legs: list[dict], budget: float) -> None:
+    """Inline editable number inputs per leg (v10.7.3, Part 6.3)."""
+    st.write("Edit the split:")
+    edited: list[dict] = []
+    total = 0.0
+    for i, leg in enumerate(legs):
+        label = _display_name(leg["symbol"]) if leg.get("symbol") else "cash"
+        amt = st.number_input(f"{label} (EUR)", min_value=0.0,
+                              value=float(leg.get("amount_eur", 0) or 0),
+                              step=5.0, key=f"split_{i}")
+        total += amt
+        edited.append({**leg, "amount_eur": amt})
+    if budget > 0:
+        st.caption(f"Total {total:.0f} EUR of {budget:.0f} EUR budget.")
+        if abs(total - budget) > 0.5:
+            st.warning("The legs must sum to the budget.")
+        for leg in edited:
+            label = _display_name(leg["symbol"]) if leg.get("symbol") else "cash"
+            st.caption(f"{label}: {leg['amount_eur'] / budget * 100:.0f} percent.")
+    if st.button("Save split", key="monthly_save_split"):
+        st.session_state["_monthly_legs"] = edited
+        st.session_state["_monthly_edit"] = False
+        st.rerun()
+
+
+def _apply_buy_to_meta(conn, symbol: str, amount: float) -> None:
+    """Add a buy to holdings_meta (v10.7.3, Part 6.1). Never raises."""
+    try:
+        from quant.engine import valuation
+
+        price = _latest_close(symbol)
+        shares = valuation.compute_shares(amount, price)
+        if shares is None:
+            return
+        existing = conn.execute(
+            "SELECT shares, invested_at_sync FROM holdings_meta WHERE symbol = ?",
+            [symbol]).fetchone()
+        if existing:
+            new_shares = float(existing[0] or 0) + shares
+            new_invested = float(existing[1] or 0) + amount
+        else:
+            new_shares, new_invested = shares, amount
+        conn.execute(
+            "INSERT OR REPLACE INTO holdings_meta "
+            "(symbol, shares, sync_date, invested_at_sync) VALUES (?, ?, ?, ?)",
+            [symbol, new_shares, _date.today(), new_invested])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _save_actuals(month: str, actuals: list[dict], approved: bool) -> None:
+    """Save actuals: ad-hoc buys before approval, reconciliation after.
+
+    v10.7.3 (Part 6.1): pre-approval entries are ad-hoc buys; the reconciliation
+    deviation line never appears for them.
+    """
+    try:
+        from quant.data.database import connect_with_retry
+        from quant.engine import flows, plans as plans_mod
+
+        conn = connect_with_retry()
+        try:
+            if approved:
+                recon = plans_mod.enter_actuals(conn, month, actuals,
+                                                price_lookup=_latest_close)
+            else:
+                for a in actuals:
+                    sym = a.get("symbol")
+                    amt = float(a.get("amount_eur", 0) or 0)
+                    if sym and amt > 0:
+                        flows.record_flow(conn, a.get("date") or _date.today(),
+                                          "buy", amt, sym, note="ad-hoc")
+                        _apply_buy_to_meta(conn, sym, amt)
+                plans_mod.mark_pending_sync()
+                recon = []
+        finally:
+            conn.close()
+        if approved:
             for row in recon:
                 st.write(plans_mod.reconciliation_line(row))
-            st.success(C.MONTHLY_ACTUALS_SAVED)
-        except Exception:  # noqa: BLE001
-            st.warning("Could not save actuals. Try again.")
+        else:
+            st.write(C.MONTHLY_ADHOC_NOTE)
+        # v10.7.3 (Part 3.3): state the consequence with the new estimate.
+        for a in actuals:
+            sym = a.get("symbol")
+            if not sym or float(a.get("amount_eur", 0) or 0) <= 0:
+                continue
+            price = _latest_close(sym)
+            meta = _holdings_meta_row(sym)
+            if price is None or not meta:
+                continue
+            st.write(C.ACTUALS_CONSEQUENCE.format(
+                name=_display_name(sym),
+                value=f"{float(meta[0]) * float(price):.0f}"))
+        st.success(C.MONTHLY_ACTUALS_SAVED)
+    except Exception:  # noqa: BLE001
+        st.warning("Could not save actuals. Try again.")

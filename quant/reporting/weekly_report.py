@@ -25,6 +25,16 @@ _TEMPLATE = Path(__file__).resolve().parent / "templates" / "weekly_report.html"
 _DATA_SOURCES = "yfinance, SEC EDGAR, FinBERT"
 
 
+def _display_name(symbol) -> str:
+    """Company name for a symbol (v10.7.3, Part 2.2). Never raises."""
+    try:
+        from quant.data.names import display_name
+
+        return display_name(str(symbol))
+    except Exception:  # noqa: BLE001
+        return str(symbol)
+
+
 def _fmt_eur(value) -> str:
     try:
         return f"{float(value):,.2f} EUR"
@@ -69,6 +79,10 @@ def _tier_table(df: pd.DataFrame, columns: list[str]) -> list[str]:
     """Render a Markdown table for the given columns. Empty -> a note line."""
     if df is None or df.empty:
         return ["*No assets in this tier.*", ""]
+    # v10.7.3 (Part 2.2): show the company name next to the symbol.
+    df = df.copy()
+    if "Symbol" in df.columns and "Name" not in df.columns:
+        df["Name"] = df["Symbol"].map(_display_name)
     lines = ["| " + " | ".join(columns) + " |",
              "|" + "|".join(["---"] * len(columns)) + "|"]
     for _, r in df.iterrows():
@@ -125,7 +139,7 @@ def build_weekly_report(
               "adjusts savings-plan amounts only.")
     md.append("")
     fortress = _tier_rows(portfolio_df, "FORTRESS")
-    md += _tier_table(fortress, ["Symbol", "Current_Value_EUR", "Tier"])
+    md += _tier_table(fortress, ["Name", "Symbol", "Current_Value_EUR", "Tier"])
 
     # Alpha
     md.append("## Alpha (active accumulation)")
@@ -133,7 +147,7 @@ def build_weekly_report(
     md.append("Weekly rebalancing on Fridays. Sell when cash is needed.")
     md.append("")
     alpha = _tier_rows(portfolio_df, "ALPHA")
-    md += _tier_table(alpha, ["Symbol", "Current_Value_EUR", "Tier"])
+    md += _tier_table(alpha, ["Name", "Symbol", "Current_Value_EUR", "Tier"])
 
     # Speculative
     md.append("## Speculative (high-risk bets)")
@@ -142,7 +156,7 @@ def build_weekly_report(
               "take-profit +100 percent.")
     md.append("")
     spec = _tier_rows(portfolio_df, "SPECULATIVE")
-    md += _tier_table(spec, ["Symbol", "Current_Value_EUR", "Tier"])
+    md += _tier_table(spec, ["Name", "Symbol", "Current_Value_EUR", "Tier"])
 
     # If you need cash now (v10.7.0 dictionary)
     md.append("## If you need cash now")
@@ -166,7 +180,7 @@ def build_weekly_report(
                 else:
                     note = "no gain or loss"
                 md.append(
-                    f"{i}. {h['symbol']} ({_fmt_eur(h['value_eur'])}) - "
+                    f"{i}. {_display_name(h['symbol'])} ({_fmt_eur(h['value_eur'])}) - "
                     f"tax {_fmt_eur(tax)} ({note})"
                 )
         else:
@@ -185,7 +199,8 @@ def build_weekly_report(
             md.append("*No buy signals this week.*")
         else:
             for _, r in buys.iterrows():
-                md.append(f"- {r.get('Symbol')}: {r.get('Signal')} ({r.get('Tier')})")
+                md.append(f"- {_display_name(r.get('Symbol'))}: {r.get('Signal')} "
+                          f"({r.get('Tier')})")
     else:
         md.append("*No signals available.*")
     md.append("")

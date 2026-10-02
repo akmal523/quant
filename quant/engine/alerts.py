@@ -53,6 +53,16 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _display_name(symbol: str) -> str:
+    """Company name for a symbol (v10.7.3, Part 2.2). Never raises."""
+    try:
+        from quant.data.names import display_name
+
+        return display_name(symbol)
+    except Exception:  # noqa: BLE001
+        return str(symbol)
+
+
 def _sell_action(tier: str, value_eur: float) -> dict | None:
     """A sell action obeying the sizing laws, or None when forbidden."""
     amount = sizing.can_sell(tier, value_eur, value_eur)
@@ -72,6 +82,37 @@ def has_open_alert(conn, symbol: str | None, kind: str) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return bool(row and row[0])
+
+
+def _has_unrearmed_dismissal(conn, symbol: str | None, kind: str) -> bool:
+    """True when a dismissed alert exists whose condition never cleared (R8).
+
+    A dismissed alert must not reopen unless the underlying condition read false
+    at least once after the dismissal (re-arm).
+    """
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE status IN (?, ?) AND kind = ? "
+            "AND COALESCE(condition_cleared, FALSE) = FALSE "
+            "AND ((symbol IS NULL AND ? IS NULL) OR symbol = ?)",
+            [DONE_STATUS, DECLINED_STATUS, kind, symbol, symbol],
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(row and row[0])
+
+
+def _mark_condition_cleared(conn, symbol: str | None, kind: str) -> None:
+    """Mark dismissed alerts for (symbol, kind) as re-armed (R8). Never raises."""
+    try:
+        conn.execute(
+            "UPDATE alerts SET condition_cleared = TRUE WHERE status IN (?, ?) "
+            "AND kind = ? AND COALESCE(condition_cleared, FALSE) = FALSE "
+            "AND ((symbol IS NULL AND ? IS NULL) OR symbol = ?)",
+            [DONE_STATUS, DECLINED_STATUS, kind, symbol, symbol],
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _insert(conn, alert: dict, today: date) -> None:
@@ -102,7 +143,11 @@ def evaluate_alerts(
     created: list[dict] = []
 
     def _emit(alert: dict) -> None:
-        if has_open_alert(conn, alert.get("symbol"), alert["kind"]):
+        symbol = alert.get("symbol")
+        kind = alert["kind"]
+        if has_open_alert(conn, symbol, kind):
+            return
+        if _has_unrearmed_dismissal(conn, symbol, kind):
             return
         _insert(conn, alert, today)
         created.append(alert)
@@ -111,7 +156,8 @@ def evaluate_alerts(
         symbol = str(holding.get("symbol", "")).strip()
         if not symbol:
             continue
-        name = holding.get("name") or symbol
+        # v10.7.3 (Part 2.2): alert texts carry the company name.
+        name = holding.get("name") or _display_name(symbol)
         tier = str(holding.get("tier", "")).upper()
         value = _num(holding.get("value_eur")) or 0.0
         structural = _num(holding.get("structural"))
@@ -137,6 +183,8 @@ def evaluate_alerts(
                     "message": f"{name}: structure fell to {structural:.0f}.",
                     **action,
                 })
+            else:
+                _mark_condition_cleared(conn, symbol, KIND_STRUCTURAL)
 
         # 2. Tactical collapse.
         if tactical is not None and prev_tactical is not None:
@@ -151,6 +199,8 @@ def evaluate_alerts(
                                 f"{tactical:.0f} in 7 days."),
                     **action,
                 })
+            else:
+                _mark_condition_cleared(conn, symbol, KIND_TACTICAL)
 
         # 3. Position crash.
         if prev_value and prev_value > 0 and value > 0:
@@ -165,6 +215,8 @@ def evaluate_alerts(
                     "message": f"{name}: value fell {drop * 100:.0f} percent in 7 days.",
                     **action,
                 })
+            else:
+                _mark_condition_cleared(conn, symbol, KIND_CRASH)
 
         # 5. Speculative stop-loss.
         if tier == "SPECULATIVE" and entry and entry > 0 and price is not None:
@@ -180,6 +232,8 @@ def evaluate_alerts(
                                 f"entry; stop-loss."),
                     **action,
                 })
+            else:
+                _mark_condition_cleared(conn, symbol, KIND_SPECULATIVE)
 
     # 4. Regime flip (market-level, one alert).
     if str(regime).lower() == "bear" and str(prev_regime).lower() != "bear":
@@ -193,6 +247,8 @@ def evaluate_alerts(
             "amount_eur": None,
             "fee_eur": None,
         })
+    else:
+        _mark_condition_cleared(conn, None, KIND_REGIME)
 
     return created
 

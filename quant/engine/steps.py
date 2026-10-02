@@ -89,21 +89,8 @@ def build_steps(
                 "fee_eur": None,
             })
 
-    for holding in holdings or []:
-        if str(holding.get("tier", "")).upper() != "FORTRESS":
-            continue
-        gap = _num(holding.get("target_weight")) - _num(holding.get("current_weight"))
-        if gap > FORTRESS_GAP_SUGGESTION:
-            name = holding.get("name") or holding.get("symbol")
-            steps.append({
-                "what": f"Consider raising the {name} leg of the savings plan.",
-                "amount_eur": None,
-                "source": "fortress_gap",
-                "why": (f"{_num(holding.get('current_weight')) * 100:.0f} percent of "
-                        f"invested vs {_num(holding.get('target_weight')) * 100:.0f} "
-                        f"percent target."),
-                "fee_eur": 0.0,
-            })
+    # v10.7.3 (Part 4.2): the FORTRESS top-up step now comes from the ONE advice
+    # pipeline (change_savings_plan), so it is not duplicated here.
 
     return steps
 

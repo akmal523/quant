@@ -146,6 +146,20 @@ def revalue_holdings(conn, price_lookup: Any) -> dict[str, float]:
     return out
 
 
+def unpriceable_symbols(conn, price_lookup: Any) -> list[str]:
+    """Symbols in holdings_meta with no resolvable price (Part 5.2)."""
+    out: list[str] = []
+    try:
+        rows = conn.execute("SELECT symbol FROM holdings_meta").fetchall()
+    except Exception:  # noqa: BLE001
+        return out
+    for row in rows:
+        symbol = str(row[0])
+        if _lookup(price_lookup, symbol) is None:
+            out.append(symbol)
+    return out
+
+
 def write_value_history(conn, as_of: date, invested_eur: float) -> None:
     """Upsert one row into portfolio_value_history (invested pool only)."""
     conn.execute(
@@ -155,9 +169,8 @@ def write_value_history(conn, as_of: date, invested_eur: float) -> None:
     )
 
 
-def days_since_last_sync(conn, today: date | None = None) -> int | None:
-    """Days since the most recent holdings_meta sync; None when never synced."""
-    today = today or date.today()
+def _last_sync_date(conn) -> date | None:
+    """The most recent holdings_meta sync date, or None."""
     try:
         row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
     except Exception:  # noqa: BLE001
@@ -167,14 +180,88 @@ def days_since_last_sync(conn, today: date | None = None) -> int | None:
     last = row[0]
     if isinstance(last, str):
         last = date.fromisoformat(last[:10])
+    return last
+
+
+def days_since_last_sync(conn, today: date | None = None) -> int | None:
+    """Days since the most recent holdings_meta sync; None when never synced."""
+    today = today or date.today()
+    last = _last_sync_date(conn)
+    if last is None:
+        return None
     return (today - last).days
 
 
+def _meta_get(conn, key: str) -> str | None:
+    """Read a meta value; None on any failure."""
+    try:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", [key]).fetchone()
+        return row[0] if row else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _meta_set(conn, key: str, value: str) -> None:
+    """Write a meta value; never raises."""
+    try:
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                     [key, str(value)])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def pending_position_names(conn) -> list[str]:
+    """Display names of positions recorded since the last CSV sync (R7)."""
+    raw = _meta_get(conn, "pending_symbols") or ""
+    out: list[str] = []
+    for symbol in [s for s in str(raw).split(",") if s]:
+        try:
+            from quant.data.names import display_name
+
+            out.append(display_name(symbol))
+        except Exception:  # noqa: BLE001
+            out.append(symbol)
+    return out
+
+
 def sync_reminder_line(conn, today: date | None = None) -> str | None:
-    """One gentle line when the last broker sync is older than the threshold."""
+    """One gentle line when the last broker sync is older than the threshold.
+
+    v10.7.3 (Part 3.4): when positions were recorded since the last CSV sync
+    (the pending-sync marker), the reminder mentions them explicitly.
+    v10.7.4 (R7): the reminder appears at most once per 7 days, never on the
+    same day as a successful sync, and lists pending positions by name.
+    """
     from quant.ui import copy as ui_copy
 
+    today = today or date.today()
     days = days_since_last_sync(conn, today)
     if days is None or days <= SYNC_REMINDER_DAYS:
         return None
+    # Never on the same day as a successful sync.
+    if _last_sync_date(conn) == today:
+        return None
+    # At most once per 7 days.
+    last_reminder = _meta_get(conn, "sync_reminder_last")
+    if last_reminder:
+        try:
+            delta = (today - date.fromisoformat(str(last_reminder)[:10])).days
+            # Only a reminder within the last 7 days suppresses; a future or
+            # stale stamp never does.
+            if 0 <= delta < 7:
+                return None
+        except ValueError:
+            pass
+    _meta_set(conn, "sync_reminder_last", today.isoformat())
+    try:
+        from quant.engine import plans
+
+        if plans.is_pending_sync():
+            names = pending_position_names(conn)
+            if names:
+                return ui_copy.SYNC_REMINDER_PENDING_NAMES.format(
+                    n=days, names=", ".join(names))
+            return ui_copy.SYNC_REMINDER_PENDING.format(n=days)
+    except Exception:  # noqa: BLE001
+        pass
     return ui_copy.SYNC_REMINDER.format(n=days)

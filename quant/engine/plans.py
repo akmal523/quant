@@ -69,6 +69,15 @@ def is_approved(conn, month: str) -> bool:
     return load_plan(conn, month) is not None
 
 
+def delete_plan(conn, month: str) -> bool:
+    """Delete an approved plan before execution (Part 3.3). Returns True if removed."""
+    try:
+        conn.execute("DELETE FROM monthly_plans WHERE month = ?", [month])
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
 def mark_pending_sync() -> None:
     """Write the pending-sync marker (portfolio changed, awaiting a CSV sync)."""
     try:
@@ -89,6 +98,33 @@ def clear_pending_sync() -> None:
     """Remove the pending-sync marker (after a fresh CSV sync)."""
     try:
         os.remove(os.path.join(str(paths.OUTPUTS_DIR), PENDING_SYNC_MARKER))
+    except Exception:  # noqa: BLE001
+        pass
+    # R7: the pending-position list is cleared with the marker.
+    try:
+        from quant.data.database import get_connection
+
+        get_connection().execute("DELETE FROM meta WHERE key = 'pending_symbols'")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _record_pending_symbols(conn, symbols: list[str]) -> None:
+    """Append symbols to the meta pending list (R7). Never raises."""
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'pending_symbols'").fetchone()
+        existing = row[0] if row else ""
+    except Exception:  # noqa: BLE001
+        existing = ""
+    current = [s for s in str(existing or "").split(",") if s]
+    for symbol in symbols:
+        if symbol and symbol not in current:
+            current.append(symbol)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('pending_symbols', ?)",
+            [",".join(current)])
     except Exception:  # noqa: BLE001
         pass
 
@@ -120,15 +156,29 @@ def enter_actuals(
         shares = valuation.compute_shares(amount, price)
         if shares is None:
             continue
+        # v10.7.3 (Part 3.1): a buy ADDS to the existing estimated position, so
+        # the visible balance moves by the amount bought. A symbol not yet held
+        # starts a new estimated position (Part 3.4).
         try:
+            existing = conn.execute(
+                "SELECT shares, invested_at_sync FROM holdings_meta WHERE symbol = ?",
+                [symbol]).fetchone()
+            if existing:
+                new_shares = float(existing[0] or 0) + shares
+                new_invested = float(existing[1] or 0) + amount
+            else:
+                new_shares = shares
+                new_invested = amount
             conn.execute(
                 "INSERT OR REPLACE INTO holdings_meta "
                 "(symbol, shares, sync_date, invested_at_sync) VALUES (?, ?, ?, ?)",
-                [symbol, shares, date.today(), amount],
+                [symbol, new_shares, date.today(), new_invested],
             )
         except Exception:  # noqa: BLE001
             pass
 
+    _record_pending_symbols(
+        conn, [a.get("symbol") for a in actuals if a.get("symbol")])
     mark_pending_sync()
     return recon
 

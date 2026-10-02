@@ -553,7 +553,27 @@ def init_db() -> None:
             price_at_resolve DOUBLE,
             notified BOOLEAN DEFAULT FALSE,
             price_30d DOUBLE,
-            verdict VARCHAR
+            verdict VARCHAR,
+            condition_cleared BOOLEAN DEFAULT FALSE
+        )
+    """)
+    # v10.7.4 (R8): a dismissed alert must not reopen unless the underlying
+    # condition re-arms. condition_cleared records that the condition read false
+    # at least once after the dismissal. Added to legacy DBs via a guarded ALTER
+    # (a failed ALTER aborts the DuckDB transaction, so check the column first).
+    try:
+        cols = {str(r[1]) for r in conn.execute("PRAGMA table_info('alerts')").fetchall()}
+        if "condition_cleared" not in cols:
+            conn.execute(
+                "ALTER TABLE alerts ADD COLUMN condition_cleared BOOLEAN DEFAULT FALSE")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── v10.7.4 (R7): small key-value meta store (sync-reminder throttle) ────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS meta (
+            key VARCHAR PRIMARY KEY,
+            value VARCHAR
         )
     """)
 

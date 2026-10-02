@@ -32,6 +32,7 @@ from quant.config import (
     BETS_MAX,
     MONTHLY_LONG_TERM_SHARE,
     SPARPLAN_BUY_FEE_EUR,
+    TARGET_WEIGHTS_INVESTED,
 )
 from quant.engine.sizing import round_down
 
@@ -84,29 +85,38 @@ def allocate(
         gaps = []
         for h in fortress:
             target = _num(h.get("target_weight"))
+            if h.get("target_weight") is None:
+                # Part 4.1: the ONE per-symbol target map.
+                target = TARGET_WEIGHTS_INVESTED.get(str(h.get("symbol", "")), 0.0)
             current = _num(h.get("current_weight"))
             gaps.append((max(0.0, target - current), h))
         total_gap = sum(g for g, _ in gaps)
         if total_gap <= 0:
-            # No gap: split equally.
-            share = long_base / len(fortress)
-            for h in fortress:
-                legs.append(_leg(
-                    h.get("symbol"), h.get("name"), share, "long_term",
-                    "long-term part is on target; regular buying is fine.",
-                    SPARPLAN_BUY_FEE_EUR))
+            # No holding is under target: the long base goes to the largest
+            # target long-term holding (the core), never split equally.
+            h = max(fortress, key=lambda x: _num(x.get("target_weight")))
+            legs.append(_leg(
+                h.get("symbol"), h.get("name"), long_base, "long_term",
+                "long-term part is on target; regular buying is fine.",
+                SPARPLAN_BUY_FEE_EUR))
         else:
-            for gap, h in sorted(gaps, key=lambda x: x[0], reverse=True):
-                amount = long_base * (gap / total_gap)
-                if amount < ROUND_STEP:
-                    continue
-                pct = _num(h.get("current_weight")) * 100
-                target_pct = _num(h.get("target_weight")) * 100
-                legs.append(_leg(
-                    h.get("symbol"), h.get("name"), amount, "long_term",
-                    f"long-term part is {pct:.0f} percent of invested, "
-                    f"target {target_pct:.0f} percent.",
-                    SPARPLAN_BUY_FEE_EUR))
+            # R10: the long base goes to the SINGLE largest-gap holding; ties
+            # break alphabetically by symbol. The reason states the actual gap.
+            gap, h = min(
+                (g for g in gaps if g[0] > 0),
+                key=lambda x: (-x[0], str(x[1].get("symbol", ""))))
+            pct = _num(h.get("current_weight")) * 100
+            target_val = _num(h.get("target_weight"))
+            if h.get("target_weight") is None:
+                target_val = TARGET_WEIGHTS_INVESTED.get(str(h.get("symbol", "")), 0.0)
+            target_pct = target_val * 100
+            reason = (
+                f"{h.get('name')} is {pct:.0f} percent of invested vs "
+                f"{target_pct:.0f} percent target, a gap of {gap * 100:.0f} points; "
+                f"new long-term money goes here.")
+            legs.append(_leg(
+                h.get("symbol"), h.get("name"), long_base, "long_term",
+                reason, SPARPLAN_BUY_FEE_EUR))
     else:
         legs.append(_leg(
             DEFAULT_BROAD_ETF, DEFAULT_BROAD_ETF_NAME, long_base, "long_term",
@@ -114,6 +124,27 @@ def allocate(
             SPARPLAN_BUY_FEE_EUR))
 
     active_pool = budget - long_base
+
+    # Bets: gated, and carved OUT of the active pool so the split sums to B.
+    invested = sum(_num(h.get("value_eur")) for h in holdings)
+    spec_value = sum(
+        _num(h.get("value_eur")) for h in holdings
+        if str(h.get("tier", "")).upper() == "SPECULATIVE")
+    bets_weight = (spec_value / invested) if invested > 0 else 0.0
+    has_spec = spec_value > 0
+    bet_candidate = next(
+        (c for c in candidates
+         if str(c.get("tier", "")).upper() == "SPECULATIVE" and _is_high(c.get("conviction"))),
+        None)
+    bet_amount = 0.0
+    if (has_spec or bets_enabled) and bets_weight < BETS_MAX and bet_candidate is not None:
+        room = max(0.0, BETS_MAX * invested - spec_value)
+        bet_amount = round_down(min(0.10 * budget, room), ROUND_STEP)
+        if bet_amount < ROUND_STEP:
+            bet_amount = 0.0
+    if bet_amount > 0:
+        active_pool = max(0.0, active_pool - bet_amount)
+
     if active_pool > 0:
         if str(regime).lower() == "bear":
             legs.append(_leg(
@@ -133,32 +164,41 @@ def allocate(
                 chosen = high[:2]
                 share = active_pool / len(chosen)
                 for h in chosen:
+                    pct = _num(h.get("current_weight")) * 100
+                    target_pct = _num(h.get("target_weight")) * 100
+                    gap = abs(_num(h.get("target_weight"))
+                              - _num(h.get("current_weight"))) * 100
                     legs.append(_leg(
                         h.get("symbol"), h.get("name"), share, "active",
-                        "high conviction active idea.", ACTIVE_TRADE_FEE_EUR))
+                        f"{h.get('name')} is {pct:.0f} percent of invested vs "
+                        f"{target_pct:.0f} percent target, a gap of {gap:.0f} points; "
+                        f"high conviction active idea.", ACTIVE_TRADE_FEE_EUR))
             else:
                 legs.append(_leg(
                     None, "cash", active_pool, "cash",
                     "no high-conviction active idea this month; cash beats a "
                     "weak buy after fees.", 0.0))
 
-    # Bets: gated.
-    invested = sum(_num(h.get("value_eur")) for h in holdings)
-    spec_value = sum(
-        _num(h.get("value_eur")) for h in holdings
-        if str(h.get("tier", "")).upper() == "SPECULATIVE")
-    bets_weight = (spec_value / invested) if invested > 0 else 0.0
-    has_spec = spec_value > 0
-    bet_candidate = next(
-        (c for c in candidates
-         if str(c.get("tier", "")).upper() == "SPECULATIVE" and _is_high(c.get("conviction"))),
-        None)
-    if (has_spec or bets_enabled) and bets_weight < BETS_MAX and bet_candidate is not None:
-        room = max(0.0, BETS_MAX * invested - spec_value)
-        amount = min(0.10 * budget, room)
-        if amount >= ROUND_STEP:
-            legs.append(_leg(
-                bet_candidate.get("symbol"), bet_candidate.get("name"), amount, "bet",
-                "small high-risk bet within the 2 percent cap.", ACTIVE_TRADE_FEE_EUR))
+    if bet_amount > 0:
+        legs.append(_leg(
+            bet_candidate.get("symbol"), bet_candidate.get("name"), bet_amount, "bet",
+            "small high-risk bet within the 2 percent cap.", ACTIVE_TRADE_FEE_EUR))
 
-    return [leg for leg in legs if leg["amount_eur"] > 0]
+    legs = [leg for leg in legs if leg["amount_eur"] > 0]
+    # R10: the split must sum to the budget exactly. Rounding to 5 EUR steps
+    # leaves a residual; it goes to the cash leg (created if needed), because
+    # cash is the honest home for an unallocated remainder.
+    allocated = sum(leg["amount_eur"] for leg in legs)
+    residual = budget - allocated
+    if residual > 1e-9:
+        cash = next((leg for leg in legs if leg["kind"] == "cash"), None)
+        if cash is not None:
+            cash["amount_eur"] = cash["amount_eur"] + residual
+        else:
+            legs.append({
+                "symbol": None, "name": "cash", "amount_eur": residual,
+                "kind": "cash",
+                "reason": "unallocated remainder; cash is the honest home.",
+                "fee_eur": 0.0,
+            })
+    return legs

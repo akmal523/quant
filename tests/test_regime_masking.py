@@ -70,7 +70,7 @@ def test_review_regime_is_displayed(tmp_path, monkeypatch):
                                  "confidence": "high"})
 
     text = _all_text(_run_page(C.PAGE_TODAY))
-    assert C.MARKET_TREND.format(label="rising", confidence="high") in text
+    assert C.MARKET_REGIME_LINE.format(label="rising", confidence="high") in text
 
 
 def test_regime_failure_is_health_not_missing_history(tmp_path, monkeypatch):

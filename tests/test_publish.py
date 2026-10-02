@@ -72,5 +72,6 @@ def test_briefing_renders_trend_and_suppression_footnote(tmp_path):
     }]).to_csv(run / "portfolio_audit.csv", index=False)
 
     html = web.render_html(web.build_data(str(run)))
-    assert "Market trend: rising (high confidence)." in html
+    assert ("Market is rising, high confidence. This affects only the Active part; "
+            "the Long-term part is untouched.") in html
     assert "50 EUR minimum order size" in html

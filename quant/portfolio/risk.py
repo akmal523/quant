@@ -324,8 +324,15 @@ def emergency_sell_plan(
 
     def _rows(tier: str):
         sub = df[df["Tier"] == tier].copy()
-        if "Liquidity_Score" in sub.columns:
-            sub = sub.sort_values("Liquidity_Score", ascending=False, na_position="last")
+        # R6: liquidity first, then losers (negative broker PnL) before winners
+        # at equal liquidity. Stable and deterministic.
+        liq = (pd.to_numeric(sub["Liquidity_Score"], errors="coerce").fillna(0.0)
+               if "Liquidity_Score" in sub.columns else 0.0)
+        pnl = (pd.to_numeric(sub["Broker_PnL_EUR"], errors="coerce").fillna(0.0)
+               if "Broker_PnL_EUR" in sub.columns else 0.0)
+        sub = sub.assign(_liq=liq, _pnl=pnl)
+        sub = sub.sort_values(["_liq", "_pnl"], ascending=[False, True],
+                              kind="mergesort")
         return sub
 
     recommendations: list[dict] = []

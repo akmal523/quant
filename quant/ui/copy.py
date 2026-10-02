@@ -42,8 +42,11 @@ SEC_GLOSSARY = "What do these mean?"
 
 # ── Buttons (P5: verb phrases describing the outcome) ─────────────────────────
 BTN_REFRESH = "Refresh market data"
-BTN_SAVE_AND_REVIEW = "Save and review"
+BTN_SAVE_AND_REVIEW = "Save and run review"
 BTN_SAVE_ONLY = "Save only"
+# v10.7.3 (Part 1.10): each account button states what it does.
+BTN_SAVE_AND_REVIEW_HELP = "Saves, then recomputes scores and advice now."
+BTN_SAVE_ONLY_HELP = "Saves without recomputing; the evening run will pick it up."
 BTN_VIEW_LOG = "View log"
 BTN_REPAIR_REGISTRY = "Repair registry"
 BTN_HOW_TO_BUY = "How to buy"
@@ -58,8 +61,8 @@ EMPTY_NO_NEWS = "No recent news for {name}. Scores use price history and fundame
 # H3.4: exact zero-match sentence (distinct from the empty-query helper).
 EMPTY_NO_MATCHES = ("No instrument matches {query}. Try a company or fund name, "
                     "a symbol, an ISIN, or a theme such as gold or defence.")
-EMPTY_REGIME = "Market trend: not enough history yet."
-EMPTY_REGIME_ERROR = "Market trend: unavailable (see Health)."
+EMPTY_REGIME = "Not enough market history yet."
+EMPTY_REGIME_ERROR = "Market regime unavailable (see Health)."
 EMPTY_NO_MARKET_DATA = "No market data yet. Press Refresh market data to start."
 EMPTY_NO_REVIEWS = "No reviews yet. Save and review from Portfolio, or wait for the daily run."
 STATUS_ALL_CURRENT = "All data current."
@@ -173,7 +176,8 @@ ERROR_RUNNING = "An operation is already running."
 # ── Helper texts (spec 3.2) ───────────────────────────────────────────────────
 HELP_CASH_APY = ("Uninvested cash earns {apy} percent per year at Trade Republic "
                  "(from {date}).")
-HELP_BROKER_VALUES = "Values come from your broker. The app never guesses them."
+HELP_BROKER_VALUES = ("Values come from your broker. Between syncs we show estimates "
+                      "from known shares and the latest price, labeled estimated.")
 HELP_PROFILE_CONSERVATIVE = ("At least 50 percent of your invested money in "
                              "long-term assets, at most 40 percent in active positions.")
 HELP_PROFILE_BALANCED = ("At least 40 percent of your invested money in long-term "
@@ -258,6 +262,17 @@ def fmt_eur(value: float | None) -> str:
     return f"{value:.2f} EUR"
 
 
+def fmt_eur_whole(value: float | None) -> str:
+    """Format EUR as a whole number with the unit (v10.7.3, Part 1.12).
+
+    Big plaques show whole EUR ("852 EUR"); cents live in the caption line.
+    Tables keep two decimals via fmt_eur.
+    """
+    if value is None:
+        return ""
+    return f"{value:.0f} EUR"
+
+
 def fmt_pct(fraction: float | None, decimals: int = 0) -> str:
     """Format a fraction as a percent. Integer by default (spec 3.3)."""
     if fraction is None:
@@ -329,9 +344,10 @@ def regime_word(regime: str) -> str:
 
 # Today (spec 2.1)
 GUIDE_NO_REVIEW = "No review yet. Save and review from Portfolio to get your first advice."
-HEADER_REVIEW = "Review of {date} close, prepared {prepared}."
+HEADER_REVIEW = "Report as of {date} close, prepared {prepared}."
 # H3.8 (M1): a legacy artifact with no close date renders only the prepared line.
-HEADER_REVIEW_PREPARED = "Review prepared {prepared}."
+# v10.7.3 (Part 1.1): "Review prepared ..." becomes "Report as of ...".
+HEADER_REVIEW_PREPARED = "Report as of {prepared}."
 MARKET_TREND = "Market trend: {label} ({confidence} confidence)."
 MARKET_TREND_INSUFFICIENT = "Market trend: not enough history yet."
 MARKET_TREND_FAILED = "Market trend: unavailable (see Health)."
@@ -353,6 +369,8 @@ LABEL_RANGE = "Range"
 LABEL_VIEW = "View"
 VALUE = "Value"
 GROWTH = "Growth"
+# v10.7.3 (Part 7.2): Growth is an explicit opt-in.
+GROWTH_VIEW = "Growth view (normalized to 100)"
 LABEL_BENCHMARK = "Compare to MSCI World (IWDA.AS)"
 BENCHMARK_SYMBOL = "IWDA.AS"
 CHART_NO_HISTORY = "No price history for {name} yet. Refresh market data in Settings."
@@ -631,12 +649,14 @@ VERDICT_TOO_SMALL = "do not sell, position too small"
 SPARPLAN_FIRST = "savings plan (Sparplan)"
 SPARPLAN = "savings plan"
 
-# Market regime line (Section 10.1 Block E).
-MARKET_REGIME_LINE = ("Market is rising, high confidence. Affects only the "
-                      "Active part.")
-MARKET_REGIME_BEAR = ("Market is falling, high confidence. Affects only the "
-                      "Active part; new active money goes to cash until the "
-                      "regime recovers. Long-term savings plan continues.")
+# Market regime line (Section 10.1 Block E). v10.7.3 (Part 1.2): the line lives
+# ONLY inside the Market expander and names both parts explicitly.
+MARKET_REGIME_LINE = ("Market is {label}, {confidence} confidence. This affects only "
+                      "the Active part; the Long-term part is untouched.")
+MARKET_REGIME_BEAR = ("Market is falling, {confidence} confidence. This affects only "
+                      "the Active part; the Long-term part is untouched. New active "
+                      "money goes to cash until the regime recovers. Long-term "
+                      "savings plan continues.")
 
 # Report history / system check.
 REPORT_AS_OF = "Report as of {date}"
@@ -650,6 +670,11 @@ OPERATIONAL_CASH_LINE = ("Operational cash: {amount} EUR, as of {date}. For dail
 INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR, cash yield about "
                "{cash_yield} EUR (estimate).")
 ESTIMATED_LABEL = "estimated, as of {date}"
+# v10.7.3 (Part 3.4): a position recorded since the last CSV sync.
+ESTIMATED_PENDING = "estimated, pending sync"
+# v10.7.3 (Part 8.2): the Overview caption linking the provenance section.
+WHERE_NUMBERS = ("Where each number comes from: invested estimate, broker "
+                 "statement, flows, scores. See the first-week guide.")
 
 # Performance line (Section 7.3): deposits do not count as profit.
 PERFORMANCE_LINE = ("Since {date}: {change} EUR. Of that: you added {added} EUR, "
@@ -664,6 +689,8 @@ SPLIT_OK = "OK."
 
 # Steps and silence (Section 10.5).
 NOTHING_TO_DO_WEEK = "Nothing to do this week."
+# v10.7.3 (Part 1.9): the "Not this week" empty state never repeats the first phrase.
+NOTHING_REJECTED = "No considered actions were rejected this week."
 NOTHING_URGENT = "Nothing urgent this week."
 MONITORING_GAP = ("Monitoring gap: no runs for {n} days; conditions evaluated on "
                   "the latest data.")
@@ -696,8 +723,11 @@ MONTHLY_STATUS_APPROVED = "Status: approved on {date}."
 MONTHLY_BUDGET_LABEL = "Your savings-plan budget this month (EUR)"
 MONTHLY_BUDGET_PREFILL = "(prefilled from {month})"
 MONTHLY_SPLIT_HEADER = "The system splits it:"
-MONTHLY_LEG_LINE = "{amount} EUR  {name} ({symbol}), {kind}"
-MONTHLY_LEG_REASON = "Reason: {reason} Fee {fee} EUR."
+# v10.7.3 (Part 1.5): no raw keys. The long/active/bet leg names the tier word and
+# the route; the cash leg is its own sentence with no fee suffix.
+MONTHLY_LEG_LINE = "{amount} EUR to {name} ({symbol}), {kind}, via savings plan. Fee {fee} EUR."
+MONTHLY_CASH_LEG_LINE = "{amount} EUR to operational cash at 2.5 percent per year."
+MONTHLY_LEG_REASON = "Reason: {reason}"
 MONTHLY_NEW_IDEAS = "New ideas this month (optional, you may ignore all):"
 MONTHLY_CANDIDATE_LINE = "{name} - {detail}"
 BTN_APPROVE = "Approve"
@@ -725,11 +755,37 @@ REJECT_TOO_SMALL = "position {value} EUR; the 2 EUR fee makes any sale pointless
 REJECT_COOLDOWN = "cooldown until {date}; sells wait, buys do not"
 REJECT_BELOW_MIN = "the move is below the 25 EUR minimum after rounding"
 REJECT_FORTRESS = "long-term assets are never sold"
+# v10.7.4 (Part 3.1): a system-wide lockdown pauses non-emergency sells.
+REJECT_LOCKDOWN = "system-wide lockdown; non-emergency sells are paused"
 FORTRESS_LEG_SUGGESTION = ("Consider raising the savings-plan leg for {name} from "
                            "{current} to {target} EUR per month; it is {pct} percent "
                            "of invested vs {target_pct} percent target.")
+# v10.7.3 (Part 4.2): the ONE top-up sentence, shared by quant run and Overview.
+# {label} is the "Name (TICKER)" form (label_for), so the ticker is never doubled.
+STEP_TOP_UP = ("Top up the savings plan for {label}: it is {pct} percent "
+               "of invested vs {target} percent target.")
 CASH_REGIME_LINE = ("New active money goes to cash at 2.5 percent until the market "
                     "regime recovers.")
+# v10.7.4 (R2-R5): classification-grid copy.
+# R2: a FORTRESS holding far OVER target gets a plan-change note, never a sell.
+FORTRESS_OVER_LEG = ("Consider lowering or pausing the savings-plan leg for {label}; "
+                     "it is {pct} percent of invested vs {target} percent target.")
+# R3: an ALPHA holding under target with MEDIUM conviction is a considered buy.
+REJECT_MEDIUM_CONVICTION = "conviction MEDIUM, needs HIGH for a buy"
+# R9: a HIGH-conviction buy suppressed by the bear regime (regime override).
+REJECT_BEAR_REGIME = ("{name} buy considered (conviction HIGH); suppressed by bear "
+                      "regime; new active money goes to cash.")
+# R4: the untouchable law applies to ACTIVE buys too (savings-plan legs exempt).
+REJECT_BUY_TOO_SMALL = ("position below 100 EUR; the 1 EUR fee makes small buys "
+                        "inefficient")
+REJECT_BUY_BELOW_MIN = "the move is below the 10 EUR minimum after rounding"
+# R1/Part 2.1: the expected alpha must clear the fee.
+REJECT_FEE_HURDLE = ("expected alpha {alpha} bps on {amount} EUR does not clear "
+                     "the {fee} EUR fee")
+# R5: SPECULATIVE advisories are notes, never forced sells.
+SPEC_TAKE_PROFIT = "consider taking profit; bets are double-or-nothing by design"
+SPEC_CAP_VIOLATION = ("bets are {pct} percent of invested, above the 2 percent cap; "
+                      "consider trimming or reclassifying")
 # My holdings (Part 2).
 SEC_HOW_SPLIT = "How your money is split"
 SEC_IF_CASH = "If you need cash now"
@@ -759,9 +815,63 @@ SEC_CAND_LONG = "Candidates for long-term"
 SEC_CAND_ACTIVE = "Candidates for active"
 SEC_CAND_BETS = "Candidates for small bets"
 CAND_LONG_REASON = "Would be a savings-plan asset. Fee 0 EUR on buys."
+CAND_ACTIVE_REASON = "Active idea: strong recent trend, may be sold when cash is needed."
 CAND_ACTIVE_LIMIT = "Counts against the active limit: {used} percent of {max} percent used."
 CAND_BETS_LIMIT = "Counts against the bets limit: {used} percent of {max} percent used."
 CAND_EMPTY = "No candidates for {section} this month."
+
+# ── v10.7.3 (Part 1): UI truth pass — exact new strings ───────────────────────
+# Broker statement (editable) expander on My holdings.
+SEC_BROKER_STATEMENT = "Broker statement (editable)"
+BROKER_STATEMENT_CAPTION = ("This is what your broker reported at the last sync. "
+                            "Edit only after exporting fresh values from Trade "
+                            "Republic.")
+BROKER_STATEMENT_AS_OF = "broker statement, as of {date}"
+# Verdicts table scores caption.
+SCORES_CAPTION = ("Structure and Tactics are scores from 0 to 100. Structure is "
+                  "fundamental quality; Tactics is timing.")
+# Emergency liquidity hint when the amount is zero.
+EMERGENCY_HINT = "Enter an amount to see the order in which positions would be sold."
+# Monthly decision: pre-approval actuals are ad-hoc buys.
+MONTHLY_ADHOC_NOTE = ("Recorded as an ad-hoc buy outside the monthly plan. Approve a "
+                      "plan or ignore; the math stays honest.")
+# Monthly decision: post-approve impact line.
+MONTHLY_PLAN_SAVED = ("Plan saved. Planned flows dated {date}. Overview steps will "
+                      "track execution.")
+# Overview savings plan: no approved plan is not a dead end.
+SAVINGS_NO_PLAN = "No plan approved yet for this month."
+BTN_SET_BUDGET = "Set this month's budget"
+SAVINGS_STANDING_BUDGET = "Standing budget: {amount} EUR per month."
+# Overview income line (Block A).
+INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR from flows, cash "
+               "yield about {cash_yield} EUR at 2.5 percent.")
+INCOME_NONE = "No dividends recorded yet; record them in My holdings when they arrive."
+# Actuals confirmation states the consequence.
+ACTUALS_CONSEQUENCE = ("Actuals saved. Estimated value of {name} is now {value} EUR; "
+                       "the broker statement will confirm it at the next CSV sync.")
+# Sync reminder mentions pending positions explicitly.
+SYNC_REMINDER_PENDING = ("Last broker sync was {n} days ago. You have positions "
+                         "recorded since then; export a fresh CSV from Trade "
+                         "Republic when convenient.")
+# v10.7.4 (R7): the reminder lists the pending positions by name.
+SYNC_REMINDER_PENDING_NAMES = ("Last broker sync was {n} days ago. Positions "
+                               "recorded since then: {names}. Export a fresh CSV "
+                               "from Trade Republic when convenient.")
+# Find investments funnel transparency.
+FUNNEL_LINE = ("This month: {entered} symbols entered the funnel, {survived} survived "
+               "liquidity and trend, {conviction} meet the conviction bar.")
+FUNNEL_NEAR_MISSES = "Near misses"
+FUNNEL_NEAR_MISS_LINE = "{name} ({symbol}): {detail}"
+FUNNEL_NEAR_MISS_TACTICS = "Tactics {score:.0f}, needs {needs:.0f}"
+FUNNEL_NEAR_MISS_STRUCTURE = "Structure {score:.0f}, needs {needs:.0f}"
+# Candidate card "View analysis" expander.
+CAND_VIEW_ANALYSIS = "View analysis"
+CAND_ANALYSIS_STRUCTURE = "Structure {score:.0f} of 100."
+CAND_ANALYSIS_TACTICS = "Tactics {score:.0f} of 100."
+CAND_ANALYSIS_CONVICTION = "Conviction {conviction}."
+CAND_ANALYSIS_REASON = "{reason}"
+# Monthly "New ideas this month" candidate line (identical to Find investments).
+MONTHLY_CANDIDATE_CARD = "{name} ({symbol}): {detail}"
 
 # Forbidden tokens (Section 11): the OLD vocabulary. The copy test fails if any
 # of these appears in rendered pages or the briefing.
@@ -776,9 +886,29 @@ FORBIDDEN_TOKENS = (
     "Tax-loss harvesting",
     "SECTOR",
     "SATELLITE",
+    # v10.7.3 (Part 1): the surviving old strings.
+    "Review prepared",
+    "Market trend:",
+    "The app never guesses them",
+    "Broker registry",
+    "long_term",
+    "cash (cash), cash",
 )
 
 
 def tier_word(tier: str) -> str:
     """Map a tier enum to its plain display word (Section 11)."""
     return TIER_WORDS.get(str(tier).upper(), "Active (may sell)")
+
+
+# v10.7.3 (Part 1.5): the monthly leg kind word (no raw keys in the UI).
+_MONTHLY_LEG_KINDS = {
+    "long_term": TIER_FORTRESS,
+    "active": TIER_ALPHA,
+    "bet": TIER_SPECULATIVE,
+}
+
+
+def monthly_leg_kind(kind: str) -> str:
+    """Map an allocator leg kind to its plain tier word."""
+    return _MONTHLY_LEG_KINDS.get(str(kind), TIER_ALPHA)

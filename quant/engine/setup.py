@@ -25,7 +25,7 @@ FIRST_WEEK_CHECKLIST = [
     "Make the first Monthly decision (enter your budget, approve the split).",
     "Execute it in Trade Republic (savings plan and one-off buy).",
     "Enter what you bought (one line), so the math stays honest.",
-    "Sync the CSV if it is older than 35 days.",
+    "Refresh your broker values if the last sync is older than 35 days.",
     "Live your life.",
     "Glance at the summary on Fridays.",
     "A Telegram alert means place the order in the broker app; it executes at "

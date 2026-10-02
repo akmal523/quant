@@ -206,6 +206,19 @@ TARGET_WEIGHTS = {
     "SECTOR": 0.10,
 }
 
+# ── v10.7.3 (Part 5.1): ONE invested-pool target map ──────────────────────────
+# The single source of per-symbol targets for the invested pool. build_advice,
+# the allocator, the split reason lines, and the drift computations all read
+# this map, so two screens can never give opposite advice. Seeded from the
+# legacy tier map normalized to the invested pool; overridable per symbol by an
+# optional target_pct column in data/tiers.csv.
+TARGET_WEIGHTS_INVESTED = {
+    "EUNL.DE": 0.50,
+    "SXRV.DE": 0.20,
+    "AMZN": 0.20,
+    "5J50.DE": 0.10,
+}
+
 # Rebalancing thresholds & frequencies.
 REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
 MIN_TRADE_SIZE_EUR = 50.0          # minimum trade to clear the 2 EUR round-trip

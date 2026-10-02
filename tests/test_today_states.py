@@ -74,7 +74,7 @@ def test_s1_review_no_actions(monkeypatch):
     text = _all_text(_today(monkeypatch, history=_EMPTY,
                   review={"review_ts": "2026-09-13", "latest_bar": "2026-09-11"},
                   regime=dict(_REGIME_EST), actions=holdings, portfolio=_PORT))
-    assert C.MARKET_TREND.format(label="rising", confidence="high") in text
+    assert C.MARKET_REGIME_LINE.format(label="rising", confidence="high") in text
     assert C.EMPTY_NOTHING_TO_DO in text
 
 

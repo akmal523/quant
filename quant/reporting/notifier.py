@@ -65,6 +65,16 @@ def missing_config() -> list[str]:
     return missing
 
 
+def _display_name(symbol) -> str:
+    """Company name for a symbol (v10.7.3, Part 2.2). Never raises."""
+    try:
+        from quant.data.names import display_name
+
+        return display_name(str(symbol))
+    except Exception:  # noqa: BLE001
+        return str(symbol)
+
+
 def build_daily_summary(
     total_value: float,
     cash_allocation: float,
@@ -86,7 +96,7 @@ def build_daily_summary(
         "Daily briefing - Trade Republic",
         "=" * 40,
         f"Date: {date.today().isoformat()}",
-        f"Market trend: {regime}",
+        f"Market regime: {regime}",
         f"Cash rate: {current_cash_apy()*100:.2f} percent per year",
         f"Portfolio value: {total_value:.2f} EUR",
         f"Cash share: {cash_allocation*100:.0f} percent",
@@ -97,7 +107,7 @@ def build_daily_summary(
     if instructions:
         for inst in instructions:
             lines.append(
-                f"  - {inst.get('route', '')} {inst.get('symbol', '')} "
+                f"  - {inst.get('route', '')} {_display_name(inst.get('symbol', ''))} "
                 f"ISIN {inst.get('isin', 'n/a')} amount {inst.get('min_trade_size_eur', 0):.0f} EUR"
             )
     else:

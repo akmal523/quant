@@ -170,8 +170,8 @@ def test_run_artifacts_to_today_and_explore(tmp_path, monkeypatch):
     today.run()
     text = _all_text(today)
     if reg["state"] == "estimated":
-        assert C.MARKET_TREND.format(label=reg["label"],
-                                     confidence=reg["confidence"]) in text
+        assert C.MARKET_REGIME_LINE.format(label=reg["label"],
+                                           confidence=reg["confidence"]) in text
     elif reg["state"] == "failed":
         assert C.MARKET_TREND_FAILED in text
     else:
@@ -181,13 +181,17 @@ def test_run_artifacts_to_today_and_explore(tmp_path, monkeypatch):
     cards = [h for h in actions if h.get("action") and not h.get("blocked")]
     if cards:
         a = cards[0]
-        target = (a.get("target_weight") or "").rstrip("%") or "?"
-        pct = abs(float(str(a.get("drift", "0")).rstrip("%") or 0))
-        template = C.ACTION_ADD if a["action"] == "BUY MORE" else C.ACTION_SELL
-        expected = template.format(amount=f"{a['amount_eur']:.0f}", symbol=a["symbol"],
-                                   name=a.get("name") or a["symbol"],
-                                   pct=f"{pct:.0f}", target=target)
-        assert expected.split(".")[0] in text, f"action card missing: {expected}"
+        if a.get("amount_eur") is None:
+            # A plan-change card (no EUR amount): its reason renders verbatim.
+            assert (a.get("reason") or "").split(";")[0] in text
+        else:
+            target = (a.get("target_weight") or "").rstrip("%") or "?"
+            pct = abs(float(str(a.get("drift", "0")).rstrip("%") or 0))
+            template = C.ACTION_ADD if a["action"] == "BUY MORE" else C.ACTION_SELL
+            expected = template.format(amount=f"{a['amount_eur']:.0f}", symbol=a["symbol"],
+                                       name=a.get("name") or a["symbol"],
+                                       pct=f"{pct:.0f}", target=target)
+            assert expected.split(".")[0] in text, f"action card missing: {expected}"
     else:
         assert C.EMPTY_NOTHING_TO_DO in text
 

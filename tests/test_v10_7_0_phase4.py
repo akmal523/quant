@@ -58,10 +58,8 @@ def test_fortress_gap_distribution():
     legs = allocator.allocate(200.0, holdings=holdings, regime="bull")
     long_legs = {leg["symbol"]: leg["amount_eur"] for leg in legs
                  if leg["kind"] == "long_term"}
-    # EUNL has the larger gap (0.20 vs 0.10) -> gets more.
-    assert long_legs["EUNL.DE"] > long_legs["IWDA.AS"]
-    # Rounding to 5 EUR steps may leave a small shortfall below the long base.
-    assert 130.0 <= sum(long_legs.values()) <= 140.0
+    # R10: the long base goes to the SINGLE largest-gap holding (EUNL, 0.20).
+    assert long_legs == {"EUNL.DE": 140.0}
 
 
 # ── Plan storage and actuals ──────────────────────────────────────────────────

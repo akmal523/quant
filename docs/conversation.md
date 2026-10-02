@@ -36,6 +36,32 @@ Once per month, before the savings plan executes, you enter the budget and
 approve the split. This is 90 percent of your interaction with the system. See
 the Monthly decision page.
 
+### One target map, one answer
+
+Every surface reads the SAME per-symbol invested-pool targets
+(`TARGET_WEIGHTS_INVESTED` in `quant/config.py`, overridable per symbol by an
+optional `target_pct` column in `data/tiers.csv`). The allocator, the advice
+pipeline, the split reason lines, and the drift computations all use it, so two
+screens can never give opposite advice.
+
+Worked example. Invested pool 10,000 EUR: EUNL.DE 3,400 EUR (34 percent, target
+50 percent), 5J50.DE 1,700 EUR (17 percent, target 10 percent), SXRV.DE 2,000
+EUR (20 percent, target 20 percent), AMZN 2,900 EUR (29 percent, target 20
+percent). Budget 200 EUR.
+
+- Long base = 70 percent of 200 = 140 EUR. EUNL.DE is under target (gap 16
+  points); 5J50.DE is over target (gap 0). The long base goes to EUNL.DE.
+- The split reason states both numbers: "Global Aero & Defense is 17 percent of
+  invested; its target is 10 percent; it is over target, so new long-term money
+  goes to the under-target holding instead."
+- `quant run` and the Overview steps name the SAME asset for the SAME reason:
+  "Top up the savings plan for iShares Core MSCI World (EUNL.DE): it is 34
+  percent of invested vs 50 percent target."
+
+The old contradiction (advice topping up EUNL.DE while the allocator put money
+into 5J50.DE using an equal-split-within-Fortress target) is resolved: there is
+one target map, and the equal-split logic is removed.
+
 ## 4. Alerts (rare, urgent)
 
 When a condition fires, the system pushes immediately and keeps the alert

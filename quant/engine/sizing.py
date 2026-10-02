@@ -98,3 +98,20 @@ def cooldown_blocks_sell(is_sell: bool) -> bool:
 def cash_hurdle(conviction_high: bool) -> bool:
     """True when an active buy is allowed (HIGH conviction); else cash (Law 6)."""
     return bool(conviction_high)
+
+
+def passes_fee_hurdle(expected_alpha_bps, amount_eur, fee_eur) -> bool:
+    """True when the expected alpha clears the fee (v10.7.4, Part 2.1).
+
+    expected profit = expected_alpha_bps / 10000 * amount_eur. A buy is allowed
+    when the expected profit is at least the fee (the boundary is inclusive, so
+    50 bps on 200 EUR clears a 1 EUR fee). A missing alpha means no hurdle, so
+    legacy callers keep working.
+    """
+    if expected_alpha_bps is None:
+        return True
+    try:
+        expected = float(expected_alpha_bps) / 10000.0 * float(amount_eur)
+        return expected >= float(fee_eur)
+    except (TypeError, ValueError):
+        return True

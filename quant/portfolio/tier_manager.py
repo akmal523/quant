@@ -128,6 +128,36 @@ def tier_map(tiers_df: pd.DataFrame | None = None) -> dict[str, str]:
     }
 
 
+def target_weights_invested(tiers_df: pd.DataFrame | None = None) -> dict[str, float]:
+    """Per-symbol invested-pool targets (v10.7.3, Part 5.1).
+
+    Seeded from ``config.TARGET_WEIGHTS_INVESTED``; overridable per symbol by an
+    optional ``target_pct`` column in tiers.csv (a value > 1 is read as a
+    percent, otherwise as a fraction). Never raises.
+    """
+    from quant.config import TARGET_WEIGHTS_INVESTED
+
+    out = dict(TARGET_WEIGHTS_INVESTED)
+    if tiers_df is None:
+        try:
+            tiers_df, _ = load_tiers_safe()
+        except Exception:  # noqa: BLE001
+            tiers_df = None
+    if tiers_df is None or getattr(tiers_df, "empty", True):
+        return out
+    if "target_pct" not in tiers_df.columns:
+        return out
+    for _, r in tiers_df.iterrows():
+        sym = str(r.get("symbol", "")).strip()
+        try:
+            pct = float(r.get("target_pct"))
+        except (TypeError, ValueError):
+            continue
+        if sym and pct > 0:
+            out[sym] = (pct / 100.0) if pct > 1 else pct
+    return out
+
+
 def validate_tier_constraints(
     tiers_df: pd.DataFrame,
     portfolio_df: pd.DataFrame,

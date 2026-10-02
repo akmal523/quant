@@ -20,6 +20,7 @@ from quant.config import (
     TARGET_WEIGHTS,
 )
 from quant.data.currency import get_fx_to_eur
+from quant.errors import DataError
 
 
 def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
@@ -73,9 +74,40 @@ def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
         df["Amount_EUR"] = df["Current_Value_EUR"]
         df["Original_Amount"] = df["Invested_EUR"]
 
-        return df.dropna(subset=["Symbol"]).reset_index(drop=True)
+        df = df.dropna(subset=["Symbol"]).reset_index(drop=True)
     except Exception:
         return pd.DataFrame(columns=required_cols)
+
+    # v10.7.4 (Part 5.2): a negative position value is corrupt data.
+    if (df["Current_Value_EUR"] < 0).any():
+        raise DataError("portfolio.csv contains a negative position value")
+    # v10.7.4 (Part 5.2): duplicate rows are deduplicated by symbol (keep last).
+    df = df.drop_duplicates(subset=["Symbol"], keep="last").reset_index(drop=True)
+    return df
+
+
+def portfolio_issues(filepath: str = paths.DATA_PORTFOLIO) -> list[str]:
+    """Plain warnings about portfolio.csv (Part 5.2). Never raises."""
+    if not os.path.exists(filepath):
+        return []
+    try:
+        raw = pd.read_csv(filepath, comment="#").dropna(how="all")
+        raw.columns = raw.columns.str.strip()
+    except Exception:  # noqa: BLE001
+        return []
+    issues: list[str] = []
+    if "Symbol" in raw.columns:
+        dups = raw[raw.duplicated(subset=["Symbol"], keep=False)]
+        if not dups.empty:
+            issues.append(
+                f"portfolio.csv: {len(dups)} duplicate rows "
+                f"({sorted(str(s) for s in dups['Symbol'].unique())})")
+    if "Current_Value_EUR" in raw.columns:
+        vals = pd.to_numeric(raw["Current_Value_EUR"], errors="coerce")
+        neg = int((vals < 0).sum())
+        if neg:
+            issues.append(f"portfolio.csv: {neg} negative position value(s)")
+    return issues
 
 
 def load_broker_data(filepath: str = paths.DATA_PORTFOLIO) -> dict[str, float]:

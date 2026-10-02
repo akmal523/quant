@@ -308,3 +308,67 @@ def backfill_display_names(conn, metadata_source=None, curated_path: str | None 
             c_fill += 1
     return {"display_filled": d_fill, "name_filled": n_fill,
             "currency_filled": c_fill, "unreachable": unreachable}
+
+
+# ── v10.7.3 (Part 2.1): the ONE display-name resolver ─────────────────────────
+# Chain: registry display_name -> cached yfinance longName probe -> symbol.
+# The probe is cached in outputs/universe_names.json so it happens once; the
+# daily run calls with allow_probe=True. The UI reads the cache only, so a page
+# render never touches the network.
+
+def display_name(symbol: str, allow_probe: bool = False) -> str:
+    """Resolve a friendly company name for ``symbol`` (never empty for a symbol).
+
+    Invariants: a value equal to the symbol carries no information and is
+    treated as missing; the fallback is the symbol itself.
+    """
+    sym = str(symbol or "").strip()
+    if not sym:
+        return ""
+    # 1. registry display_name / name (the working universe).
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(display_name, name) FROM asset_registry "
+                "WHERE symbol = ?", [sym]).fetchone()
+        if row and row[0] and not _symbolish(row[0], sym):
+            return clean_display_name(str(row[0]), sym)
+    except Exception:  # noqa: BLE001
+        pass
+    # 2. cached probe (written once by the daily run).
+    cache = read_universe_names()
+    cached = cache.get(sym)
+    if cached and not _symbolish(cached, sym):
+        return clean_display_name(str(cached), sym)
+    # 3. probe once, only when explicitly allowed (daily run).
+    if allow_probe:
+        long_name, _cur = _yahoo_identity(sym)
+        long_name = str(long_name or "").strip()
+        if long_name and not _symbolish(long_name, sym):
+            cache[sym] = long_name
+            _write_universe_names(cache)
+            return clean_display_name(long_name, sym)
+    return sym
+
+
+def probe_and_store(symbol: str, conn=None) -> str:
+    """Probe + cache a name and persist it to asset_registry when possible.
+
+    Used by the daily run so funnel survivors not yet in the registry (for
+    example MU, SOXX) get a real name and candidate cards never render
+    "MU (MU)". Never raises.
+    """
+    sym = str(symbol or "").strip()
+    if not sym:
+        return ""
+    name = display_name(sym, allow_probe=True)
+    if conn is not None and name and name.upper() != sym.upper():
+        try:
+            conn.execute(
+                "UPDATE asset_registry SET display_name = ? WHERE symbol = ?",
+                [name, sym])
+        except Exception:  # noqa: BLE001
+            pass
+    return name
