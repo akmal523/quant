@@ -6,6 +6,11 @@ quant_cache.duckdb
 __pycache__/
 .cache/
 .pytest_cache/
+.hypothesis/
+
+# v10.7.5: mutmut working tree and cache
+mutants/
+.mutmut-cache
 
 # Output Reports & Run Artifacts
 outputs/

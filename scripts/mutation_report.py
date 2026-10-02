@@ -25,22 +25,30 @@ def _run(cmd: list[str]) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
-def _survivors() -> list[str]:
-    """Parse the survivor list from ``mutmut results``."""
+_STATUS_RE = re.compile(
+    r":\s*(killed|survived|timeout|suspicious|not checked)\s*$", re.IGNORECASE)
+
+
+def _parse_results() -> tuple[int, int, list[str]]:
+    """Parse ``mutmut results`` into (killed, total, survivors).
+
+    mutmut 3.x prints one line per mutant: ``<name>: <status>``.
+    """
     out = _run(["mutmut", "results"])
+    killed = 0
+    survived = 0
     survivors: list[str] = []
     for line in out.splitlines():
-        if "survived" in line.lower():
+        match = _STATUS_RE.search(line.strip())
+        if not match:
+            continue
+        status = match.group(1).lower()
+        if status == "killed":
+            killed += 1
+        elif status == "survived":
+            survived += 1
             survivors.append(line.strip())
-    return survivors
-
-
-def _score() -> tuple[int, int]:
-    """Return (killed, total) parsed from ``mutmut results``."""
-    out = _run(["mutmut", "results"])
-    killed = len(re.findall(r"\bkilled\b", out, flags=re.IGNORECASE))
-    survived = len(re.findall(r"\bsurvived\b", out, flags=re.IGNORECASE))
-    return killed, killed + survived
+    return killed, killed + survived, survivors
 
 
 def _allowlist() -> list[str]:
@@ -60,9 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         print("running mutmut (this is slow)...")
         _run(["mutmut", "run"])
 
-    killed, total = _score()
+    killed, total, survivors = _parse_results()
     score = (killed / total * 100.0) if total else 0.0
-    survivors = _survivors()
     allowed = _allowlist()
 
     print(f"mutation score: {score:.1f} percent ({killed}/{total} killed)")

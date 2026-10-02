@@ -130,8 +130,11 @@ replace = "__version__ = \"{new_version}\""
 
 # v10.7.5 (Part 4): mutate ONLY the math core. The kill threshold is 90 percent;
 # survivors are listed in tests/mutation_survivors_allowlist.txt.
+# source_paths copies the whole package (so the mutants tree is importable);
+# only_mutate restricts mutation to the math core.
 [tool.mutmut]
-paths_to_mutate = [
+source_paths = ["quant", "scripts"]
+only_mutate = [
     "quant/analytics/scoring.py",
     "quant/engine/flows.py",
     "quant/engine/allocator.py",
@@ -140,5 +143,14 @@ paths_to_mutate = [
     "quant/portfolio/optimizer.py",
     "quant/portfolio/risk.py",
 ]
-tests_dir = "tests/"
+# Only the tests that cover the math core run per mutant: fast, and free of the
+# data/ dependency the full suite has.
+pytest_add_cli_args_test_selection = [
+    "tests/test_stub_grid.py",
+    "tests/test_advice_grid.py",
+    "tests/test_classification_grid.py",
+    "tests/test_properties.py",
+    "tests/test_regression_grid.py",
+    "tests/test_fallback_registry.py",
+]
 runner = "python -m pytest -x -q -p no:cacheprovider"

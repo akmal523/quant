@@ -14,7 +14,15 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
+
+# The auditor checks the REAL source tree. Under mutmut the tests run against a
+# mutated copy (mutants/), where the mutants themselves look like findings.
+pytestmark = pytest.mark.skipif(
+    "mutants" in ROOT.parts,
+    reason="the auditor checks the real source, not the mutants tree")
 
 
 def _load_auditor():

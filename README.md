@@ -174,14 +174,17 @@ Add `--verbose` for per-symbol detail. Logs live under `outputs/run_*/`.
 ### Performance and verification
 
 ```bash
+python scripts/audit_stubs.py        # static stub / silent-fallback audit (blocking)
 python scripts/benchmark.py          # measure batch query, scoring, lazy load
 python scripts/audit_type_hints.py   # type-hint coverage
 python scripts/audit_docstrings.py   # docstring coverage
+python scripts/mutation_report.py    # mutation score on the math core (weekly)
 python scripts/final_verification.py # tests + ruff + audits + docs + benchmarks
 ```
 
 See [`docs/performance.md`](docs/performance.md) for the tuning guide and the
-measured benchmarks.
+measured benchmarks. See [`docs/stub_policy.md`](docs/stub_policy.md) for the
+legitimate-fallback-vs-stub policy and the fallback registry.
 
 The External URL Streamlit prints is your public IP only if your router forwards
 the port; by default it does not. Never expose Quant-AI to the internet without

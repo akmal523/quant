@@ -1,9 +1,12 @@
 name: Mutation
 
+# v10.7.5 (Part 4): mutation testing over the math core. A full run mutates
+# thousands of mutants and takes hours, so it runs weekly and on demand rather
+# than on every push. The static stub audit (ci.yml) is the per-push gate.
 on:
-  push:
-    branches: [main, master]
   workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 0"  # weekly, Sunday 03:00 UTC
 
 jobs:
   mutation:
@@ -23,5 +26,5 @@ jobs:
           pip install -e ".[test,dashboard,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Mutation score on the math core
-        # v10.7.5 (Part 4): 90 percent kill threshold; survivors are allowlisted.
+        # 90 percent kill threshold; survivors are allowlisted.
         run: python scripts/mutation_report.py
