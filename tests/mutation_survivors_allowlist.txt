@@ -1,0 +1,8 @@
+# v10.7.5 (Part 4) mutation survivor allowlist.
+#
+# One survivor per line with a one-line reason. This file may only SHRINK; the
+# test tests/test_mutation_allowlist.py enforces the count against the baseline.
+# Any survivor that corresponds to a user-facing number (a EUR amount, a percent,
+# a score) is blocking and must be killed by a test, not allowlisted.
+#
+# baseline = 0

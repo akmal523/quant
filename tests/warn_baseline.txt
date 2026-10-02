@@ -1,0 +1,3 @@
+# v10.7.5 Tier W warn baseline (kind = count). May only shrink.
+# Regenerate with: python scripts/audit_stubs.py --update-baseline
+undeclared_fallback = 87

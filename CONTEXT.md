@@ -1146,3 +1146,57 @@ conservative with the user's money):
   cash). Every leg's reason states the actual gap in percentage points. The bets
   pool is carved out of the active pool.
 - **Golden backtest**: unmoved.
+
+---
+
+## v10.7.5 Domain Additions ("Stub and Silent-Fallback Detection Grid")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Legitimate fallback** | An except-path that is declared in `quant/engine/fallback_registry.py`, marked (a data-quality value or warning string), tested by a triggering test, and surfaced to the user. It stays. |
+| **Stub** | An undeclared, silent, untested except-path, or a function that returns success while computing nothing. It must fail CI. |
+| **Tier S** | The narrow user-facing computation set. An except-path here that returns a default must be in the fallback registry with a triggering test. |
+| **Tier C** | Trivial cleanup / log / pass-only shapes. Non-blocking; the auditor AST-verifies the shape so a numeric return cannot hide. |
+| **Tier W** | Everything else. Reported and ratcheted against `tests/warn_baseline.txt`; a count may only shrink. |
+| **Canary number** | A float literal in `quant/` equal to a known live-portfolio or golden value. The signature of a stub written to pass a test. |
+| **Vacuous constraint** | A config value that makes a rule meaningless (a weight cap >= 1.0, a score threshold <= 0, a negative fee). |
+
+### v10.7.5 rulings
+
+- **R11 (fallback scope): tiered registry with a ratchet.** Full coverage of every
+  except-path is rejected (enormous scope, test noise). Pure advisory is rejected
+  (user-facing numeric fallbacks would stay untracked). Three tiers:
+  - **Tier S — blocking, register and test.** The narrow user-facing computation
+    set: `quant/analytics/scoring.py`, `quant/engine/flows.py`, `allocator.py`,
+    `sizing.py`, `advice.py`, `alerts.py`, `valuation.py`, `news_pillar.py`, and
+    `quant/portfolio/optimizer.py`, `risk.py`, `portfolio.py`, `account.py`,
+    `cash_rate.py`, plus the explicitly-listed loaders feeding the math core
+    (`tier_manager.py`). Every except-path whose returned value can flow into a
+    user-visible number or decision must be in `FALLBACKS` with its marker and a
+    triggering test. The Tier S list is encoded in `scripts/audit_allowlist.toml`
+    as `tier_s_modules`; no dataflow analysis is attempted.
+  - **Tier C — pattern allowlist, non-blocking.** Trivial cleanup and IO shapes
+    (pass-only, log-only, cleanup calls). Encoded as a small number of shape
+    rules; the auditor AST-verifies each matched path's body so the allowlist
+    cannot hide a numeric return.
+  - **Tier W — warn plus ratchet.** Everything else (loaders returning empty
+    containers, UI render guards). Reported; per-kind counts stored in
+    `tests/warn_baseline.txt`; a test fails if any count grows.
+- **Legitimate fallback vs stub.** A fallback is legitimate when it is declared,
+  marked, tested, and surfaced. A stub is undeclared, silent, untested, or
+  returns success while computing nothing. The distinction is enforced by the
+  auditor (static) and the registry test (dynamic).
+- **Registry policy.** Every Tier S except-path that returns a default is listed
+  in `FALLBACKS` with `failure`, `default`, `marker`, and `test`. The registry
+  test iterates the map, so a new entry without a triggering test fails CI. The
+  single `NotImplementedError` (the abstract strategy interface) is allowlisted.
+- **Mutation core.** `mutmut` mutates only the math core; the kill threshold is
+  90 percent. Survivors are listed in `tests/mutation_survivors_allowlist.txt`
+  with a reason; the file may only shrink. A survivor touching a user-facing
+  number is blocking and must be killed by a test.
+- **Mock boundary.** No test may patch the decision core (advice, allocator,
+  flows, sizing, scoring, optimizer, risk). Fakes are allowed only at true I/O
+  boundaries and heavy external solvers.
+- **Golden backtest**: unmoved.

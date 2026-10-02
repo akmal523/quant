@@ -32,6 +32,32 @@ from quant.config import (
 )
 from quant.portfolio.risk import daily_risk_free_rate
 
+# v10.7.5 (Part 3.4): the equal-weight fallback is marked so the weekly report
+# can say "optimizer fallback: equal weight" when it happened during the run.
+OPTIMIZER_FALLBACK_LINE = "optimizer fallback: equal weight"
+_FALLBACK_STATE: dict = {"used": False, "reason": None}
+
+
+def _mark_optimizer_fallback(reason: str) -> None:
+    _FALLBACK_STATE["used"] = True
+    _FALLBACK_STATE["reason"] = reason
+
+
+def optimizer_fallback_used() -> bool:
+    """True when the optimizer fell back to equal weight since the last clear."""
+    return bool(_FALLBACK_STATE["used"])
+
+
+def clear_optimizer_fallback() -> None:
+    """Reset the fallback marker (called at the start of a run)."""
+    _FALLBACK_STATE["used"] = False
+    _FALLBACK_STATE["reason"] = None
+
+
+def optimizer_fallback_line() -> str | None:
+    """The honest weekly-report line, or None when no fallback happened."""
+    return OPTIMIZER_FALLBACK_LINE if _FALLBACK_STATE["used"] else None
+
 
 def shrunk_covariance(returns: np.ndarray) -> np.ndarray:
     """Ledoit-Wolf shrunk covariance for stable weights (Pillar 6.1)."""
@@ -124,7 +150,8 @@ def optimize_portfolio(
             raise RuntimeError("solver returned None")
         return np.clip(w.value, 0.0, max_weight)
     except Exception:
-        # Fallback: equal weight within caps.
+        # Fallback: equal weight within caps. Mark it for the weekly report.
+        _mark_optimizer_fallback("solver failed")
         return np.full(n, min(1.0 / n, max_weight))
 
 
@@ -221,6 +248,7 @@ def optimize_portfolio_cvar(
             raise RuntimeError("solver returned None")
         return np.clip(w.value, 0.0, max_weight)
     except Exception:
+        _mark_optimizer_fallback("solver failed")
         return np.full(n, min(1.0 / n, max_weight))
 
 

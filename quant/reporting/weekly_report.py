@@ -131,6 +131,16 @@ def build_weekly_report(
     md.append("")
     md.append(f"**As-of:** {as_of} | **Version:** {__version__}")
     md.append("")
+    # v10.7.5 (Part 3.4): say so when the optimizer fell back to equal weight.
+    try:
+        from quant.portfolio.optimizer import optimizer_fallback_line
+
+        _fallback = optimizer_fallback_line()
+        if _fallback:
+            md.append(f"**{_fallback}**")
+            md.append("")
+    except Exception:  # noqa: BLE001
+        pass
 
     # Fortress
     md.append("## Fortress (eternal holdings)")

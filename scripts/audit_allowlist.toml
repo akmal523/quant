@@ -1,0 +1,58 @@
+# scripts/audit_allowlist.toml — non-blocking exceptions for the stub auditor.
+#
+# Policy (v10.7.5, R11): this file is small by design and reviewed like code.
+# Every entry carries a reason and an owner. Tier S modules are blocking for
+# kinds 4/10 unless the enclosing function is in the fallback registry.
+
+# Tier S — the narrow user-facing computation set. An except-path here whose
+# returned value can flow into a user-visible number or decision must be in
+# quant/engine/fallback_registry.py with a triggering test.
+tier_s_modules = [
+    "quant/analytics/scoring.py",
+    "quant/engine/flows.py",
+    "quant/engine/allocator.py",
+    "quant/engine/sizing.py",
+    "quant/engine/advice.py",
+    "quant/engine/alerts.py",
+    "quant/engine/valuation.py",
+    "quant/engine/news_pillar.py",
+    "quant/portfolio/optimizer.py",
+    "quant/portfolio/risk.py",
+    "quant/portfolio/portfolio.py",
+    "quant/portfolio/account.py",
+    "quant/portfolio/cash_rate.py",
+    # Loaders feeding the math core (explicit listing, not dataflow inference).
+    "quant/portfolio/tier_manager.py",
+]
+
+# Tier C — pattern allowlist. The auditor AST-verifies each matched path's body
+# shape, so a numeric return cannot hide behind a pattern.
+[[tier_c_patterns]]
+name = "pass_only"
+reason = "a pass-only except returns no value; it cannot silently substitute a number"
+owner = "core"
+
+[[tier_c_patterns]]
+name = "log_only"
+reason = "the except path logs the failure; it is not silent"
+owner = "core"
+
+[[tier_c_patterns]]
+name = "cleanup_pass"
+reason = "best-effort cleanup (remove/close/rename) is non-fatal"
+owner = "core"
+
+# Per-line exceptions (blocking kinds only).
+[[exceptions]]
+file = "quant/strategy/strategies/base.py"
+line = 22
+kind = "not_implemented"
+reason = "abstract strategy interface"
+owner = "core"
+
+[[exceptions]]
+file = "quant/engine/fallback_registry.py"
+line = 1
+kind = "todo_marker"
+reason = "the registry docstring defines the stub policy"
+owner = "core"

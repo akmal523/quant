@@ -1,0 +1,27 @@
+name: Mutation
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,dashboard,dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Mutation score on the math core
+        # v10.7.5 (Part 4): 90 percent kill threshold; survivors are allowlisted.
+        run: python scripts/mutation_report.py

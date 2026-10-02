@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.7.5] - 2026-10-02
+
+"Stub and Silent-Fallback Detection Grid." The suite is large and green, which
+creates a new risk: an implementation could contain STUBS (functions that return
+canned values), SILENT FALLBACKS (except-paths that swallow failures and return
+defaults without marking them), MOCK LEAKAGE (tests that mock the logic they
+claim to test), and VACUOUS CONSTRAINTS (config values that make rules
+meaningless). None of these fail the current suite. This version builds a
+detection grid that makes stubs impossible to ship. All v10.7.0 hard constraints
+remain: no emojis, broker is truth, plain English via `quant/ui/copy.py`,
+argparse-and-print CLI, golden files unmoved, suite green after each phase.
+
+### Added - Static stub auditor (Part 1)
+
+- `scripts/audit_stubs.py`: an AST auditor over `quant/` (excluding tests) with
+  ten finding kinds (pass_body, not_implemented, todo_marker, bare_except,
+  constant_return, trivial_complexity, test_branch, vacuous_constraint,
+  canary_number, undeclared_fallback). It exits nonzero on any blocking finding.
+- `scripts/audit_allowlist.toml`: the Tier S module list, the Tier C shape
+  patterns, and per-line exceptions with a reason and owner.
+- `tests/test_audit_stubs.py`: runs the auditor in-process and enforces the Tier
+  W ratchet against `tests/warn_baseline.txt`. Wired into CI.
+
+### Added - Sensitivity grid (Part 2)
+
+- `tests/test_stub_grid.py`: for every pure math and scoring function, assert the
+  output responds to its inputs in the documented direction, plus monotonicity
+  where the domain defines it. A stub that returns constants fails.
+
+### Added - Fallback registry (Part 3)
+
+- `quant/engine/fallback_registry.py`: the declared fallback registry. Every Tier
+  S except-path that returns a default is listed with its failure mode, default,
+  marker, and test id.
+- `tests/test_fallback_registry.py`: iterates the registry so a new entry without
+  a triggering test fails CI; asserts each default; proves the optimizer fallback
+  marker and the weekly-report line; and proves cache correctness (cold equals
+  warm).
+- The optimizer equal-weight fallback now sets a marker and the weekly report
+  says "optimizer fallback: equal weight" when it happened.
+
+### Added - Mutation core (Part 4)
+
+- `mutmut` added as a dev dependency, configured to mutate only the math core.
+- `scripts/mutation_report.py` prints the score and survivors; the CI threshold
+  is 90 percent.
+- `tests/mutation_survivors_allowlist.txt` and `tests/test_mutation_allowlist.py`
+  enforce that the survivor allowlist may only shrink.
+
+### Added - Mock-boundary audit (Part 5)
+
+- `tests/test_mock_boundary.py`: scans test sources for patches of the decision
+  core and fails on any; also runs the real advice pipeline, allocator, and flows
+  math unmocked.
+
+### Added - Variance and vacuity (Part 6)
+
+- `tests/test_variance_grid.py`: the scoring pipeline differentiates 50 assets
+  (span >= 30 points, no value over 20 percent); advice yields a spread of kinds;
+  the optimizer binds a constraint; alerts fire and stay silent appropriately.
+
+### Rulings
+
+- R11 (fallback scope): a tiered registry with a ratchet. Tier S (blocking,
+  register and test), Tier C (pattern allowlist, non-blocking), Tier W (warn plus
+  ratchet). Recorded in `CONTEXT.md`.
+
+### Documentation
+
+- `docs/stub_policy.md`: the legitimate-fallback-vs-stub policy for contributors.
+
+### Version
+
+- Bumped to **10.7.5** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
 ## [10.7.4] - 2026-10-02
 
 "Classification and Decision Test Grid." Versions 10.7.0 through 10.7.3

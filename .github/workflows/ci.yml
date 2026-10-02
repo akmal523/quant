@@ -25,6 +25,10 @@ jobs:
           # required so the UI tests run and the coverage floor is met.
           pip install -e ".[test,dashboard]" --extra-index-url https://download.pytorch.org/whl/cpu
 
+      - name: Static stub audit
+        # v10.7.5: fails on any blocking stub / silent-fallback finding.
+        run: python scripts/audit_stubs.py
+
       - name: Run test suite with coverage
         # Coverage floor lives in .coveragerc (fail_under). --strict-markers is
         # set in pyproject addopts. -n auto parallelises across CPU cores.
