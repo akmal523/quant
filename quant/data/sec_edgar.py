@@ -3,7 +3,10 @@ import os
 import threading
 import logging
 from sec_edgar_downloader import Downloader
-from selectolax.parser import HTMLParser
+# v10.7.6: selectolax 1.0 removed the Modest backend (selectolax.parser raises
+# ImportError). The lexbor backend is the supported parser and exists in both
+# 0.4.x and 1.0+.
+from selectolax.lexbor import LexborHTMLParser
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,7 @@ def _download_and_parse(symbol: str, download_dir: str, result_container: list) 
                         # FIX: Read up to 1MB of HTML instead of the entire multi-MB file
                         raw_html = f.read(1024 * 1024)
                         # Pillar 5: selectolax C-based parser ~50x faster than BS4
-                        tree = HTMLParser(raw_html)
+                        tree = LexborHTMLParser(raw_html)
                         result_container[0] = tree.text(separator=" ").strip()[:50000]
                         return
     except Exception:

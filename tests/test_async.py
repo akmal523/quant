@@ -19,5 +19,18 @@ def test_async_speed():
     
     print(f"Task 4 validation passed. {len(symbols)} tickers fetched in {elapsed:.2f}s.")
 
+
+def test_sec_edgar_uses_lexbor_backend():
+    """v10.7.6: selectolax 1.0 removed the Modest backend.
+
+    ``selectolax.parser`` now raises ImportError, so sec_edgar must import the
+    lexbor parser. This guards the collection-time import that broke CI.
+    """
+    import quant.data.sec_edgar as sec_edgar
+    from selectolax.lexbor import LexborHTMLParser
+
+    assert sec_edgar.LexborHTMLParser is LexborHTMLParser
+
+
 if __name__ == "__main__":
     test_async_speed()

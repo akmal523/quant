@@ -64,6 +64,14 @@ after each phase.
 - `tests/test_publish.py` is kept: it tests the Published Briefing renderer,
   not PyPI.
 
+### Fixed
+
+- `quant/data/sec_edgar.py`: use the selectolax lexbor backend. selectolax 1.0
+  removed the Modest backend (`selectolax.parser` now raises ImportError), which
+  broke test collection in CI. The lexbor parser exists in both 0.4.x and 1.0+.
+- `tests/test_async.py`: a regression test asserts sec_edgar imports the lexbor
+  parser.
+
 ### Documentation
 
 - `docs/conversation.md`: Buffett filter and tax accounting sections.
