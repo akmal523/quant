@@ -96,6 +96,7 @@ def score_alpha_asset(
     Invariants: returns a dict with tier "ALPHA", signal in {BUY, HOLD},
     rebalance_frequency "WEEKLY_FRIDAY". Pure (no I/O).
     """
+    from quant.analytics.buffett import buffett_filter
     from quant.analytics.scoring import (
         calculate_conviction,
         evaluate_structural_grade,
@@ -122,6 +123,12 @@ def score_alpha_asset(
     liquidity_score = (
         calculate_liquidity_score(symbol, price_hist) if price_hist is not None else 0.0
     )
+    # v10.7.6 (Part 1): the Buffett quality lens is additive metadata. It never
+    # changes the structural or tactical grade, so the golden backtest is unmoved.
+    close_series = None
+    if price_hist is not None and "Close" in getattr(price_hist, "columns", []):
+        close_series = price_hist["Close"]
+    buffett_result = buffett_filter(f, close_series)
     constraints = TIER_CONSTRAINTS[_TIER]
     return {
         "symbol": symbol,
@@ -134,4 +141,5 @@ def score_alpha_asset(
         "signal": "BUY" if conviction == "HIGH" else "HOLD",
         "rebalance_frequency": constraints["rebalance_frequency"],
         "tax_implications": constraints["tax_implications"],
+        "buffett": buffett_result,
     }

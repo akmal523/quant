@@ -24,6 +24,7 @@ from datetime import date, datetime
 PAGE_TODAY = "Overview"
 PAGE_PORTFOLIO = "My holdings"
 PAGE_EXPLORE = "Find investments"
+PAGE_TAX = "Tax summary"
 PAGE_SETTINGS = "Settings"
 
 # ── Section titles ────────────────────────────────────────────────────────────
@@ -820,6 +821,21 @@ CAND_ACTIVE_LIMIT = "Counts against the active limit: {used} percent of {max} pe
 CAND_BETS_LIMIT = "Counts against the bets limit: {used} percent of {max} percent used."
 CAND_EMPTY = "No candidates for {section} this month."
 
+# ── v10.7.6 (Part 1): Buffett quality filter ──────────────────────────────────
+SEC_CAND_BUFFETT = "Buffett candidates"
+BUFFETT_EMPTY = "No candidates meet Buffett quality standards this month."
+BUFFETT_SCORE_LINE = "Buffett score: {score} of 100."
+BUFFETT_MOAT_LINE = "Moat: {moat}."
+BUFFETT_REASON_LINE = "{reason}"
+BUFFETT_CHECK_MET = "{check}: met"
+BUFFETT_CHECK_NOT_MET = "{check}: not met"
+BUFFETT_LONG_REASON = "Would be a long-term holding. Fee 0 EUR on savings-plan buys."
+BUFFETT_MOAT_WIDE = "wide"
+BUFFETT_MOAT_NARROW = "narrow"
+BUFFETT_MOAT_NONE = "none"
+BUFFETT_QUALITY_LINE = "Buffett quality: {score} of 100. {reason}"
+BUFFETT_MOAT_HOLDING_LINE = "Moat: {moat}."
+
 # ── v10.7.3 (Part 1): UI truth pass — exact new strings ───────────────────────
 # Broker statement (editable) expander on My holdings.
 SEC_BROKER_STATEMENT = "Broker statement (editable)"
@@ -873,6 +889,54 @@ CAND_ANALYSIS_REASON = "{reason}"
 # Monthly "New ideas this month" candidate line (identical to Find investments).
 MONTHLY_CANDIDATE_CARD = "{name} ({symbol}): {detail}"
 
+# ── v10.7.6 (Part 2): Tax summary page ────────────────────────────────────────
+SEC_TAX_SUMMARY = "Tax summary {year}"
+TAX_YEAR_LABEL = "Tax year"
+TAX_FILING_LABEL = "Filing status"
+TAX_FILING_HELP = ("Affects the tax-free allowance: 1000 EUR single, "
+                   "2000 EUR married.")
+TAX_REALIZED_GAINS = "Realized gains"
+TAX_DIVIDENDS = "Dividends"
+TAX_TOTAL_INCOME = "Total capital income"
+TAX_ALLOWANCE = "Tax-free allowance"
+TAX_ALLOWANCE_HELP = ("The German Sparerpauschbetrag: 1000 EUR single, "
+                      "2000 EUR married.")
+TAX_ALLOWANCE_USED = "Allowance used"
+TAX_ALLOWANCE_REMAINING = "Allowance remaining"
+TAX_TAXABLE_INCOME = "Taxable income"
+TAX_TAXABLE_HELP = "Income above the tax-free allowance."
+TAX_ESTIMATED_TAX = "Estimated tax"
+TAX_ESTIMATED_HELP = ("At 26.375 percent (Abgeltungssteuer plus solidarity "
+                      "surcharge).")
+SEC_TAX_HARVEST = "Losses you can use to lower tax"
+TAX_HARVEST_COVERED = ("Your gains are covered by the tax-free allowance. You "
+                       "have {remaining} remaining. No harvesting needed.")
+TAX_HARVEST_NONE = "No positions with unrealized losses to harvest."
+TAX_HARVEST_INTRO = ("Consider selling these positions before year-end to offset "
+                     "gains and reduce taxes:")
+TAX_HARVEST_TITLE = "{name} - tax savings {savings}"
+TAX_HARVEST_LOSS = "Unrealized loss: {loss}"
+TAX_HARVEST_SAVINGS = "Tax savings: {savings}"
+TAX_HARVEST_REASON = "{reason}"
+TAX_HARVEST_NOTE = ("Selling this position reduces your taxable income by "
+                    "{loss}.")
+SEC_TAX_RECORD = "Record a trade"
+TAX_RECORD_DATE = "Date"
+TAX_RECORD_SYMBOL = "Symbol"
+TAX_RECORD_ACTION = "Action"
+TAX_RECORD_SHARES = "Shares"
+TAX_RECORD_PRICE = "Price per share (EUR)"
+TAX_RECORD_DIVIDEND = "Dividend amount (EUR)"
+TAX_RECORD_FEE = "Fee (EUR)"
+TAX_RECORD_PNL = "Realized profit or loss (EUR)"
+TAX_RECORD_PNL_HELP = "Profit or loss from this sale."
+BTN_RECORD_TRADE = "Record trade"
+TAX_RECORD_SAVED = "Recorded: {action} {symbol} for {amount}."
+TAX_RECORD_NEED_SYMBOL = "Choose a symbol first."
+TAX_RECORD_FAILED = "Could not record the trade. Try again."
+SEC_TAX_EXPORT = "Export"
+BTN_EXPORT_TAX = "Export tax report CSV"
+
 # Forbidden tokens (Section 11): the OLD vocabulary. The copy test fails if any
 # of these appears in rendered pages or the briefing.
 FORBIDDEN_TOKENS = (
@@ -912,3 +976,12 @@ _MONTHLY_LEG_KINDS = {
 def monthly_leg_kind(kind: str) -> str:
     """Map an allocator leg kind to its plain tier word."""
     return _MONTHLY_LEG_KINDS.get(str(kind), TIER_ALPHA)
+
+
+# v10.7.6 (Part 1): the plain word for a Buffett moat estimate.
+_MOAT_WORDS = {"wide": BUFFETT_MOAT_WIDE, "narrow": BUFFETT_MOAT_NARROW}
+
+
+def moat_word(moat: str | None) -> str:
+    """Map a Buffett moat estimate to its plain display word."""
+    return _MOAT_WORDS.get(str(moat), BUFFETT_MOAT_NONE)

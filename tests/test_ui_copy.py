@@ -51,6 +51,7 @@ _PAGE_FILE = {
     C.PAGE_TODAY: "pages/today.py",
     C.PAGE_PORTFOLIO: "pages/portfolio.py",
     C.PAGE_EXPLORE: "pages/explore.py",
+    C.PAGE_TAX: "pages/tax.py",
     C.PAGE_SETTINGS: "pages/settings.py",
 }
 
@@ -63,7 +64,7 @@ def _run_page(page: str) -> AppTest:
 
 
 @pytest.mark.parametrize("page", [C.PAGE_TODAY, C.PAGE_PORTFOLIO,
-                                  C.PAGE_EXPLORE, C.PAGE_SETTINGS])
+                                  C.PAGE_EXPLORE, C.PAGE_TAX, C.PAGE_SETTINGS])
 def test_no_banned_tokens_on_any_page(page):
     at = _run_page(page)
     assert not at.exception, f"{page} raised: {at.exception}"

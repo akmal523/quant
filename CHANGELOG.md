@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.7.6] - 2026-10-06
+
+"Buffett Filter, Tax Accounting, and Remove the Noise." This version adds two
+practical features and removes infrastructure that served no purpose for a
+local-first personal tool. The Buffett filter scores a stock on the fundamental
+quality Warren Buffett looks for; the tax ledger tracks realized gains and
+dividends against the German Sparerpauschbetrag. The PyPI publishing and
+git-cliff release workflows are deleted: the tool is installed with
+`pip install -e .`, and its data never leaves the machine. All v10.7.0 hard
+constraints remain: no emojis, broker is truth, plain English via
+`quant/ui/copy.py`, argparse-and-print CLI, golden files unmoved, suite green
+after each phase.
+
+### Added - Buffett filter (Part 1)
+
+- `quant/analytics/buffett.py`: `buffett_filter` scores a stock on five
+  criteria (P/E below 25, ROE above 15 percent, ROIC above 10 percent,
+  debt-to-equity below 1.0, stable three-year earnings) and estimates an
+  economic moat (wide, narrow, or none). Pure; never raises on missing data.
+- `quant/portfolio/alpha.py`: `score_alpha_asset` attaches the Buffett result
+  as additive metadata. It never changes the structural or tactical grade, so
+  the golden backtest is unmoved.
+- Find investments: a "Buffett candidates" section between the long-term and
+  active sections. My holdings: a Buffett score column and a per-holding
+  quality line. The allocator appends a Buffett note to the long-term leg
+  reason when the holding passes.
+- `tests/test_buffett.py`: direction, thresholds, earnings stability, moat,
+  the additive integration, and the allocator note.
+
+### Added - Tax accounting (Part 2)
+
+- `trades` table in `quant/data/database.py`: a tax ledger separate from
+  `trade_log` (which is TCA). One row per buy, sell, or dividend, with the
+  realized PnL for sells. `trade_log` is never renamed, so TCA and the weekly
+  trade guardrail keep working.
+- `quant/portfolio/tax_accounting.py`: `calculate_yearly_tax_summary` (realized
+  gains, dividends, Sparerpauschbetrag usage, taxable income, estimated tax at
+  26.375 percent), `suggest_tax_loss_harvesting`, `record_trade`, and the
+  realized-gains/losses helpers.
+- `quant/portfolio/tax_optimizer.py`: the realized-gains and realized-losses
+  placeholders now read the trades ledger; there is one tax engine, not two.
+- Tax summary page (`quant/pages/tax.py` plus `page_tax` in
+  `quant/ui/render.py`): the yearly summary, the harvesting suggestions, a
+  record-trade form, and a CSV export. Added to the navigation.
+- The quick-events form on My holdings mirrors each event into the tax ledger.
+- `tests/test_tax_accounting.py`: the allowance math, the married allowance,
+  the harvesting gate, the ledger write/read, and the TaxOptimizer wiring.
+
+### Removed - Unused infrastructure (Part 3)
+
+- `.github/workflows/publish.yml` and `.github/workflows/release.yml` deleted.
+  The project is a local-first personal tool; it is not published to PyPI.
+- `cliff.toml` deleted (the git-cliff config was used only by the release
+  workflow).
+- `tests/test_publish.py` is kept: it tests the Published Briefing renderer,
+  not PyPI.
+
+### Documentation
+
+- `docs/conversation.md`: Buffett filter and tax accounting sections.
+- `README.md`: a "What's new in 10.7.6" block and a tax accounting section.
+- `docs/migration_v10.7.6.md`: the migration note.
+- `CONTEXT.md`: v10.7.6 domain additions and rulings.
+
+### Version
+
+- Bumped to **10.7.6** (`quant/__init__.py`, `pyproject.toml`).
+
+---
+
 ## [10.7.5] - 2026-10-02
 
 "Stub and Silent-Fallback Detection Grid." The suite is large and green, which

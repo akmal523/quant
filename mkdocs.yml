@@ -25,6 +25,7 @@ nav:
   - Stub and fallback policy: stub_policy.md
   - Your first week: first_week.md
   - Backup and restore: backup.md
+  - Migration (v10.7.6): migration_v10.7.6.md
   - Migration (v10.7.4): migration_v10.7.4.md
   - Migration (v10.7.0): migration_v10.7.0.md
   - Migration (v10.6.2): migration_v10.6.2.md

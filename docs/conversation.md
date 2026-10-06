@@ -91,3 +91,38 @@ The laptop sleeps. Edge-triggered alerts would be missed. Every condition
 inspects the current state, so a monitoring gap delays an alert but never loses
 it. The exact gap line is: "Monitoring gap: no runs for N days; conditions
 evaluated on the latest data."
+
+## Buffett filter (v10.7.6)
+
+The system scores stocks on Buffett-style fundamental quality, a third lens
+alongside the structural and tactical grades:
+
+- high ROE and ROIC from genuine profitability;
+- low debt (debt-to-equity below 1.0);
+- a reasonable price (P/E below 25);
+- stable earnings over three years;
+- an economic moat (a durable competitive advantage).
+
+A stock that meets at least four of the five criteria appears in the "Buffett
+candidates" section on Find investments, and its score and moat appear in the
+My holdings table and expander. The filter is additive: it never changes the
+structural or tactical grade, and it is not applied to ETFs or commodities,
+which have no company fundamentals.
+
+## Tax accounting (v10.7.6)
+
+The system tracks realized gains and dividends through the year, applies the
+German Sparerpauschbetrag (1000 EUR tax-free allowance for a single filer,
+2000 EUR for a married couple), and estimates the Abgeltungssteuer at 26.375
+percent (25 percent plus the 5.5 percent solidarity surcharge).
+
+The Tax summary page shows:
+
+- realized gains and dividends for the year;
+- how much of the tax-free allowance is used and how much remains;
+- the taxable income and the estimated tax;
+- losses you can use to lower tax (selling losers before year-end to offset
+  gains).
+
+Record a trade on the Tax summary page, or use the quick-events form on My
+holdings; both write to the same ledger.

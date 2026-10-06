@@ -63,6 +63,21 @@ def _leg(symbol, name, amount, kind, reason, fee):
     }
 
 
+def _buffett_note(holding: dict) -> str:
+    """A short Buffett-quality suffix for a long-term leg reason (v10.7.6).
+
+    Empty unless the holding carries a passing Buffett result, so callers that
+    do not attach one (and the golden backtest) see the reason unchanged.
+    """
+    b = holding.get("buffett") or {}
+    if not b.get("passes_filter"):
+        return ""
+    moat = b.get("moat")
+    if moat:
+        return f" It passes the Buffett quality filter ({moat} moat)."
+    return " It passes the Buffett quality filter."
+
+
 def allocate(
     budget_eur: float,
     holdings: list[dict] | None = None,
@@ -97,7 +112,8 @@ def allocate(
             h = max(fortress, key=lambda x: _num(x.get("target_weight")))
             legs.append(_leg(
                 h.get("symbol"), h.get("name"), long_base, "long_term",
-                "long-term part is on target; regular buying is fine.",
+                "long-term part is on target; regular buying is fine."
+                + _buffett_note(h),
                 SPARPLAN_BUY_FEE_EUR))
         else:
             # R10: the long base goes to the SINGLE largest-gap holding; ties
@@ -113,7 +129,7 @@ def allocate(
             reason = (
                 f"{h.get('name')} is {pct:.0f} percent of invested vs "
                 f"{target_pct:.0f} percent target, a gap of {gap * 100:.0f} points; "
-                f"new long-term money goes here.")
+                f"new long-term money goes here." + _buffett_note(h))
             legs.append(_leg(
                 h.get("symbol"), h.get("name"), long_base, "long_term",
                 reason, SPARPLAN_BUY_FEE_EUR))

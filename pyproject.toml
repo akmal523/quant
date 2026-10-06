@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quant-ai"
-version = "10.7.5"
+version = "10.7.6"
 description = "Institutional-grade systematic equity pipeline for a EUR-native family office."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -75,6 +75,7 @@ quant = "quant.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/akmal523/quant"
+Documentation = "https://akmal523.github.io/quant"
 Repository = "https://github.com/akmal523/quant"
 Changelog = "https://github.com/akmal523/quant/blob/main/CHANGELOG.md"
 
@@ -113,7 +114,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 known-first-party = ["quant"]
 
 [tool.bumpversion]
-current_version = "10.7.5"
+current_version = "10.7.6"
 commit = true
 tag = true
 tag_name = "v{new_version}"

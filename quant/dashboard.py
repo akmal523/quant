@@ -29,6 +29,7 @@ _NAV = [
     ("pages/monthly.py", C.PAGE_MONTHLY, False),
     ("pages/portfolio.py", C.PAGE_PORTFOLIO, False),
     ("pages/explore.py", C.PAGE_EXPLORE, False),
+    ("pages/tax.py", C.PAGE_TAX, False),
     ("pages/settings.py", C.PAGE_SETTINGS, False),
 ]
 

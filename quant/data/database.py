@@ -468,6 +468,27 @@ def init_db() -> None:
         )
     """)
 
+    # ── v10.7.6 (Part 2): Tax ledger (Sparerpauschbetrag tracking) ────────────
+    # A SEPARATE ledger from trade_log (which is TCA: signal vs fill slippage).
+    # One row per buy, sell, or dividend, with the realized PnL for sells. The
+    # tax summary reads this table; trade_log is never renamed or touched, so
+    # TCA and the weekly-trade guardrail keep working unchanged.
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS trades_id_seq START 1")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            id BIGINT DEFAULT nextval('trades_id_seq'),
+            date DATE,
+            symbol VARCHAR,
+            action VARCHAR,
+            shares DOUBLE,
+            price_eur DOUBLE,
+            amount_eur DOUBLE,
+            fee_eur DOUBLE DEFAULT 0,
+            realized_pnl_eur DOUBLE,
+            created_at TIMESTAMP DEFAULT now()
+        )
+    """)
+
     # ── v10.4.0 (Phase 2): Daily theoretical portfolio snapshot ───────────────
     # The reconciliation engine diffs this against the Trade Republic CSV export
     # to detect divergence (missing dividend, unexecuted limit order).

@@ -89,12 +89,16 @@ class TaxOptimizer:
         return pd.DataFrame(candidates).sort_values("Net_Benefit", ascending=False)
 
     def _get_realized_gains_ytd(self) -> float:
-        """Realized gains YTD. Placeholder — wire to a trade log if available."""
-        return 0.0
+        """Realized gains YTD from the trades ledger (v10.7.6, Part 2)."""
+        from quant.portfolio.tax_accounting import realized_gains_ytd
+
+        return realized_gains_ytd()
 
     def _get_realized_losses_ytd(self) -> float:
-        """Realized losses YTD. Placeholder — wire to a trade log if available."""
-        return 0.0
+        """Realized losses YTD from the trades ledger (v10.7.6, Part 2)."""
+        from quant.portfolio.tax_accounting import realized_losses_ytd
+
+        return realized_losses_ytd()
 
     def _find_correlated_replacement(self, symbol: str) -> str:
         """Find a similar ETF to maintain exposure after a tax-loss sale."""

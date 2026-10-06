@@ -728,8 +728,7 @@ cards correct.
    cache-hit). Remains: live manual verify (Explore AMZN words after cache
    expiry; doctor `scorer model > 0`).
 5. Follow-up issues (non-gating): capture `docs/assets/today.png`; curated ISINs
-   beyond 5J50.DE; legacy ruff E/I/N; PyPI name + Trusted Publishing; GitHub
-   topics; coverage ratchet toward 80.
+   beyond 5J50.DE; legacy ruff E/I/N; GitHub topics; coverage ratchet toward 80.
 6. **Step 3 — launch**: exact topics + description + Pages link, repo-metadata
    and follow-up-issue `gh` commands, the 10.6.0 launch post + demo script. Live
    briefing link verified HTTP 200 (https://akmal523.github.io/quant/). Repo
@@ -1200,3 +1199,34 @@ conservative with the user's money):
   flows, sizing, scoring, optimizer, risk). Fakes are allowed only at true I/O
   boundaries and heavy external solvers.
 - **Golden backtest**: unmoved.
+
+---
+
+## v10.7.6 Domain Additions ("Buffett Filter, Tax Accounting, and Remove the Noise")
+
+### Glossary
+
+| Term | Canonical Meaning |
+|------|-------------------|
+| **Buffett filter** | A five-check fundamental quality lens (P/E, ROE, ROIC, debt-to-equity, stable earnings) with a moat estimate. Additive metadata; never changes the structural or tactical grade. |
+| **Moat** | The estimated competitive advantage: wide (all five checks and ROE above 20 percent), narrow (four checks), or none. |
+| **Sparerpauschbetrag** | The German annual tax-free capital-gains allowance: 1000 EUR single, 2000 EUR married. |
+| **Abgeltungssteuer** | The German flat capital-gains tax: 25 percent plus the 5.5 percent solidarity surcharge = 26.375 percent. |
+| **trades** | The tax ledger (buy/sell/dividend with realized PnL). Separate from `trade_log`, which is TCA. |
+| **Tax-loss harvesting** | Selling a loser to offset realized gains within the same year. Germany has no wash-sale rule. |
+
+### v10.7.6 rulings
+
+- **R12 (Buffett filter is additive).** The filter attaches to `score_alpha_asset`
+  as a `buffett` key. It never changes the structural or tactical grade, so the
+  golden backtest is unmoved. It is not applied to ETFs or commodities, which
+  have no company fundamentals.
+- **R13 (one tax engine).** `quant/portfolio/tax_accounting.py` is the single
+  source of truth for realized gains and losses. `TaxOptimizer` reads them
+  through its helpers; the old placeholders are gone.
+- **R14 (trades is separate from trade_log).** The tax ledger is a new `trades`
+  table. `trade_log` (TCA) is never renamed, so TCA and the weekly-trade
+  guardrail keep working.
+- **R15 (no PyPI).** The project is a local-first personal tool. The PyPI
+  publishing and git-cliff release workflows are removed; installation is
+  `pip install -e .`.

@@ -57,20 +57,18 @@ first-week checklist is in [`docs/first_week.md`](docs/first_week.md).
 
 ---
 
-## What's new in 10.7.2
+## What's new in 10.7.6
 
-- **Real-world hardening** — one shared runner lock with ownership and takeover
-  (a dead process is taken over, a runaway one is taken over with a warning, a
-  live one is respected), short writer transactions with a bounded retry, and a
-  plain, retryable failure when the database is busy.
-- **News pillar, demoted honestly** — `quant news-doctor` diagnoses why the
-  heavy FinBERT stack contributes nothing; when it does, the pillar is marked
-  absent, torch is never imported, and one honest line explains the tactical
-  score.
-- **Backup** — `quant backup` writes a restorable tar.gz of your state and keeps
-  the five most recent; the system reminds you at most once a week.
-- **First-week setup** — `quant setup` walks six idempotent steps and prints the
-  first-week checklist; `quant setup --check` prints the statuses.
+- **Buffett filter** — stocks are scored on Buffett-style fundamental quality
+  (ROE, ROIC, debt, P/E, stable earnings, and an economic moat). Passing stocks
+  appear in a "Buffett candidates" section on Find investments and in the My
+  holdings table and expander.
+- **Tax accounting** — a Tax summary page tracks realized gains and dividends,
+  applies the German Sparerpauschbetrag (1000 EUR single, 2000 EUR married),
+  estimates the Abgeltungssteuer at 26.375 percent, and lists losses you can use
+  to lower tax.
+- **Removed unused infrastructure** — the PyPI publishing and git-cliff release
+  workflows are gone. This is a local-first tool, installed with `pip install -e .`.
 
 Older releases are in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -148,6 +146,21 @@ quant backup
 Writes a restorable `data/backups/quant-backup-YYYYMMDD-HHMM.tar.gz` and keeps
 the five most recent. See [`docs/backup.md`](docs/backup.md) for the contents and
 the restore procedure.
+
+## Tax accounting
+
+The Tax summary page tracks German capital gains tax (Abgeltungssteuer) with the
+Sparerpauschbetrag:
+
+- **Tax-free allowance:** 1000 EUR per year (2000 EUR for a married couple).
+- **Tax rate:** 26.375 percent (25 percent plus the 5.5 percent solidarity
+  surcharge).
+- **Tracking:** realized gains from sells plus dividends.
+- **Losses you can use to lower tax:** suggestions to sell losers before
+  year-end to offset gains.
+
+Record a trade on the Tax summary page, or use the quick-events form on My
+holdings. Both write to the same ledger.
 
 ## Advanced: command line
 

@@ -25,6 +25,7 @@ import pandas as pd
 import streamlit as st
 
 from quant import __version__, paths
+from quant.analytics.buffett import buffett_filter
 from quant.config import RISK_PROFILE_DESCRIPTIONS, RISK_PROFILES, STALE_DATA_DAYS
 from quant.data.database import read_only_connection
 from quant.data.news import load_news
@@ -94,6 +95,31 @@ def _display_name(symbol: str) -> str:
         return display_name(symbol)
     except Exception:  # noqa: BLE001
         return str(symbol)
+
+
+def _fundamentals_for(symbol: str) -> dict:
+    """Cached fundamentals for a symbol mapped to the Buffett keys (no network).
+
+    v10.7.6 (Part 1): the UI must never trigger a live fundamentals fetch, so
+    this reads the local cache table only. ROIC is not cached, so that check is
+    honestly reported as not met when the data is absent.
+    """
+    df = q("SELECT pe, roe, debt_to_equity FROM fundamentals WHERE symbol = ?", [symbol])
+    if df is None or df.empty:
+        return {}
+    r = df.iloc[0]
+    return {
+        "PE": r.get("pe"),
+        "ROE": r.get("roe"),
+        "DebtToEquity": r.get("debt_to_equity"),
+    }
+
+
+def _buffett_for(symbol: str) -> dict:
+    """Buffett quality result for a symbol from cached data (v10.7.6, Part 1)."""
+    close = q("SELECT Close FROM market_history WHERE Symbol = ? ORDER BY Date", [symbol])
+    series = close["Close"] if close is not None and not close.empty else None
+    return buffett_filter(_fundamentals_for(symbol), series)
 
 
 def latest_bar_date() -> str:
@@ -969,12 +995,17 @@ def _render_holdings_table(portfolio, holdings) -> None:
             d = disp.get(sym, {})
             if d.get("estimated"):
                 estimated_any = True
+            # v10.7.6 (Part 1): the Buffett score is shown only for equities with
+            # cached fundamentals; ETFs and commodities have no company data.
+            has_fund = bool(_fundamentals_for(sym))
+            buffett = _buffett_for(sym) if has_fund else None
             rows.append({
                 "Name": _display_name(sym),
                 "Value (EUR)": C.fmt_eur(d.get("value", r.get("Current_Value_EUR"))),
                 "Profit (EUR)": C.fmt_eur(r.get("Broker_PnL_EUR")),
                 "Structure": scores.get("structural_grade") or "",
                 "Tactics": scores.get("tactical_grade") or "",
+                "Buffett": f"{buffett['score']:.0f}" if buffett else "",
                 "Verdict": _verdict_word(verdict_by_sym.get(sym)),
             })
     # v10.7.3 (Part 3.4): a buy for an unheld symbol appears as an estimated
@@ -984,7 +1015,7 @@ def _render_holdings_table(portfolio, holdings) -> None:
             "Name": _display_name(sym),
             "Value (EUR)": C.fmt_eur(d["value"]),
             "Profit (EUR)": "",
-            "Structure": "", "Tactics": "",
+            "Structure": "", "Tactics": "", "Buffett": "",
             "Verdict": C.ESTIMATED_PENDING,
         })
         estimated_any = True
@@ -1033,6 +1064,13 @@ def _render_holding_expanders(portfolio, holdings) -> None:
             st.write(C.TIER_LINE.format(tier=h.get("tier_word") or C.tier_word("ALPHA")))
             st.write(C.WHY_VERDICT_LINE.format(
                 why=h.get("reason") or "within its target band."))
+            # v10.7.6 (Part 1): the Buffett quality lens for equities only.
+            if _fundamentals_for(sym):
+                buffett = _buffett_for(sym)
+                st.write(C.BUFFETT_QUALITY_LINE.format(
+                    score=f"{buffett['score']:.0f}", reason=buffett.get("reason", "")))
+                st.write(C.BUFFETT_MOAT_HOLDING_LINE.format(
+                    moat=C.moat_word(buffett.get("moat"))))
 
 
 def _render_split_lines(portfolio) -> None:
@@ -1089,12 +1127,22 @@ def _render_quick_events(portfolio) -> None:
             try:
                 from quant.data.database import connect_with_retry
                 from quant.engine import flows
+                from quant.portfolio.tax_accounting import record_trade
 
                 conn = connect_with_retry()
                 try:
                     flows.record_flow(conn, when, kind, amount, symbol)
                 finally:
                     conn.close()
+                # v10.7.6 (Part 2): mirror the event into the tax ledger. The
+                # flows connection is closed first, so only one writer is open.
+                record_trade(
+                    date=when.isoformat(),
+                    symbol=symbol,
+                    action=kind,
+                    amount_eur=float(amount),
+                    fee_eur=1.0 if kind == "buy" else 0.0,
+                )
                 st.success(C.QUICK_EVENT_SAVED.format(
                     type=kind, amount=f"{amount:.0f}", name=_display_name(symbol),
                     date=C.fmt_date(when)))
@@ -1492,6 +1540,30 @@ def _render_candidate_card(c: dict, section: str, active_used: float,
                 max=f"{BETS_MAX * 100:.0f}"))
 
 
+def _render_buffett_candidates(cands: dict) -> None:
+    """Buffett quality candidates among the funnel survivors (v10.7.6, Part 1)."""
+    st.subheader(C.SEC_CAND_BUFFETT)
+    pool = list(cands.get("long", [])) + list(cands.get("active", []))
+    passing: list[tuple[dict, dict]] = []
+    for c in pool:
+        result = _buffett_for(c["symbol"])
+        if result.get("passes_filter"):
+            passing.append((c, result))
+    if not passing:
+        st.caption(C.BUFFETT_EMPTY)
+        return
+    for c, result in passing[:5]:
+        st.write(f"{c['name']} ({c['symbol']})")
+        with st.expander(C.CAND_VIEW_ANALYSIS):
+            st.write(C.BUFFETT_SCORE_LINE.format(score=f"{result['score']:.0f}"))
+            st.write(C.BUFFETT_MOAT_LINE.format(moat=C.moat_word(result.get("moat"))))
+            st.write(C.BUFFETT_REASON_LINE.format(reason=result.get("reason", "")))
+            for check, ok in result.get("checks", {}).items():
+                line = C.BUFFETT_CHECK_MET if ok else C.BUFFETT_CHECK_NOT_MET
+                st.write(line.format(check=check))
+            st.caption(C.BUFFETT_LONG_REASON)
+
+
 def _render_candidates() -> None:
     """Three grouped candidate sections (v10.7.1, Section 10.4)."""
     from quant.portfolio.tier_manager import load_tiers_safe, tier_map
@@ -1528,6 +1600,10 @@ def _render_candidates() -> None:
             _render_candidate_card(c, "long", active_used, bets_used, total)
     else:
         st.caption(C.CAND_EMPTY.format(section="long-term"))
+
+    # v10.7.6 (Part 1): the Buffett quality lens sits between the long-term and
+    # active candidate sections.
+    _render_buffett_candidates(cands)
 
     st.subheader(C.SEC_CAND_ACTIVE)
     if cands["active"]:
@@ -1678,6 +1754,133 @@ def page_explore() -> None:
         st.write(f"Route: {'savings plan' if cls in ('ETF', 'CASH') else 'one-off order'}")
     else:
         st.warning(C.HOW_TO_BUY_ISIN_MISSING.format(name=name))
+
+
+# ── Page: Tax summary (v10.7.6, Part 2) ───────────────────────────────────────
+
+def page_tax() -> None:
+    """Render the Tax summary page (v10.7.6, Part 2)."""
+    from quant.portfolio.tax_accounting import (
+        calculate_yearly_tax_summary,
+        record_trade,
+        suggest_tax_loss_harvesting,
+    )
+
+    st.title(C.PAGE_TAX)
+    current_year = _date.today().year
+    year = st.selectbox(C.TAX_YEAR_LABEL, [current_year, current_year - 1], index=0)
+    filing = st.radio(C.TAX_FILING_LABEL, ["single", "married"], index=0,
+                      help=C.TAX_FILING_HELP)
+    summary = calculate_yearly_tax_summary(year, filing)
+
+    st.subheader(C.SEC_TAX_SUMMARY.format(year=year))
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(C.TAX_REALIZED_GAINS, C.fmt_eur(summary["realized_gains_eur"]))
+        st.metric(C.TAX_DIVIDENDS, C.fmt_eur(summary["dividends_eur"]))
+        st.metric(C.TAX_TOTAL_INCOME, C.fmt_eur(summary["total_capital_income_eur"]))
+    with col2:
+        st.metric(C.TAX_ALLOWANCE, C.fmt_eur(summary["sparerpauschbetrag_eur"]),
+                  help=C.TAX_ALLOWANCE_HELP)
+        st.metric(C.TAX_ALLOWANCE_USED,
+                  C.fmt_eur(summary["sparerpauschbetrag_used_eur"]))
+        st.metric(C.TAX_ALLOWANCE_REMAINING,
+                  C.fmt_eur(summary["sparerpauschbetrag_remaining_eur"]))
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(C.TAX_TAXABLE_INCOME, C.fmt_eur(summary["taxable_income_eur"]),
+                  help=C.TAX_TAXABLE_HELP)
+    with col2:
+        st.metric(C.TAX_ESTIMATED_TAX, C.fmt_eur(summary["estimated_tax_eur"]),
+                  help=C.TAX_ESTIMATED_HELP)
+
+    st.subheader(C.SEC_TAX_HARVEST)
+    holdings = load_portfolio()
+    suggestions = suggest_tax_loss_harvesting(year, holdings)
+    if not suggestions:
+        if summary["sparerpauschbetrag_remaining_eur"] > 0:
+            st.info(C.TAX_HARVEST_COVERED.format(
+                remaining=C.fmt_eur(summary["sparerpauschbetrag_remaining_eur"])))
+        else:
+            st.info(C.TAX_HARVEST_NONE)
+    else:
+        st.write(C.TAX_HARVEST_INTRO)
+        for s in suggestions:
+            with st.expander(C.TAX_HARVEST_TITLE.format(
+                    name=s["name"], savings=C.fmt_eur(s["tax_savings_eur"]))):
+                st.write(C.TAX_HARVEST_LOSS.format(
+                    loss=C.fmt_eur(s["unrealized_loss_eur"])))
+                st.write(C.TAX_HARVEST_SAVINGS.format(
+                    savings=C.fmt_eur(s["tax_savings_eur"])))
+                st.write(C.TAX_HARVEST_REASON.format(reason=s["reason"]))
+                st.caption(C.TAX_HARVEST_NOTE.format(
+                    loss=C.fmt_eur(s["unrealized_loss_eur"])))
+
+    st.subheader(C.SEC_TAX_RECORD)
+    with st.form("record_trade_form"):
+        trade_date = st.date_input(C.TAX_RECORD_DATE, value=_date.today())
+        trade_symbol = st.text_input(C.TAX_RECORD_SYMBOL)
+        trade_action = st.selectbox(C.TAX_RECORD_ACTION, ["buy", "sell", "dividend"])
+        if trade_action != "dividend":
+            trade_shares = st.number_input(C.TAX_RECORD_SHARES, min_value=0.0,
+                                           step=0.001)
+            trade_price = st.number_input(C.TAX_RECORD_PRICE, min_value=0.0,
+                                          step=0.01)
+            trade_amount = trade_shares * trade_price
+            default_fee = 1.0 if trade_action == "buy" else 0.0
+            trade_fee = st.number_input(C.TAX_RECORD_FEE, min_value=0.0,
+                                        value=default_fee, step=0.01)
+        else:
+            trade_amount = st.number_input(C.TAX_RECORD_DIVIDEND, min_value=0.0,
+                                           step=0.01)
+            trade_shares = None
+            trade_price = None
+            trade_fee = 0.0
+        trade_pnl = None
+        if trade_action == "sell":
+            trade_pnl = st.number_input(C.TAX_RECORD_PNL, value=0.0, step=0.01,
+                                        help=C.TAX_RECORD_PNL_HELP)
+        submitted = st.form_submit_button(C.BTN_RECORD_TRADE)
+        if submitted:
+            if not trade_symbol:
+                st.warning(C.TAX_RECORD_NEED_SYMBOL)
+            else:
+                try:
+                    record_trade(
+                        date=trade_date.isoformat(),
+                        symbol=trade_symbol,
+                        action=trade_action,
+                        amount_eur=float(trade_amount),
+                        shares=trade_shares,
+                        price_eur=trade_price,
+                        fee_eur=float(trade_fee),
+                        realized_pnl_eur=trade_pnl,
+                    )
+                    st.success(C.TAX_RECORD_SAVED.format(
+                        action=trade_action, symbol=trade_symbol,
+                        amount=C.fmt_eur(float(trade_amount))))
+                    st.rerun()
+                except Exception:  # noqa: BLE001
+                    st.warning(C.TAX_RECORD_FAILED)
+
+    st.subheader(C.SEC_TAX_EXPORT)
+    report = pd.DataFrame([{
+        "Year": year,
+        "Realized gains (EUR)": summary["realized_gains_eur"],
+        "Dividends (EUR)": summary["dividends_eur"],
+        "Total capital income (EUR)": summary["total_capital_income_eur"],
+        "Tax-free allowance (EUR)": summary["sparerpauschbetrag_eur"],
+        "Allowance used (EUR)": summary["sparerpauschbetrag_used_eur"],
+        "Taxable income (EUR)": summary["taxable_income_eur"],
+        "Estimated tax (EUR)": summary["estimated_tax_eur"],
+    }])
+    st.download_button(
+        C.BTN_EXPORT_TAX,
+        data=report.to_csv(index=False),
+        file_name=f"tax_report_{year}.csv",
+        mime="text/csv",
+    )
 
 
 # ── Page: Settings (P7) ───────────────────────────────────────────────────────
