@@ -18,9 +18,17 @@ outputs/run_*/
 site/
 *.csv
 # Track the curated static inputs (now under data/).
-!data/portfolio.csv
 !data/broker_registry.csv
 !data/watchlist.csv
+# v10.8.0 (1.1): neutral examples ship so a fresh clone starts cleanly.
+!data/examples/
+
+# v10.8.0 (1.1): user state is NEVER tracked. These hold the owner's real
+# positions, cash, tiers and history. Neutral examples ship in data/examples/.
+data/portfolio.csv
+data/account.yaml
+data/tiers.csv
+data/backups/
 
 # Downloaded Data & Logs
 sec_filings/
