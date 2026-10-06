@@ -12,8 +12,6 @@ says in plain language what to add, trim, or leave alone. It advises and
 explains; you place the orders in the broker app. The browser app is the
 product; the terminal is an optional power tool.
 
-Live briefing: https://akmal523.github.io/quant/
-
 > **New here?** Read [`CONTEXT.md`](CONTEXT.md) for the domain vocabulary, data
 > contracts, architecture map, and the full **v10.6.0 cycle ledger** (every
 > decision, bug, and guard since 10.5.2).
@@ -170,7 +168,7 @@ The terminal is optional. Three commands cover the daily cycle:
 |:--|:--|
 | `quant update` | Refresh market data (step 1) |
 | `quant run` | Review the portfolio and write the briefing (step 2) |
-| `quant publish` | Render the static Published Briefing for the web |
+| `quant publish` | Render the briefing to a local HTML file |
 | `quant doctor` | Read-only diagnosis (registry, names, news, search, advice) |
 | `quant news-doctor` | Read-only news-pillar diagnostic (`--enable` forces it active) |
 | `quant backup` | Archive the user-owned state (`--include-secrets` adds notify.toml) |
