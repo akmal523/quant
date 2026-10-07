@@ -883,6 +883,21 @@ def _estimated_only_positions(portfolio) -> dict:
     return out
 
 
+def _score_cell(value) -> str:
+    """A score cell as a string, so the column is Arrow-compatible.
+
+    Mixing floats and "" in one column makes Streamlit's Arrow conversion fail
+    ("Could not convert '' ... to double"). Formatting every cell as a string
+    keeps the column homogeneous.
+    """
+    if value is None or value == "":
+        return ""
+    try:
+        return f"{float(value):.0f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _render_holdings_table(portfolio, holdings) -> None:
     """Block 2: the holdings table (no per-share columns, B7).
 
@@ -919,8 +934,8 @@ def _render_holdings_table(portfolio, holdings) -> None:
                 "Name": _display_name(sym),
                 "Value (EUR)": C.fmt_eur(d.get("value", r.get("Current_Value_EUR"))),
                 "Profit (EUR)": C.fmt_eur(r.get("Broker_PnL_EUR")),
-                "Structure": scores.get("structural_grade") or "",
-                "Tactics": scores.get("tactical_grade") or "",
+                "Structure": _score_cell(scores.get("structural_grade")),
+                "Tactics": _score_cell(scores.get("tactical_grade")),
                 "Buffett": f"{buffett['score']:.0f}" if buffett else "",
                 "Verdict": _verdict_word(verdict_by_sym.get(sym)),
             })

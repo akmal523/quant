@@ -158,21 +158,40 @@ def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     lock. Every UI read opens ``read_only=True`` and closes immediately.
     Invariants: the connection is closed even if the body raises.
 
+    v10.8.0: a foreign writer (a running ``quant update``/``daily``, or a stale
+    process) holds the file lock, so the read-only connect fails with a
+    "Conflicting lock" error. Retry the read-only connect with a short backoff
+    instead of escalating to a write connection (which would fight the writer).
+
     Fallback: DuckDB forbids mixing read-only and read-write connections to the
     same file within one process. If a writer already holds the file in this
-    process (tests, or an in-process pipeline call), open a short-lived
-    read-write connection instead. It is still opened per call and closed on
-    exit, so no persistent connection is held.
+    process (tests, or an in-process pipeline call), the connect fails with a
+    non-lock error; open a short-lived read-write connection instead. It is
+    still opened per call and closed on exit, so no persistent connection is
+    held.
     """
-    try:
-        conn = duckdb.connect(DB_PATH, read_only=True)
-    except Exception:  # noqa: BLE001
-        # Same config as the in-process writer, else DuckDB rejects the connect.
-        conn = duckdb.connect(DB_PATH, config={"access_mode": "READ_WRITE"})
-    try:
-        yield conn
-    finally:
-        conn.close()
+    delays = [0.1, 0.2]
+    last: Exception | None = None
+    for i in range(len(delays) + 1):
+        try:
+            conn = duckdb.connect(DB_PATH, read_only=True)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if _is_lock_error(e):
+                if i < len(delays):
+                    time.sleep(delays[i])
+                    continue
+                raise
+            # Same-process writer: DuckDB rejects the read-only connect with a
+            # non-lock error. Use the in-process writer's mode instead.
+            conn = duckdb.connect(DB_PATH, config={"access_mode": "READ_WRITE"})
+        try:
+            yield conn
+            return
+        finally:
+            conn.close()
+    if last is not None:
+        raise last
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:
