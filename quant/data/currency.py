@@ -131,13 +131,10 @@ def _native_close(symbol: str, as_of=None, conn=None) -> float | None:
 
             with read_only_connection() as c:
                 row = c.execute(sql, params).fetchone()
-    except Exception:  # noqa: BLE001
-        return None
-    if not row or row[0] is None:
-        return None
-    try:
+        if not row or row[0] is None:
+            return None
         return float(row[0])
-    except (TypeError, ValueError):
+    except Exception:  # noqa: BLE001
         return None
 
 
