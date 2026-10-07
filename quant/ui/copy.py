@@ -913,9 +913,14 @@ TAX_ALLOWANCE_USED = "Allowance used"
 TAX_ALLOWANCE_REMAINING = "Allowance remaining"
 TAX_TAXABLE_INCOME = "Taxable income"
 TAX_TAXABLE_HELP = "Income above the tax-free allowance."
-TAX_ESTIMATED_TAX = "Estimated tax"
-TAX_ESTIMATED_HELP = ("At 26.375 percent (Abgeltungssteuer plus solidarity "
-                      "surcharge).")
+TAX_ESTIMATED_TAX = "Estimated tax (rough estimate)"
+TAX_ESTIMATED_HELP = ("Rough estimate at 26.375 percent (Abgeltungssteuer plus "
+                      "solidarity surcharge). Excludes the partial exemption for "
+                      "equity funds, the advance lump sum on accumulating funds, "
+                      "church tax, and any allowance used at another broker.")
+# v10.8.0 (4): the partial exemption is not applied when the type is unknown.
+TAX_PARTIAL_EXEMPTION_NOTE = ("The partial exemption for equity funds is not "
+                              "applied: the instrument type is not in the registry.")
 SEC_TAX_HARVEST = "Losses you can use to lower tax"
 TAX_HARVEST_COVERED = ("Your gains are covered by the tax-free allowance. You "
                        "have {remaining} remaining. No harvesting needed.")

@@ -1252,8 +1252,8 @@ def page_portfolio() -> None:
     # Block 5: if you need cash now.
     render_emergency_liquidity(tiered)
 
-    # Block 6: losses you can use to lower tax.
-    render_tax_loss_alerts(tiered)
+    # v10.8.0 (4): the loss-harvesting card lives on Tax summary only; it is not
+    # duplicated here.
 
     # Block 7: quick events.
     _render_quick_events(portfolio)
@@ -1777,6 +1777,7 @@ def page_tax() -> None:
     with col2:
         st.metric(C.TAX_ESTIMATED_TAX, C.fmt_eur(summary["estimated_tax_eur"]),
                   help=C.TAX_ESTIMATED_HELP)
+    st.caption(C.TAX_PARTIAL_EXEMPTION_NOTE)
 
     st.subheader(C.SEC_TAX_HARVEST)
     holdings = load_portfolio()
