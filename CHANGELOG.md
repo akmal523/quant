@@ -21,6 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declared (`>=1.49`), and the optional text-fetch step degrades visibly.
 - One position source (`quant/engine/positions.py`) and one EUR price helper
   (`price_in_eur`) replace the three disagreeing value paths.
+- One tier vocabulary: the drift threshold and minimum days are keyed by the
+  current tiers; a cooldown starts from the last recorded trade, not a first-run
+  baseline.
+- One ledger: `quant/engine/ledger.py` writes `flows` and `trades` in one
+  transaction and computes the FIFO realized gain for a sell.
+- Honest rates and dates: one cash APY source, the cash figure carries its saved
+  date, and the savings-plan countdown uses the next trading day.
+- The tax page labels its figure a rough estimate, notes the missing partial
+  exemption, and keeps one loss-harvesting card.
+- A failed computation shows a plain failure state, never an empty success.
+- The Overview reads the live positions, so it agrees with My holdings.
+
+### Added
+
+- Light and night themes (`.streamlit/config.toml`) and one palette module
+  (`quant/ui/palette.py`); a test fails on a hex literal outside it.
+- `install.sh` / `install.bat` and `start.sh` / `start.bat`; `quant refresh`
+  (with a hidden `update` alias) and `quant upgrade`.
+- The README is rewritten to 77 lines with no private paths.
 
 ## [10.7.6] - 2026-10-06
 
