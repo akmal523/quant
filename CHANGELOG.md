@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The daily value chart is independent of reviews: `quant/engine/value_series.py`
+  builds the invested-value series from append-only position snapshots
+  (`position_snapshots`), recorded flows, and daily closes in EUR. Every sync
+  appends a snapshot; a later re-sync is a neutral correction from its date
+  forward and never rewrites past points. The chart works on a database with
+  zero reviews.
 - Light and night themes (`.streamlit/config.toml`) and one palette module
   (`quant/ui/palette.py`); a test fails on a hex literal outside it.
 - `install.sh` / `install.bat` and `start.sh` / `start.bat`; `quant refresh`

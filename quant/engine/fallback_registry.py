@@ -74,6 +74,8 @@ FALLBACKS: dict[str, dict] = {
                                     "test_fallback_valuation_last_sync_date"),
     "valuation._meta_get": _e("unreadable meta table", None, "none",
                               "test_fallback_valuation_meta_get"),
+    "valuation.record_snapshot": _e("unreadable holdings_meta", 0, "none",
+                                    "test_fallback_valuation_record_snapshot"),
     # ── account ───────────────────────────────────────────────────────────────
     "account.load_account": _e("missing or invalid account.yaml",
                                "AccountState(EUR, None, balanced, loaded=False)",

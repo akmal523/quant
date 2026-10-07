@@ -364,6 +364,49 @@ def read_history() -> pd.DataFrame:
     return load_history()
 
 
+def read_value_series() -> pd.DataFrame:
+    """The daily invested-value series (v10.8.0, Phase 1).
+
+    Built from append-only position snapshots, recorded flows, and daily closes
+    converted to EUR. Independent of reviews: it works on a database with zero
+    reviews. Returns a frame with columns ``date`` and ``value_eur`` (empty when
+    there is no data). Never raises.
+    """
+    from quant.data.currency import get_fx_to_eur
+    from quant.data.database import read_only_connection
+    from quant.engine.value_series import build_value_series
+
+    empty = pd.DataFrame(columns=["date", "value_eur"])
+    try:
+        with read_only_connection() as conn:
+            snaps = conn.execute(
+                "SELECT snapshot_date, symbol, shares FROM position_snapshots"
+            ).fetchall()
+            flows = conn.execute(
+                "SELECT date, type, amount_eur, symbol FROM flows"
+            ).fetchall()
+            symbols = {str(s[1]) for s in snaps}
+            closes: dict = {}
+            if symbols:
+                placeholders = ",".join("?" for _ in symbols)
+                rows = conn.execute(
+                    f"SELECT Symbol, Date, Close FROM market_history "
+                    f"WHERE Symbol IN ({placeholders})", list(symbols)).fetchall()
+                closes = {(str(r[0]), str(r[1])[:10]): float(r[2])
+                          for r in rows if r[2] is not None}
+    except Exception:  # noqa: BLE001
+        return empty
+
+    snap_dicts = [{"date": s[0], "symbol": s[1], "shares": s[2]} for s in snaps]
+    flow_dicts = [{"date": f[0], "type": f[1], "amount_eur": f[2], "symbol": f[3]}
+                  for f in flows]
+    fx = {sym: get_fx_to_eur(sym) for sym in symbols}
+    series = build_value_series(snap_dicts, flow_dicts, closes, fx)
+    if not series:
+        return empty
+    return pd.DataFrame(series)
+
+
 # ── Structured Logging ────────────────────────────────────────────────────────
 
 class StructuredLogger:

@@ -555,6 +555,19 @@ def init_db() -> None:
         )
     """)
 
+    # ── v10.8.0 (Phase 1): append-only position snapshots ────────────────────
+    # Every broker sync stores a dated snapshot of shares per symbol, so a later
+    # sync never rewrites earlier history. The daily value series is built from
+    # these snapshots + recorded flows + daily closes.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS position_snapshots (
+            snapshot_date DATE,
+            symbol VARCHAR,
+            shares DOUBLE,
+            PRIMARY KEY (snapshot_date, symbol)
+        )
+    """)
+
     # ── v10.7.0: Alerts (level-triggered, Section 5) ─────────────────────────
     # An alert stays open until the user resolves it. Self-scoring prices a
     # resolved alert 30 days later and records a verdict (the honesty ledger).

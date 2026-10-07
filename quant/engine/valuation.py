@@ -101,6 +101,37 @@ def sync_holdings_meta(
             [symbol, shares, sync_date, invested_f],
         )
         written += 1
+    if written:
+        record_snapshot(conn, sync_date)
+    return written
+
+
+def record_snapshot(conn, when: date | None = None) -> int:
+    """Append the current holdings_meta shares as a dated snapshot (v10.8.0).
+
+    Intent: the Overview value chart needs an append-only history of positions
+    that is independent of reviews. Every sync appends one row per symbol for
+    the sync date. A re-sync on the same day replaces that day's rows
+    (idempotent); a later sync appends a new date and never rewrites the past.
+
+    Returns rows written. Never raises.
+    """
+    when = when or date.today()
+    try:
+        rows = conn.execute("SELECT symbol, shares FROM holdings_meta").fetchall()
+    except Exception:  # noqa: BLE001
+        return 0
+    written = 0
+    for symbol, shares in rows:
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO position_snapshots "
+                "(snapshot_date, symbol, shares) VALUES (?, ?, ?)",
+                [when, str(symbol), float(shares or 0.0)],
+            )
+            written += 1
+        except Exception:  # noqa: BLE001
+            continue
     return written
 
 

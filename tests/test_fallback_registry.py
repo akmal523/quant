@@ -87,6 +87,8 @@ def _triggers() -> dict[str, tuple]:
             lambda: valuation.sync_from_portfolio_csv(_BrokenConn(), {}), 0),
         "valuation._last_sync_date": (lambda: valuation._last_sync_date(_BrokenConn()), None),
         "valuation._meta_get": (lambda: valuation._meta_get(_BrokenConn(), "k"), None),
+        "valuation.record_snapshot": (
+            lambda: valuation.record_snapshot(_BrokenConn()), 0),
         "account.load_account": (
             lambda: account.load_account("/nonexistent/account.yaml").loaded, False),
         "cash_rate.fetch_live_cash_apy": (

@@ -48,6 +48,7 @@ from quant.reporting.artifacts import (
     read_regime,
     read_scores,
     read_update_state,
+    read_value_series,
 )
 from quant.ui import copy as C
 from quant.ui import palette as P
@@ -2136,11 +2137,20 @@ def _render_value_chart(history, holdings) -> None:
     """
     import plotly.graph_objects as go
 
-    if history is None or len(history) < 3:
-        st.info(C.CHART_BUILDING)
-        return
-    df = history.copy()
-    df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
+    # v10.8.0 (Phase 1): the chart reads the append-only value series, which is
+    # independent of reviews (it works on a database with zero reviews). It
+    # falls back to the review history only when the series has fewer than two
+    # points (e.g. a brand-new install with no snapshots yet).
+    series = read_value_series()
+    if series is not None and len(series) >= 2:
+        df = series.copy()
+        df["review_ts"] = pd.to_datetime(df["date"], errors="coerce")
+    else:
+        if history is None or len(history) < 3:
+            st.info(C.CHART_BUILDING)
+            return
+        df = history.copy()
+        df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
     df = df.dropna(subset=["review_ts"]).sort_values("review_ts")
     rng = st.segmented_control(C.LABEL_RANGE, list(_RANGE_DAYS),
                                default="Max", key="val_range") or "Max"

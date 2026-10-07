@@ -28,6 +28,9 @@ def _all_text(at: AppTest) -> str:
 
 def _today(monkeypatch, hist) -> AppTest:
     monkeypatch.setattr(render, "read_history", lambda: hist)
+    # v10.8.0 (Phase 1): the chart prefers the value series; force the fallback
+    # path so these tests exercise the review-history contract deterministically.
+    monkeypatch.setattr(render, "read_value_series", lambda: pd.DataFrame())
     monkeypatch.setattr(render, "latest_review",
                         lambda ok_only=False: {"review_ts": "2026-09-11"})
     monkeypatch.setattr(render, "read_regime",
