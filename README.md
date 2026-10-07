@@ -19,17 +19,17 @@ Requires Python 3.11 or newer.
 ```bash
 git clone https://github.com/akmal523/quant.git
 cd quant
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dashboard]"
+./install.sh          # Windows: install.bat
 ```
 
 ## Use
 
 ```bash
-quant setup     # guided first-time setup (data, schedule, alerts, backup)
-quant dash      # open the app
+./start.sh            # Windows: start.bat
 ```
+
+The first time, run the guided setup once: `./start.sh` opens the app, and
+`quant setup` (inside the app's environment) walks the first-week checklist.
 
 Open the address Streamlit prints (usually http://localhost:8501). Everything
 else happens in the browser:
@@ -45,8 +45,7 @@ The app then runs a daily check after the market close and shows what to do on
 ## Update
 
 ```bash
-git pull
-pip install -e ".[dashboard]"
+quant upgrade
 ```
 
 ## Where your data lives

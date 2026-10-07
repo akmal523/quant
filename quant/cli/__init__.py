@@ -831,7 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("update", help="fetch market data + run the funnel")
+    sub.add_parser("refresh", help="fetch market data + run the funnel")
     sub.add_parser("run", help="score, audit, and report")
     reconcile = sub.add_parser("reconcile", help="diff portfolio vs the broker export")
     reconcile.add_argument(
@@ -887,12 +887,49 @@ def build_parser() -> argparse.ArgumentParser:
     ack.add_argument("id", help="alert id")
     ack.add_argument("--status", choices=["done", "declined"], required=True)
     ack.add_argument("--reason", default=None, help="why (for declined)")
+    sub.add_parser("upgrade", help="update the software to the latest version")
     dash = sub.add_parser("dash", help="launch the local interactive workspace")
     dash.add_argument(
         "--lan", action="store_true",
         help="also serve on the local network (phone on the same Wi-Fi)",
     )
     return parser
+
+
+def _cmd_upgrade(args) -> int:
+    """Update the software: fast-forward pull, reinstall, migrate (v10.8.0).
+
+    Aborts safely on local changes. Prints the old and new version.
+    """
+    import subprocess
+    import sys
+
+    from quant import __version__, paths
+
+    repo = paths.PROJECT_ROOT
+    if not (repo / ".git").exists():
+        output.reporter.line("Not a git checkout; update manually.")
+        return 2
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=str(repo),
+                            capture_output=True, text=True)
+    if status.stdout.strip():
+        output.reporter.line("Local changes present; commit or stash them first.")
+        return 2
+    old = __version__
+    pull = subprocess.run(["git", "pull", "--ff-only"], cwd=str(repo),
+                          capture_output=True, text=True)
+    if pull.returncode != 0:
+        output.reporter.line("Could not fast-forward; resolve the branch first.")
+        return 2
+    subprocess.run([sys.executable, "-m", "pip", "install", "-e", ".[dashboard]"],
+                   cwd=str(repo))
+    from quant.data.database import init_db
+
+    init_db()
+    from quant import __version__ as new_version
+
+    output.reporter.line(f"Updated {old} to {new_version}.")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -902,6 +939,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     from quant import paths
 
+    if argv is None:
+        import sys
+
+        argv = sys.argv[1:]
+    # v10.8.0: `update` is a hidden alias for `refresh`.
+    argv = ["refresh" if a == "update" else a for a in argv]
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "broker", None) is None:
@@ -912,13 +955,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     # would point at it instead of the last real run.
     log_path = (
         output.default_log_path()
-        if args.command in ("update", "run", "all")
+        if args.command in ("refresh", "update", "run", "all")
         else None
     )
     output.configure(verbose=getattr(args, "verbose", False), log_path=log_path)
 
     dispatch = {
+        "refresh": _cmd_update,
         "update": _cmd_update,
+        "upgrade": _cmd_upgrade,
         "run": _cmd_run,
         "reconcile": _cmd_reconcile,
         "all": _cmd_all,
