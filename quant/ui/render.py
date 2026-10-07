@@ -1104,28 +1104,17 @@ def _render_quick_events(portfolio) -> None:
             st.warning("Choose a symbol first.")
         else:
             try:
-                from quant.data.database import connect_with_retry
-                from quant.engine import flows
-                from quant.portfolio.tax_accounting import record_trade
+                # v10.8.0 (2.4): one transaction writes both ledgers.
+                from quant.engine.ledger import record_transaction
 
-                conn = connect_with_retry()
-                try:
-                    flows.record_flow(conn, when, kind, amount, symbol)
-                finally:
-                    conn.close()
-                # v10.7.6 (Part 2): mirror the event into the tax ledger. The
-                # flows connection is closed first, so only one writer is open.
-                record_trade(
-                    date=when.isoformat(),
-                    symbol=symbol,
-                    action=kind,
-                    amount_eur=float(amount),
-                    fee_eur=1.0 if kind == "buy" else 0.0,
-                )
+                record_transaction(
+                    when=when, action=kind, symbol=symbol,
+                    amount_eur=float(amount))
                 st.success(C.QUICK_EVENT_SAVED.format(
                     type=kind, amount=f"{amount:.0f}", name=_display_name(symbol),
                     date=C.fmt_date(when)))
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Quick event failed: %s", e)
                 st.warning("Could not record the event. Try again.")
     st.caption(C.QUICK_EVENT_CASH_NOTE)
 

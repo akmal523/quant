@@ -164,12 +164,14 @@ def record_trade(
     fee_eur: float = 0,
     realized_pnl_eur: float | None = None,
 ) -> None:
-    """Record a buy, sell, or dividend in the trades ledger."""
-    with write_connection() as conn:
-        conn.execute(
-            "INSERT INTO trades "
-            "(date, symbol, action, shares, price_eur, amount_eur, fee_eur, "
-            "realized_pnl_eur) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [date, symbol, action, shares, price_eur, amount_eur, fee_eur,
-             realized_pnl_eur],
-        )
+    """Record a buy, sell, or dividend in ONE transaction (both ledgers).
+
+    v10.8.0 (2.4): delegates to quant.engine.ledger so the flows and trades
+    ledgers are written together and a sell computes its FIFO realized gain.
+    """
+    from quant.engine.ledger import record_transaction
+
+    record_transaction(
+        when=date, action=action, symbol=symbol, amount_eur=amount_eur,
+        shares=shares, price_eur=price_eur, fee_eur=fee_eur,
+        realized_pnl_eur=realized_pnl_eur)
