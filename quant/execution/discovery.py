@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import datetime as dt
 import time
+from typing import Any
 
 import pandas as pd
 
@@ -114,7 +115,7 @@ def detect_graduation(symbol: str, df: pd.DataFrame) -> tuple[bool, str]:
     return False, "no anomaly"
 
 
-def months_between(start, end) -> float:
+def months_between(start: Any, end: Any) -> float:
     """Months between two dates (ISO strings or datetime.date). Negative if start is after end."""
     if isinstance(start, str):
         s = dt.date.fromisoformat(start)
@@ -141,7 +142,8 @@ def graduate(symbol: str, reason: str) -> None:
     if row and row[0] in CORE_STATUSES:
         return  # CORE is immutable; never graduate.
     conn.execute(
-        """INSERT INTO asset_registry (symbol, instrument_class, universe_status, graduated_at, updated_at)
+        """INSERT INTO asset_registry
+           (symbol, instrument_class, universe_status, graduated_at, updated_at)
            VALUES (?, ?, 'ACTIVE', ?, ?)
            ON CONFLICT (symbol) DO UPDATE SET
              universe_status = 'ACTIVE',
@@ -187,7 +189,8 @@ def demote_stale_active(months: int = ACTIVE_DEMOTE_MONTHS,
         if months_between(anchor, now) < months:
             continue  # not stale yet.
         conn.execute(
-            "UPDATE asset_registry SET universe_status = 'WATCHLIST', updated_at = ? WHERE symbol = ?",
+            "UPDATE asset_registry SET universe_status = 'WATCHLIST', "
+            "updated_at = ? WHERE symbol = ?",
             [time.time(), sym],
         )
         log_universe_event(sym, "DEMOTE", f"no signals for {months} months")

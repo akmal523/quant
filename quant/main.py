@@ -66,30 +66,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Currency Detection ─────────────────────────────────────────────────────────
-
-def deduce_currency(symbol: str) -> str:
-    if "." not in symbol:
-        return "USD"
-    suffix = symbol.split(".")[-1].upper()
-    eur_zones = {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}
-    if suffix in eur_zones: return "EUR"
-    if suffix == "L": return "GBX"
-    if suffix == "SW": return "CHF"
-    if suffix == "CO": return "DKK"
-    if suffix == "OL": return "NOK"
-    if suffix == "ST": return "SEK"
-    if suffix == "TO": return "CAD"
-    if suffix == "AX": return "AUD"
-    if suffix == "KS": return "KRW"
-    return "USD"
-
-
 # ── Worker Process ────────────────────────────────────────────────────────────
 
 # main.py -> process_asset()
 def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
                   market_regime_prob: float, etf_quality_map: dict | None = None) -> dict | None:
+    """Score one asset in a worker process. Returns its row, or None on failure."""
     try:
         # FIX: Worker must now fetch its own DataFrame from the database
         from quant.data.database import get_connection
@@ -107,7 +89,9 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
         sector = df['Sector'].iloc[0] if 'Sector' in df.columns else "Unknown"
 
         last_close = price_hist["Close"].iloc[-1] if "Close" in price_hist.columns else None
-        if last_close is None or (isinstance(last_close, float) and (pd.isna(last_close) or np.isnan(last_close))):
+        if last_close is None or (
+                isinstance(last_close, float)
+                and (pd.isna(last_close) or np.isnan(last_close))):
             logger.warning("[SKIP] %s: No valid price data (NaN close)", symbol)
             return {
                 "Symbol": symbol,
@@ -371,6 +355,7 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
 # ── Main Orchestration ─────────────────────────────────────────────────────────
 
 def main() -> None:
+    """Run the full review: fetch, score, audit, and print the briefing."""
     from quant.infra.observability import ObservabilityCollector
     obs = ObservabilityCollector()
 
@@ -507,7 +492,8 @@ def main() -> None:
     market_regime_prob = 0.5
     regime_state = "estimated"
     regime_error_msg = None
-    regime_sym = "SPY" if "SPY" in grouped_data else max(grouped_data, key=lambda s: len(grouped_data[s]))
+    regime_sym = ("SPY" if "SPY" in grouped_data
+                  else max(grouped_data, key=lambda s: len(grouped_data[s])))
     try:
         regime_df = grouped_data[regime_sym]
         if len(regime_df["Close"]) < 252:
@@ -664,7 +650,9 @@ def main() -> None:
     if nlp_cache_rows:
         conn.execute("BEGIN TRANSACTION")
         for h, s in nlp_cache_rows:
-            conn.execute("INSERT OR REPLACE INTO nlp_scores (doc_hash, score) VALUES (?, ?)", [h, s])
+            conn.execute(
+                "INSERT OR REPLACE INTO nlp_scores (doc_hash, score) VALUES (?, ?)",
+                [h, s])
         conn.execute("COMMIT")
         logger.info("NLP cache: %d new entries saved", len(nlp_cache_rows))
 
@@ -849,10 +837,14 @@ def main() -> None:
         reporter.detail("\n" + "=" * 40)
         reporter.detail("TOP 3 BUY OPPORTUNITIES")
         reporter.detail("=" * 40)
-        buys_with_price = final_df[(final_df['Signal'] == 'BUY') & (final_df['Current_Price'].notna())]
-        top_buys = buys_with_price.sort_values(by='Active_Score', ascending=False).head(3)
+        buys_with_price = final_df[
+            (final_df['Signal'] == 'BUY') & (final_df['Current_Price'].notna())]
+        top_buys = buys_with_price.sort_values(
+            by='Active_Score', ascending=False).head(3)
         if not top_buys.empty:
-            reporter.detail(top_buys[['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']].to_string(index=False))
+            reporter.detail(top_buys[
+                ['Symbol', 'Active_Score', 'Current_Price', 'NLP_Reasoning']
+            ].to_string(index=False))
         else:
             reporter.detail("No high-conviction BUY signals found.")
 

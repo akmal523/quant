@@ -20,6 +20,7 @@ Invariants: pure functions, no I/O.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from quant.config import (
     ACTIVE_TRADE_FEE_EUR,
@@ -100,7 +101,7 @@ def cash_hurdle(conviction_high: bool) -> bool:
     return bool(conviction_high)
 
 
-def passes_fee_hurdle(expected_alpha_bps, amount_eur, fee_eur) -> bool:
+def passes_fee_hurdle(expected_alpha_bps: Any, amount_eur: Any, fee_eur: Any) -> bool:
     """True when the expected alpha clears the fee (v10.7.4, Part 2.1).
 
     expected profit = expected_alpha_bps / 10000 * amount_eur. A buy is allowed

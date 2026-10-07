@@ -15,6 +15,7 @@ Dependencies: quant.data.database, pandas, datetime.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 
@@ -25,7 +26,7 @@ def record_review(
     cash_eur: float | None,
     pnl_eur: float,
     review_ts: datetime | None = None,
-    conn=None,
+    conn: Any =None,
 ) -> None:
     """Append one review row. Uses the writer connection if supplied."""
     ts = review_ts or datetime.now()

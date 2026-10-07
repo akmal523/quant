@@ -77,7 +77,8 @@ HEALTH_REVIEW_FAILED = "The last review failed. See log."
 # ── Action cards (spec 3.2) ───────────────────────────────────────────────────
 ACTION_ADD = ("Add about {amount} EUR to {symbol} ({name}). It sits {pct} percent below "
               "its {target} percent target. Suitable for your savings plan.")
-ACTION_SELL = "Sell about {amount} EUR of {symbol}. It sits {pct} percent above its {target} percent target."
+ACTION_SELL = ("Sell about {amount} EUR of {symbol}. It sits {pct} percent "
+               "above its {target} percent target.")
 ACTION_BLOCKED = "ISIN missing for {symbol}."
 ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Add a verified "
                          "row from your broker app or the fund factsheet, then press Repair "
@@ -301,7 +302,7 @@ def fmt_date(value: date | datetime | str | None) -> str:
             value = datetime.fromisoformat(value)
         except ValueError:
             return value
-    if not isinstance(value, (date, datetime)):
+    if not isinstance(value, date | datetime):
         return ""
     return f"{value.day} {_MONTHS[value.month - 1]} {value.year}"
 
@@ -464,7 +465,8 @@ NOT_TRACKED_LABEL = "{label} - not tracked yet"
 # Portfolio (spec 2.3)
 VALIDATION_UNIVERSE = ("{n} holdings are not in the universe yet; they will be added "
                        "on the next refresh.")
-VALIDATION_UNIVERSE_ONE = "1 holding is not in the universe yet; it will be added on the next refresh."
+VALIDATION_UNIVERSE_ONE = ("1 holding is not in the universe yet; it will be "
+                           "added on the next refresh.")
 OUTCOME_ACTIONS = "Check complete. {n} actions on Overview."
 OUTCOME_NOTHING = "Review complete. Nothing to do today."
 SAVE_ONLY_DONE = "Saved. The next review will use these values."

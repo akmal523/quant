@@ -1,6 +1,7 @@
 """
 test_scoring.py — Comprehensive unit tests for the scoring engine.
-Covers: HMM, stewardship, structural/tactical grades, data confidence, capital allocation, position sizing.
+Covers: HMM, stewardship, structural/tactical grades, data confidence,
+capital allocation, position sizing.
 """
 from __future__ import annotations
 
@@ -42,9 +43,13 @@ def test_stewardship_score_v2_missing_data():
 def test_stewardship_score_v2_zero_values():
     """PB=0 or D/E=0 should NOT be treated as missing (falsy bug fix)."""
     from quant.analytics.scoring import stewardship_score_v2
-    s1 = stewardship_score_v2({"PB": 0.0, "DebtToEquity": 0.5, "ROE": 0.25, "ICR": 8.0}, sector="Financials")
+    s1 = stewardship_score_v2(
+        {"PB": 0.0, "DebtToEquity": 0.5, "ROE": 0.25, "ICR": 8.0},
+        sector="Financials")
     assert s1 > 0, f"PB=0 should score, got {s1}"
-    s2 = stewardship_score_v2({"PB": 2.0, "DebtToEquity": 0.0, "ROE": 0.25, "ICR": 8.0}, sector="Technology")
+    s2 = stewardship_score_v2(
+        {"PB": 2.0, "DebtToEquity": 0.0, "ROE": 0.25, "ICR": 8.0},
+        sector="Technology")
     assert s2 > 0, f"D/E=0 should score, got {s2}"
     print("  [PASS] test_stewardship_score_v2_zero_values")
 
@@ -58,7 +63,8 @@ def test_evaluate_structural_grade_etf_bypass():
 def test_evaluate_structural_grade_deep_value():
     """Low PE + low PEG + high ROE → near-max grade."""
     from quant.analytics.scoring import evaluate_structural_grade
-    grade = evaluate_structural_grade(pe=12.0, peg=1.0, roe=0.30, stewardship_val=WEIGHT_STEWARDSHIP)
+    grade = evaluate_structural_grade(
+        pe=12.0, peg=1.0, roe=0.30, stewardship_val=WEIGHT_STEWARDSHIP)
     assert grade == 100.0, f"Expected 100.0, got {grade}"
     print(f"  [PASS] test_evaluate_structural_grade_deep_value: grade={grade}")
 
@@ -129,7 +135,8 @@ def test_tactical_grade_partial_confidence():
 def test_allocate_capital_core_buy():
     """High structural + high tactical → CORE (12-Month) BUY."""
     from quant.analytics.scoring import allocate_capital_regime
-    result = allocate_capital_regime(structural_grade=85.0, tactical_grade=80.0, stewardship_val=25.0)
+    result = allocate_capital_regime(
+        structural_grade=85.0, tactical_grade=80.0, stewardship_val=25.0)
     assert result["Horizon"] == "CORE (12-Month)"
     assert result["Signal"] == "BUY"
     assert result["Active_Score"] == 82.0
@@ -138,7 +145,8 @@ def test_allocate_capital_core_buy():
 def test_allocate_capital_speculative():
     """Low stewardship floor → SPECULATIVE."""
     from quant.analytics.scoring import allocate_capital_regime
-    result = allocate_capital_regime(structural_grade=80.0, tactical_grade=75.0, stewardship_val=5.0)
+    result = allocate_capital_regime(
+        structural_grade=80.0, tactical_grade=75.0, stewardship_val=5.0)
     assert result["Horizon"] == "SPECULATIVE"
     assert result["Active_Score"] == 75.0
     print(f"  [PASS] test_allocate_capital_speculative: {result}")
@@ -146,14 +154,16 @@ def test_allocate_capital_speculative():
 def test_allocate_capital_structural_floor():
     """Structural grade < 50 → SPECULATIVE."""
     from quant.analytics.scoring import allocate_capital_regime
-    result = allocate_capital_regime(structural_grade=45.0, tactical_grade=70.0, stewardship_val=25.0)
+    result = allocate_capital_regime(
+        structural_grade=45.0, tactical_grade=70.0, stewardship_val=25.0)
     assert result["Horizon"] == "SPECULATIVE"
     print(f"  [PASS] test_allocate_capital_structural_floor: {result}")
 
 def test_allocate_capital_hold():
     """Stewardship OK but structural below buy limit → HOLD."""
     from quant.analytics.scoring import allocate_capital_regime
-    result = allocate_capital_regime(structural_grade=65.0, tactical_grade=70.0, stewardship_val=20.0)
+    result = allocate_capital_regime(
+        structural_grade=65.0, tactical_grade=70.0, stewardship_val=20.0)
     assert result["Horizon"] == "HOLD"
     assert result["Signal"] == "HOLD"
     assert result["Active_Score"] == 65.0

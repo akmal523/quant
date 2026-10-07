@@ -53,7 +53,8 @@ def test_strategy_engine_regime_weights():
     bear = eng.regime_weights("bear")
     assert abs(sum(bull.values()) - 1.0) < 1e-9
     assert bull["Momentum"] > bear["Momentum"]  # momentum favored in bull
-    print(f"  [PASS] test_strategy_engine_regime_weights: bull_mom={bull['Momentum']} bear_mom={bear['Momentum']}")
+    print(f"  [PASS] test_strategy_engine_regime_weights: "
+          f"bull_mom={bull['Momentum']} bear_mom={bear['Momentum']}")
 
 
 def test_strategy_engine_ensemble_signal():

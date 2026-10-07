@@ -64,8 +64,9 @@ class DataQualityValidator:
             daily_return = close.pct_change()
             extreme = daily_return[daily_return.abs() > self.THRESHOLDS["max_daily_return"]]
             if len(extreme) > 0:
+                _pct = self.THRESHOLDS['max_daily_return'] * 100
                 issues.append(
-                    f"{len(extreme)} days with >{self.THRESHOLDS['max_daily_return']*100:.0f}% moves"
+                    f"{len(extreme)} days with >{_pct:.0f}% moves"
                 )
 
         if "Date" in df.columns:

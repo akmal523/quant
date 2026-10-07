@@ -15,6 +15,8 @@ Dependencies: numpy, pandas, hmmlearn (via scoring.fit_market_regime).
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -34,9 +36,9 @@ class ValidationEngine:
             yield train_slice, test_slice
             i += test
 
-    def run_regime_aware_backtest(self, strategy, returns: pd.Series,
-                                  start=None, end=None,
-                                  train=252, test=63) -> pd.DataFrame:
+    def run_regime_aware_backtest(self, strategy: Any, returns: pd.Series,
+                                  start: Any =None, end: Any =None,
+                                  train: Any =252, test: Any =63) -> pd.DataFrame:
         """Walk-forward optimization with regime detection.
 
         Fits a regime HMM on each training window, applies regime-appropriate

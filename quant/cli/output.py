@@ -37,12 +37,14 @@ class Reporter:
 
     # ── Aggregate lines (always visible) ──────────────────────────────────────
     def line(self, msg: str = "") -> None:
+        """Print an aggregate line to stdout and the log."""
         self._close_progress()
         print(msg)
         self._log(msg)
 
     # ── Detail lines (log always; stdout only when verbose) ───────────────────
     def detail(self, msg: str) -> None:
+        """Log a detail line; print it only when verbose."""
         self._log(msg)
         if self.verbose:
             self._close_progress()
@@ -50,6 +52,7 @@ class Reporter:
 
     # ── Single rewritten progress line ────────────────────────────────────────
     def progress(self, msg: str) -> None:
+        """Rewrite one progress line on a TTY; a no-op for pipes/CI."""
         # Zero progress chunks unless stdout is a TTY (pipes/CI get the aggregate).
         if self.verbose or not sys.stdout.isatty():
             return
@@ -58,6 +61,7 @@ class Reporter:
         self._progress_open = True
 
     def end_progress(self) -> None:
+        """Close the rewritten progress line."""
         self._close_progress()
 
     def _close_progress(self) -> None:
@@ -72,6 +76,7 @@ class Reporter:
             self._log_fh.flush()
 
     def close(self) -> None:
+        """Close the progress line and the log file handle."""
         self._close_progress()
         if self._log_fh:
             self._log_fh.close()

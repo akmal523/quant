@@ -107,7 +107,9 @@ class FinBERTBatchScorer:
             tokens = self.tokenizer.encode(text, add_special_tokens=False, truncation=False)
             chunks = [tokens[i:i + 510] for i in range(0, len(tokens), 510)][:8]
             for chunk in chunks:
-                all_chunks.append(torch.tensor([self.tokenizer.cls_token_id] + chunk + [self.tokenizer.sep_token_id], dtype=torch.long))
+                all_chunks.append(torch.tensor(
+                    [self.tokenizer.cls_token_id] + chunk
+                    + [self.tokenizer.sep_token_id], dtype=torch.long))
                 chunk_map.append(doc_id)
 
         scores = [0.0] * len(texts)

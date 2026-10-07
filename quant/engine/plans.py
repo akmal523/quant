@@ -23,7 +23,7 @@ PENDING_SYNC_MARKER = ".pending_sync"
 
 
 def save_plan(
-    conn,
+    conn: Any,
     month: str,
     budget_eur: float,
     legs: list[dict],
@@ -39,7 +39,7 @@ def save_plan(
     )
 
 
-def load_plan(conn, month: str) -> dict | None:
+def load_plan(conn: Any, month: str) -> dict | None:
     """Load a monthly plan, or None when not approved."""
     try:
         row = conn.execute(
@@ -64,12 +64,12 @@ def load_plan(conn, month: str) -> dict | None:
     }
 
 
-def is_approved(conn, month: str) -> bool:
+def is_approved(conn: Any, month: str) -> bool:
     """True when a plan exists for the month."""
     return load_plan(conn, month) is not None
 
 
-def delete_plan(conn, month: str) -> bool:
+def delete_plan(conn: Any, month: str) -> bool:
     """Delete an approved plan before execution (Part 3.3). Returns True if removed."""
     try:
         conn.execute("DELETE FROM monthly_plans WHERE month = ?", [month])
@@ -130,7 +130,7 @@ def _record_pending_symbols(conn, symbols: list[str]) -> None:
 
 
 def enter_actuals(
-    conn,
+    conn: Any,
     month: str,
     actuals: list[dict],
     price_lookup: Any = None,

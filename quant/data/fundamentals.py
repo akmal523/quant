@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import Any
 
 import requests
 import yfinance as yf
@@ -33,8 +34,8 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
-def evaluate_index_grade(hmm_prob):
-    # For a Core ETF, the grade is purely based on the HMM regime
+def evaluate_index_grade(hmm_prob: Any) -> float:
+    """Grade a Core ETF purely from the HMM regime probability (0-100)."""
     return hmm_prob * 100
 
 def _get_from_cache(symbol: str) -> dict | None:
@@ -74,7 +75,8 @@ def _save_to_cache(symbol: str, data: dict) -> None:
     )
 
 
-def save_fundamentals_history(symbol: str, data: dict, as_of_date: str, published_date: str | None = None) -> None:
+def save_fundamentals_history(symbol: str, data: dict, as_of_date: str,
+                              published_date: str | None = None) -> None:
     """Persist a point-in-time fundamentals snapshot.
 
     Intent: enable no-lookahead backtests. published_date defaults to as_of_date
@@ -84,7 +86,8 @@ def save_fundamentals_history(symbol: str, data: dict, as_of_date: str, publishe
     conn = get_connection()
     conn.execute(
         """INSERT OR REPLACE INTO fundamentals_history
-           (symbol, as_of_date, published_date, pe, peg, roe, debt_to_equity, ebit, interest_expense)
+           (symbol, as_of_date, published_date, pe, peg, roe, debt_to_equity,
+            ebit, interest_expense)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         [
             symbol,
@@ -226,7 +229,8 @@ def _yf_worker(symbol: str, result: list) -> None:
                     if key in fin.index:
                         ebit = float(fin.loc[key].iloc[0])
                         break
-                for key in ("Interest Expense", "InterestExpense", "Interest Expense Non Operating"):
+                for key in ("Interest Expense", "InterestExpense",
+                            "Interest Expense Non Operating"):
                     if key in fin.index:
                         interest_exp = float(fin.loc[key].iloc[0])
                         break

@@ -20,6 +20,7 @@ import os
 import tempfile
 import time
 import urllib.request
+from typing import Any
 
 import feedparser
 
@@ -73,7 +74,7 @@ def _default_fetcher(symbol: str, timeout: int = 10):
         return feedparser.parse(resp.read())
 
 
-def fetch_news_items(symbol: str, fetcher=None, timeout: int = 10) -> list[dict] | None:
+def fetch_news_items(symbol: str, fetcher: Any =None, timeout: int = 10) -> list[dict] | None:
     """Return up to 10 structured items, or None on fetch failure."""
     fetcher = fetcher or _default_fetcher
     try:
@@ -201,8 +202,8 @@ def cache_scorer_stats() -> dict:
     return stats
 
 
-def load_news(symbol: str, fetcher=None, now: float | None = None,
-              ttl_hours: float = 24.0, scorer=None, scorer_factory=None,
+def load_news(symbol: str, fetcher: Any =None, now: float | None = None,
+              ttl_hours: float = 24.0, scorer: Any =None, scorer_factory: Any =None,
               score_timeout: float = 10.0) -> list[dict]:
     """Return cached-or-fetched news. A fetch failure yields [] and stores nothing.
 

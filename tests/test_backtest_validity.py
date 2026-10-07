@@ -71,7 +71,8 @@ def test_wfo_windows():
     # Should have at least 1 OOS period
     assert isinstance(result["wfo_periods"], int), "wfo_periods should be int"
     assert result["wfo_oos_trades"] is None or result["wfo_oos_trades"] >= 0, "Negative trades"
-    print(f"  [PASS] test_wfo_windows: periods={result['wfo_periods']}, trades={result['wfo_oos_trades']}")
+    print(f"  [PASS] test_wfo_windows: periods={result['wfo_periods']}, "
+          f"trades={result['wfo_oos_trades']}")
 
 
 def test_wfo_insufficient_data():

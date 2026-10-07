@@ -39,7 +39,8 @@ def _download_and_parse(symbol: str, download_dir: str, result_container: list) 
         pass
 
 # Increased timeout: 5s -> 15s
-def fetch_latest_8k(symbol: str, download_dir: str = paths.SEC_FILINGS_DIR, timeout: int = 15) -> str:
+def fetch_latest_8k(symbol: str, download_dir: str = paths.SEC_FILINGS_DIR,
+                    timeout: int = 15) -> str:
     """
     Fetch SEC 8-K with strict daemon thread.
     """

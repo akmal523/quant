@@ -14,6 +14,8 @@ Dependencies: all Part 2 modules.
 """
 from __future__ import annotations
 
+from typing import Any
+
 
 def _fmt_pct(x: float) -> str:
     return f"{x:+.1%}" if x is not None else "N/A"
@@ -35,8 +37,8 @@ def build_briefing(
     cash_target: float,
     dip_alerts: list,
     tax_position: dict,
-    harvest_opportunities,
-    attribution_df,
+    harvest_opportunities: Any,
+    attribution_df: Any,
     guardrail_blocks: list,
     alpha_metrics: dict | None = None,
 ) -> str:

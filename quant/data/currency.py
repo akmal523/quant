@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -59,6 +60,7 @@ def get_eur_rate() -> float:
 
 
 def currency_symbol(code: str) -> str:
+    """The display symbol for a currency code (falls back to the code)."""
     return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "") + " ")
 
 
@@ -138,7 +140,7 @@ def _native_close(symbol: str, as_of=None, conn=None) -> float | None:
         return None
 
 
-def price_in_eur(symbol: str, as_of=None, conn=None) -> float | None:
+def price_in_eur(symbol: str, as_of: Any =None, conn: Any =None) -> float | None:
     """The EUR price of a symbol on (or before) a date (v10.8.0, 2.2).
 
     Intent: valuation, the daily job, the Overview estimate, buy and sell
@@ -219,7 +221,8 @@ def apply_fx_conversion(
     return h
 
 
-def format_price(value, currency_code: str) -> str:
+def format_price(value: Any, currency_code: str) -> str:
+    """Format a price with its currency symbol; an em dash for a missing value."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return "\u2014"
     v   = float(value)

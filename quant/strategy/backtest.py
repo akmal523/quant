@@ -229,7 +229,8 @@ def run_historical_backtest(
         rsi_val   = calc_rsi(hist_past["Close"], 14)
         ema50     = hist_past["Close"].ewm(span=50, adjust=False).mean().iloc[-1]
 
-        if rsi_val and 30 <= rsi_val <= 65 and float(hist_past["Close"].iloc[-1]) >= float(ema50) * 0.97:
+        if (rsi_val and 30 <= rsi_val <= 65
+                and float(hist_past["Close"].iloc[-1]) >= float(ema50) * 0.97):
             entry_idx = i
             break
 

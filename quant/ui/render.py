@@ -1966,7 +1966,8 @@ def _health_problems() -> list[str]:
         from quant.data.names import read_names_state
 
         ns = read_names_state()
-        if int(ns.get("still_missing", 0)) > 0 and ns.get("skipped_reason") == "metadata_unreachable":
+        if (int(ns.get("still_missing", 0)) > 0
+                and ns.get("skipped_reason") == "metadata_unreachable"):
             problems.append(C.HEALTH_NAMES_MISSING.format(n=int(ns["still_missing"])))
     except Exception:  # noqa: BLE001
         pass

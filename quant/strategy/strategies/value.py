@@ -14,6 +14,7 @@ class ValueStrategy(BaseStrategy):
     preferred_regime = ["reflation", "bear"]
 
     def compute_signal(self, symbol: str, data: dict) -> float:
+        """Value signal: higher for a lower PE and a higher dividend yield."""
         pe = data.get("pe_ratio", 0.0) or 0.0
         dividend_yield = data.get("dividend_yield", 0.0) or 0.0
         # Lower PE is better -> negate. Normalize by 25 (typical PE scale).

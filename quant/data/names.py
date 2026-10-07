@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from typing import Any
 
 from quant import paths
 
@@ -96,7 +97,7 @@ def _write_universe_names(cache: dict) -> None:
         pass
 
 
-def backfill_universe_names(conn=None, limit: int = 200, source=None) -> dict:
+def backfill_universe_names(conn: Any =None, limit: int = 200, source: Any =None) -> dict:
     """Fill universe_master.name with real longNames (H3.8, M5).
 
     Bounded per call and cached in outputs/universe_names.json, so repeated
@@ -263,7 +264,7 @@ def _yahoo_identity(symbol: str) -> tuple[str, str]:
         return "", ""
 
 
-def backfill_display_names(conn, metadata_source=None, curated_path: str | None = None,
+def backfill_display_names(conn: Any, metadata_source: Any =None, curated_path: str | None = None,
                            fill_currency: bool = False) -> dict:
     """Fill MISSING display_name / name / currency cells. Returns a summary.
 
@@ -357,7 +358,7 @@ def display_name(symbol: str, allow_probe: bool = False) -> str:
     return sym
 
 
-def probe_and_store(symbol: str, conn=None) -> str:
+def probe_and_store(symbol: str, conn: Any =None) -> str:
     """Probe + cache a name and persist it to asset_registry when possible.
 
     Used by the daily run so funnel survivors not yet in the registry (for

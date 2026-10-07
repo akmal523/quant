@@ -27,7 +27,8 @@ class TestGraduationGracePeriod(unittest.TestCase):
         init_db()
         conn = get_connection()
         conn.execute(
-            "INSERT OR REPLACE INTO asset_registry (symbol, universe_status, graduated_at, updated_at) "
+            "INSERT OR REPLACE INTO asset_registry "
+            "(symbol, universe_status, graduated_at, updated_at) "
             "VALUES ('TEST_GRACE', 'ACTIVE', ?, ?)",
             [dt.date.today().isoformat(), 0.0],
         )
@@ -48,7 +49,8 @@ class TestCoreImmunity(unittest.TestCase):
         init_db()
         conn = get_connection()
         conn.execute(
-            "INSERT OR REPLACE INTO asset_registry (symbol, universe_status, graduated_at, updated_at) "
+            "INSERT OR REPLACE INTO asset_registry "
+            "(symbol, universe_status, graduated_at, updated_at) "
             "VALUES ('TEST_CORE', 'CORE', ?, ?)",
             ["2020-01-01", 0.0],
         )
@@ -86,7 +88,8 @@ class TestDelistTracking(unittest.TestCase):
         init_db()
         conn = get_connection()
         conn.execute(
-            "INSERT OR REPLACE INTO asset_registry (symbol, universe_status, fetch_failures, updated_at) "
+            "INSERT OR REPLACE INTO asset_registry "
+            "(symbol, universe_status, fetch_failures, updated_at) "
             "VALUES ('TEST_DELIST', 'WATCHLIST', 2, ?)",
             [0.0],
         )

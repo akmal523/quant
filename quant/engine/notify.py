@@ -49,7 +49,7 @@ def save_config(config: dict, path: str | None = None) -> None:
         for key, value in config.items():
             if isinstance(value, bool):
                 lines.append(f"{key} = {'true' if value else 'false'}")
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 lines.append(f"{key} = {value}")
             else:
                 lines.append(f'{key} = "{value}"')

@@ -14,6 +14,7 @@ class MeanReversionStrategy(BaseStrategy):
     preferred_regime = ["choppy", "high_vol"]
 
     def compute_signal(self, symbol: str, data: dict) -> float:
+        """Mean-reversion signal: higher when RSI is oversold."""
         rsi = data.get("rsi_14", 50.0)
         if rsi < 30:
             return float((30 - rsi) / 30.0)

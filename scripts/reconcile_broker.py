@@ -60,7 +60,8 @@ def main() -> int:
     theoretical = build_theoretical_snapshot(portfolio_df, scan_df, today)
     save_snapshot(theoretical)
 
-    broker_df = pd.read_csv(args.broker, comment="#") if Path(args.broker).exists() else pd.DataFrame()
+    broker_df = (pd.read_csv(args.broker, comment="#")
+                 if Path(args.broker).exists() else pd.DataFrame())
     result = reconcile(theoretical, broker_df)
 
     print("=" * 78)

@@ -52,8 +52,8 @@ def _lookup(price_lookup: Any, symbol: str) -> float | None:
 
 
 def sync_holdings_meta(
-    conn,
-    portfolio_df,
+    conn: Any,
+    portfolio_df: Any,
     price_lookup: Any,
     sync_date: date | None = None,
     first_time_only: bool = False,
@@ -136,7 +136,7 @@ def record_snapshot(conn: Any, when: date | None = None) -> int:
 
 
 def sync_from_portfolio_csv(
-    conn,
+    conn: Any,
     price_lookup: Any,
     sync_date: date | None = None,
     filepath: str | None = None,
@@ -156,7 +156,7 @@ def sync_from_portfolio_csv(
                               first_time_only=first_time_only)
 
 
-def revalue_holdings(conn, price_lookup: Any) -> dict[str, float]:
+def revalue_holdings(conn: Any, price_lookup: Any) -> dict[str, float]:
     """Estimated value = shares * latest close. Returns {symbol: value}.
 
     A symbol with no resolvable price is skipped (keeps its last value).
@@ -177,7 +177,7 @@ def revalue_holdings(conn, price_lookup: Any) -> dict[str, float]:
     return out
 
 
-def unpriceable_symbols(conn, price_lookup: Any) -> list[str]:
+def unpriceable_symbols(conn: Any, price_lookup: Any) -> list[str]:
     """Symbols in holdings_meta with no resolvable price (Part 5.2)."""
     out: list[str] = []
     try:
@@ -191,7 +191,7 @@ def unpriceable_symbols(conn, price_lookup: Any) -> list[str]:
     return out
 
 
-def write_value_history(conn, as_of: date, invested_eur: float) -> None:
+def write_value_history(conn: Any, as_of: date, invested_eur: float) -> None:
     """Upsert one row into portfolio_value_history (invested pool only)."""
     conn.execute(
         "INSERT OR REPLACE INTO portfolio_value_history (date, invested_eur) "
@@ -214,7 +214,7 @@ def _last_sync_date(conn) -> date | None:
     return last
 
 
-def days_since_last_sync(conn, today: date | None = None) -> int | None:
+def days_since_last_sync(conn: Any, today: date | None = None) -> int | None:
     """Days since the most recent holdings_meta sync; None when never synced."""
     today = today or date.today()
     last = _last_sync_date(conn)
@@ -241,7 +241,7 @@ def _meta_set(conn, key: str, value: str) -> None:
         pass
 
 
-def pending_position_names(conn) -> list[str]:
+def pending_position_names(conn: Any) -> list[str]:
     """Display names of positions recorded since the last CSV sync (R7)."""
     raw = _meta_get(conn, "pending_symbols") or ""
     out: list[str] = []
@@ -255,7 +255,7 @@ def pending_position_names(conn) -> list[str]:
     return out
 
 
-def sync_reminder_line(conn, today: date | None = None) -> str | None:
+def sync_reminder_line(conn: Any, today: date | None = None) -> str | None:
     """One gentle line when the last broker sync is older than the threshold.
 
     v10.7.3 (Part 3.4): when positions were recorded since the last CSV sync

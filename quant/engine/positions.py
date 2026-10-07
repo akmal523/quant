@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from typing import Any
 
 from quant import paths
 
@@ -109,7 +110,7 @@ def _build(portfolio, conn, price_in_eur) -> list[dict]:
     return out
 
 
-def positions_now(conn=None) -> list[dict]:
+def positions_now(conn: Any =None) -> list[dict]:
     """The current positions: symbol, shares, value_eur, entry_eur, profit_eur,
     as_of, estimated.
 

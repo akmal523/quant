@@ -20,6 +20,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+from typing import Any
 
 # Documented public source for the Trade Republic cash rate. The live fetch is
 # best-effort; the dated schedule below is the fallback and the test oracle.
@@ -105,8 +106,8 @@ def _default_parser(html: str) -> float | None:
 
 def fetch_live_cash_apy(
     url: str = SOURCE_URL,
-    fetcher=None,
-    parser=None,
+    fetcher: Any =None,
+    parser: Any =None,
 ) -> float | None:
     """Best-effort live fetch of the cash APY. Never raises; None on failure.
 

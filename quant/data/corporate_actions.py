@@ -108,7 +108,9 @@ def adjust_for_split(df: pd.DataFrame, event: SplitEvent) -> pd.DataFrame:
         return df
     out = df.copy()
 
-    dates = pd.to_datetime(out.index) if not pd.api.types.is_datetime64_any_dtype(out.index) else out.index
+    dates = (pd.to_datetime(out.index)
+             if not pd.api.types.is_datetime64_any_dtype(out.index)
+             else out.index)
     mask = dates < pd.Timestamp(event.date)
     if not mask.any():
         return out

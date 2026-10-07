@@ -37,7 +37,7 @@ def _as_date(value: Any) -> date:
 
 
 def record_flow(
-    conn,
+    conn: Any,
     flow_date: date,
     flow_type: str,
     amount_eur: float,
@@ -51,7 +51,7 @@ def record_flow(
     )
 
 
-def load_flows(conn, start: date | None = None, end: date | None = None) -> list[dict]:
+def load_flows(conn: Any, start: date | None = None, end: date | None = None) -> list[dict]:
     """Load flows in [start, end] (inclusive), ordered by date."""
     query = "SELECT id, date, type, amount_eur, symbol, note FROM flows"
     clauses: list[str] = []
@@ -155,7 +155,7 @@ def _actual_note(month: str) -> str:
 
 
 def write_planned_sparplan_flows(
-    conn,
+    conn: Any,
     month: str,
     legs: list[dict],
     execution_date: date,
@@ -176,7 +176,7 @@ def write_planned_sparplan_flows(
 
 
 def replace_auto_flows_with_actuals(
-    conn,
+    conn: Any,
     month: str,
     actuals: list[dict],
 ) -> list[dict]:

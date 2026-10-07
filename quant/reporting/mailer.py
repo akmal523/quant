@@ -11,6 +11,7 @@ def send_results_email(
     recipient_email: str,
     output_dir: str = str(paths.OUTPUTS_DIR)
 ) -> None:
+    """Email the scan/audit attachments via SMTP. Never raises."""
     msg = EmailMessage()
     msg['Subject'] = "Quant-AI v6 Sector Scan & Portfolio Audit"
     msg['From'] = sender_email

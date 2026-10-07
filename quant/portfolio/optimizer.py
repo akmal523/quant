@@ -255,7 +255,8 @@ def optimize_portfolio_cvar(
         return np.full(n, min(1.0 / n, max_weight))
 
 
-def minimum_trade_size(expected_alpha_bps: float, round_trip_fee_eur: float = ROUND_TRIP_FEE_EUR) -> float:
+def minimum_trade_size(expected_alpha_bps: float,
+                       round_trip_fee_eur: float = ROUND_TRIP_FEE_EUR) -> float:
     """Compute the minimum capital required for an active trade to clear fees.
 
     Intent: reject signals where expected alpha does not exceed the 2 EUR

@@ -32,7 +32,7 @@ def _flatten(d: dict, prefix: str = "") -> dict:
         key = f"{prefix}{k}"
         if isinstance(v, dict):
             out.update(_flatten(v, key + "."))
-        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+        elif isinstance(v, int | float) and not isinstance(v, bool):
             out[key] = float(v)
     return out
 

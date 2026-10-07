@@ -152,7 +152,7 @@ def _is_marker(node: ast.AST) -> bool:
 def _is_empty_container(node: ast.AST) -> bool:
     if isinstance(node, ast.Dict) and not node.keys:
         return True
-    if isinstance(node, (ast.List, ast.Tuple, ast.Set)) and not node.elts:
+    if isinstance(node, ast.List | ast.Tuple | ast.Set) and not node.elts:
         return True
     if isinstance(node, ast.Call) and _call_name(node) in DEFAULT_CALLS:
         return True
@@ -180,8 +180,8 @@ def _try_calls(node: ast.Try) -> set[str]:
 def _cyclomatic(node: ast.AST) -> int:
     count = 1
     for sub in ast.walk(node):
-        if isinstance(sub, (ast.If, ast.For, ast.While, ast.ExceptHandler,
-                            ast.IfExp, ast.BoolOp, ast.comprehension)):
+        if isinstance(sub, ast.If | ast.For | ast.While | ast.ExceptHandler
+                      | ast.IfExp | ast.BoolOp | ast.comprehension):
             count += 1
     return count
 
@@ -194,7 +194,7 @@ def _enclosing_function(tree: ast.AST) -> dict[int, str]:
     """Map each line to the name of the innermost function containing it."""
     out: dict[int, str] = {}
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for sub in ast.walk(node):
                 if hasattr(sub, "lineno"):
                     out[sub.lineno] = node.name
@@ -335,7 +335,7 @@ def audit_file(path: Path, cfg: Config, registry: set[str],
     if rel.endswith("config.py"):
         for node in tree.body:
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
-                    and isinstance(node.value.value, (int, float)):
+                    and isinstance(node.value.value, int | float):
                 name = node.targets[0].id if isinstance(node.targets[0], ast.Name) else ""
                 val = float(node.value.value)
                 is_cap = "CAP" in name or (
@@ -352,7 +352,7 @@ def audit_file(path: Path, cfg: Config, registry: set[str],
 
     # Function-level kinds.
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         if not _is_public(node.name):
             continue

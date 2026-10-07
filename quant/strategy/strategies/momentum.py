@@ -14,6 +14,7 @@ class MomentumStrategy(BaseStrategy):
     preferred_regime = ["bull_low_vol", "trending"]
 
     def compute_signal(self, symbol: str, data: dict) -> float:
+        """Momentum signal: the 6-month return, z-scored when a std is present."""
         returns_6m = data.get("returns_6m", 0.0)
         # Cross-sectional z-score proxy: normalize by a rolling std if present.
         std = data.get("returns_6m_std", 1.0) or 1.0

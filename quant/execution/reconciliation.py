@@ -41,7 +41,8 @@ def build_theoretical_snapshot(
             columns=["snapshot_date", "symbol", "shares", "price_eur", "value_eur"]
         )
 
-    scan_map = scan_df.set_index("Symbol").to_dict("index") if scan_df is not None and not scan_df.empty else {}
+    scan_map = (scan_df.set_index("Symbol").to_dict("index")
+                if scan_df is not None and not scan_df.empty else {})
     rows = []
     for _, p in portfolio_df.iterrows():
         sym = p["Symbol"]

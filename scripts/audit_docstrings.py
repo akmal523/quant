@@ -20,11 +20,11 @@ _MIN_LEN = 20
 def _iter_public_functions(tree: ast.AST):
     """Yield module-level functions and class methods (skip nested helpers)."""
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             yield node
         elif isinstance(node, ast.ClassDef):
             for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                     yield item
 
 

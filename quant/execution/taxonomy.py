@@ -228,7 +228,8 @@ def _upsert_registry(symbol: str, name: str, instrument_class: str) -> None:
         with _DB_WRITE_LOCK:
             conn = get_connection()
             conn.execute(
-                """INSERT INTO asset_registry (symbol, name, instrument_class, universe_status, updated_at)
+                """INSERT INTO asset_registry
+                   (symbol, name, instrument_class, universe_status, updated_at)
                    VALUES (?, ?, ?, 'WATCHLIST', ?)
                    ON CONFLICT (symbol) DO UPDATE SET
                      name = COALESCE(excluded.name, name),

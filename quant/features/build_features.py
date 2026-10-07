@@ -9,12 +9,14 @@ Dependencies: polars, duckdb (via database.get_connection).
 """
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
 from quant.data.database import get_connection
 
 
-def load_market_pl(conn=None) -> pl.DataFrame:
+def load_market_pl(conn: Any =None) -> pl.DataFrame:
     """Load market_history into Polars natively (no pandas intermediate)."""
     conn = conn or get_connection()
     df = conn.execute(
@@ -26,7 +28,7 @@ def load_market_pl(conn=None) -> pl.DataFrame:
     return df
 
 
-def build_features(conn=None) -> pl.DataFrame:
+def build_features(conn: Any =None) -> pl.DataFrame:
     """Compute all cross-sectional features vectorized across the universe.
 
     Features:
@@ -68,7 +70,7 @@ def build_features(conn=None) -> pl.DataFrame:
     return df
 
 
-def latest_features(conn=None) -> pl.DataFrame:
+def latest_features(conn: Any =None) -> pl.DataFrame:
     """Return only the most recent feature row per symbol (for live scoring)."""
     df = build_features(conn)
     return (

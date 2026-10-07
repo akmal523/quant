@@ -14,6 +14,7 @@ class RiskParityStrategy(BaseStrategy):
     preferred_regime = ["any"]
 
     def compute_signal(self, symbol: str, data: dict) -> float:
+        """Risk-parity signal: the inverse of 60-day volatility."""
         vol = data.get("volatility_60d", 0.0) or 0.0
         if vol > 0:
             return float(1.0 / vol)

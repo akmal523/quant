@@ -30,7 +30,9 @@ _AUDIT_FILL = {
 
 # ─── Terminal ─────────────────────────────────────────────────────────────────
 
-def print_terminal_report(scan_df: pd.DataFrame, audit_df: pd.DataFrame | None = None) -> None:
+def print_terminal_report(scan_df: pd.DataFrame,
+                          audit_df: pd.DataFrame | None = None) -> None:
+    """Print the sector-scanner report to the terminal."""
     w = 165
     print("\n" + "=" * w)
     print("  QUANT-AI SECTOR SCANNER  v6  —  FinBERT Edition")
@@ -88,6 +90,7 @@ def export_excel(
     audit_df: pd.DataFrame | None,
     out_dir: str = str(paths.OUTPUTS_DIR),
 ) -> None:
+    """Write the scan and audit frames to market_scan.xlsx."""
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "market_scan.xlsx")
 
@@ -160,6 +163,7 @@ def export_csv(
     audit_df: pd.DataFrame | None,
     out_dir: str = str(paths.OUTPUTS_DIR),
 ) -> None:
+    """Write the scan and audit frames to CSV files in out_dir."""
     os.makedirs(out_dir, exist_ok=True)
 
     scan_df = scan_df.sort_values(by="Total_Score", ascending=False)

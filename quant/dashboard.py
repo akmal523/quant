@@ -98,6 +98,7 @@ def _startup_staleness() -> None:
 
 
 def main() -> None:
+    """Draw the sidebar contract and run the multipage navigation."""
     _startup_backfill()
     _startup_staleness()
     st.sidebar.title("Quant-AI")

@@ -48,6 +48,7 @@ class AccountState:
 
     @property
     def cash_is_set(self) -> bool:
+        """True when an operational-cash figure has been entered."""
         return self.cash_eur is not None
 
 

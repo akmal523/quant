@@ -2,6 +2,7 @@
 config.py — All runtime settings. Values override via .env.
 """
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -339,12 +340,12 @@ def _canonical_tier(tier) -> str:
     return LEGACY_TIER_MAPPING.get(t, t)
 
 
-def rebalance_threshold(tier) -> float:
+def rebalance_threshold(tier: Any) -> float:
     """The drift threshold for a tier (legacy names mapped first)."""
     return REBALANCE_DRIFT_TIERS.get(_canonical_tier(tier), REBALANCE_DRIFT_THRESHOLD)
 
 
-def rebalance_min_days(tier) -> int:
+def rebalance_min_days(tier: Any) -> int:
     """The minimum days between rebalances for a tier (legacy names mapped first)."""
     return REBALANCE_FREQUENCY_DAYS.get(_canonical_tier(tier), 7)
 

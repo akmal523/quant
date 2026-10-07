@@ -113,9 +113,21 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+# The project uses the short aliases C (quant.ui.copy) and P (quant.ui.palette)
+# consistently across the UI, CLI, and tests; N812 is accepted project-wide.
+ignore = ["N812"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["quant"]
+
+[tool.ruff.lint.per-file-ignores]
+# Matrix notation (X, R, N, T) is the standard in the quant modules; renaming
+# these to lowercase would hurt readability of the linear-algebra code.
+"quant/analytics/metrics.py" = ["N806"]
+"quant/analytics/scoring.py" = ["N806"]
+"quant/portfolio/optimizer.py" = ["N806"]
+"quant/strategy/backtest.py" = ["N806"]
+"tests/test_institutional.py" = ["N806"]
 
 [tool.bumpversion]
 current_version = "10.8.0"

@@ -1,6 +1,7 @@
 """
 scoring.py — Unified Scoring Engine v9.0.
-Integrates HMM stochastic models, Stewardship fundamentals, Data Confidence, and Bifurcated Horizons.
+Integrates HMM stochastic models, Stewardship fundamentals, Data Confidence,
+and Bifurcated Horizons.
 Key change in v9.0: tactical grade now penalises assets with no NLP data source to prevent
 false BUY signals from default neutral scores.
 """
@@ -180,7 +181,8 @@ def stewardship_score_v2(f_data: dict, sector: str = "Technology") -> float:
 
 # ── Structural & Tactical Grades ──────────────────────────────────────────────
 
-def evaluate_structural_grade(pe: float | None, peg: float | None, roe: float | None, stewardship_val: float) -> float:
+def evaluate_structural_grade(pe: float | None, peg: float | None,
+                              roe: float | None, stewardship_val: float) -> float:
     """Long-term fundamental quality grade (0-100) from PE, PEG, ROE, stewardship."""
     if pe is None and roe is None:
         return 85.0
@@ -255,7 +257,8 @@ def etf_tactical_grade(
 
 # ── Horizon Synchronization ───────────────────────────────────────────────────
 
-def allocate_capital_regime(structural_grade: float, tactical_grade: float, stewardship_val: float) -> dict:
+def allocate_capital_regime(structural_grade: float, tactical_grade: float,
+                            stewardship_val: float) -> dict:
     """Map grades to a horizon, signal, and active score."""
     if stewardship_val < (WEIGHT_STEWARDSHIP / 2) or structural_grade < 50:
         horizon = "SPECULATIVE"

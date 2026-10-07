@@ -34,7 +34,7 @@ def _iso_week(value: Any) -> tuple[int, int]:
 
 
 def downsample_daily_bars(
-    conn,
+    conn: Any,
     today: date | None = None,
     years: int = RETENTION_DAILY_YEARS,
 ) -> int:
@@ -122,7 +122,7 @@ def prune_news_cache(
     return removed
 
 
-def run_retention(conn, today: date | None = None) -> dict:
+def run_retention(conn: Any, today: date | None = None) -> dict:
     """Run the retention job. Never raises; returns a summary dict."""
     today = today or date.today()
     return {

@@ -71,7 +71,7 @@ def _sell_action(tier: str, value_eur: float) -> dict | None:
     return {"action": "sell", "amount_eur": amount, "fee_eur": SPARPLAN_SELL_FEE_EUR}
 
 
-def has_open_alert(conn, symbol: str | None, kind: str) -> bool:
+def has_open_alert(conn: Any, symbol: str | None, kind: str) -> bool:
     """True when an open alert already exists for (symbol, kind)."""
     try:
         row = conn.execute(
@@ -132,7 +132,7 @@ def _insert(conn, alert: dict, today: date) -> None:
 
 
 def evaluate_alerts(
-    conn,
+    conn: Any,
     holdings: list[dict],
     regime: str | None = None,
     prev_regime: str | None = None,
@@ -253,7 +253,7 @@ def evaluate_alerts(
     return created
 
 
-def open_alerts(conn) -> list[dict]:
+def open_alerts(conn: Any) -> list[dict]:
     """All open alerts, newest first."""
     try:
         rows = conn.execute(
@@ -278,7 +278,7 @@ def open_alerts(conn) -> list[dict]:
 
 
 def resolve_alert(
-    conn,
+    conn: Any,
     alert_id: int,
     status: str,
     reason: str | None = None,
@@ -301,7 +301,7 @@ def resolve_alert(
 
 
 def score_resolved_alerts(
-    conn,
+    conn: Any,
     price_lookup: Any,
     today: date | None = None,
     horizon_days: int = 30,
@@ -350,7 +350,7 @@ def score_resolved_alerts(
     return scored
 
 
-def advice_record_line(conn, months: int = 12) -> str:
+def advice_record_line(conn: Any, months: int = 12) -> str:
     """The Settings one-line advice record (Section 5)."""
     from quant.ui import copy as ui_copy
 

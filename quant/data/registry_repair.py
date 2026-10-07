@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from typing import Any
 
 import pandas as pd
 
@@ -71,7 +72,7 @@ def _yahoo_isin(symbol: str) -> str | None:
 def repair_isins(
     registry_path: str = paths.DATA_BROKER_REGISTRY,
     curated_path: str = paths.DATA_ISIN_CURATED,
-    metadata_source=None,
+    metadata_source: Any =None,
 ) -> dict:
     """Fill missing ISIN cells only. Returns a plain summary dict.
 
@@ -259,7 +260,7 @@ def ensure_registry_rows(registry_path: str = paths.DATA_BROKER_REGISTRY,
 # ("Registry write paths").
 
 def working_universe_sources(
-    conn=None,
+    conn: Any =None,
     *,
     portfolio_path: str = paths.DATA_PORTFOLIO,
     registry_path: str = paths.DATA_BROKER_REGISTRY,
@@ -327,7 +328,7 @@ def working_universe_sources(
     return sources
 
 
-def working_universe(conn=None, **kwargs) -> set[str]:
+def working_universe(conn: Any =None, **kwargs) -> set[str]:
     """The working universe W (see module note). Union of all sources."""
     union: set[str] = set()
     for members in working_universe_sources(conn, **kwargs).values():
@@ -335,7 +336,7 @@ def working_universe(conn=None, **kwargs) -> set[str]:
     return union
 
 
-def sync_registry_to_working_universe(conn, **kwargs) -> dict:
+def sync_registry_to_working_universe(conn: Any, **kwargs) -> dict:
     """Two-way sync of asset_registry to W (H3-fix part 2).
 
     Intent: asset_registry holds exactly W. Insert missing W members (status
@@ -425,7 +426,7 @@ def _write_isin_cache(cache: dict) -> None:
         pass
 
 
-def heal_registry_isins(conn, symbols=None, *,
+def heal_registry_isins(conn: Any, symbols: Any =None, *,
                         curated_path: str = paths.DATA_ISIN_CURATED,
                         metadata_source=None) -> dict:
     """Fill missing asset_registry.isin for W rows (H3-fix part 2, spec 3).

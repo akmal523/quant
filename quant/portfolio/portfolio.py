@@ -62,9 +62,12 @@ def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
                 df[col] = 0.0 if col != "Symbol" else "UNKNOWN"
 
         df["Symbol"] = df["Symbol"].astype(str).str.strip()
-        df["Avg_Entry_Price"] = pd.to_numeric(df["Avg_Entry_Price"].astype(str).str.strip(), errors="coerce")
-        df["Current_Value_EUR"] = pd.to_numeric(df["Current_Value_EUR"].astype(str).str.strip(), errors="coerce")
-        df["Broker_PnL_EUR"] = pd.to_numeric(df["Broker_PnL_EUR"].astype(str).str.strip(), errors="coerce")
+        df["Avg_Entry_Price"] = pd.to_numeric(
+            df["Avg_Entry_Price"].astype(str).str.strip(), errors="coerce")
+        df["Current_Value_EUR"] = pd.to_numeric(
+            df["Current_Value_EUR"].astype(str).str.strip(), errors="coerce")
+        df["Broker_PnL_EUR"] = pd.to_numeric(
+            df["Broker_PnL_EUR"].astype(str).str.strip(), errors="coerce")
 
         # Derived invested amount (broker truth, not price-guessed).
         df["Invested_EUR"] = df["Current_Value_EUR"] - df["Broker_PnL_EUR"]
@@ -251,7 +254,9 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
         orig_amount = p_row.get("Original_Amount", p_row["Amount_EUR"])
 
         if symbol not in scan_map:
-            rows.append({**p_row, "Audit_Decision": "NOT SCANNED", "Reasoning": "Asset not in current universe", "Active_Score": 0, "Signal": "N/A"})
+            rows.append({**p_row, "Audit_Decision": "NOT SCANNED",
+                         "Reasoning": "Asset not in current universe",
+                         "Active_Score": 0, "Signal": "N/A"})
             continue
 
         s = scan_map[symbol]
@@ -269,7 +274,8 @@ def audit_portfolio(portfolio_df: pd.DataFrame, scan_df: pd.DataFrame) -> pd.Dat
             decision = "NO DATA"
             reasoning = "No valid price data to compute PnL"
         else:
-            pnl_pct = ((curr_price - buy_price) / buy_price * 100) if buy_price and buy_price > 0 else 0
+            pnl_pct = (((curr_price - buy_price) / buy_price * 100)
+                       if buy_price and buy_price > 0 else 0)
             shares = orig_amount / buy_price if buy_price > 0 else 0.0
             current_value = curr_price * shares
             pnl_eur = current_value - orig_amount
@@ -380,13 +386,15 @@ def enhanced_portfolio_audit(
         # Plan 3 (Phase 2): broker truth, never price-guessed.
         invested_eur = current_value_eur - broker_pnl_eur
         real_pnl_eur = broker_pnl_eur
-        real_pnl_pct = (real_pnl_eur / invested_eur * 100) if invested_eur and invested_eur > 0 else 0.0
+        real_pnl_pct = ((real_pnl_eur / invested_eur * 100)
+                        if invested_eur and invested_eur > 0 else 0.0)
 
         # FX layer (Phase 3): dual-price display + FX impact.
         avg_entry_price_eur = avg_entry_price * fx
         current_price_eur = curr_price * fx
         # Approx shares from broker value / avg entry price (both EUR).
-        shares = (current_value_eur / avg_entry_price_eur) if (avg_entry_price_eur and avg_entry_price_eur > 0) else 0.0
+        shares = ((current_value_eur / avg_entry_price_eur)
+                  if (avg_entry_price_eur and avg_entry_price_eur > 0) else 0.0)
         # Pure asset performance at today's FX; residual is currency impact.
         asset_pnl_eur = (curr_price - avg_entry_price) * fx * shares
         fx_impact_eur = real_pnl_eur - asset_pnl_eur
@@ -493,7 +501,8 @@ def print_audit_report(audit_df: pd.DataFrame) -> None:
     print("  PORTFOLIO AUDIT REPORT")
     print("=" * w)
 
-    print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>8} {'PnL €':>10} {'Score':>6} {'Signal':<8} {'Reasoning'}")
+    print(f"  {'Symbol':<10} {'Decision':<20} {'PnL %':>8} {'PnL €':>10} "
+          f"{'Score':>6} {'Signal':<8} {'Reasoning'}")
     print("  " + "-" * 140)
 
     for _, row in audit_df.iterrows():
@@ -619,7 +628,8 @@ def print_effectiveness_report(eff: dict) -> None:
     print(f"  Positions held:      {eff['position_count']}  ({eff['active_count']} with data)")
     print(f"  Total invested:      €{eff['total_invested']:>10,.2f}")
     print(f"  Current value:       €{eff['total_value']:>10,.2f}")
-    print(f"  Total PnL:           €{eff['total_pnl_eur']:>+10,.2f}  ({eff['total_pnl_pct']:+.2f}%)")
+    print(f"  Total PnL:           €{eff['total_pnl_eur']:>+10,.2f}  "
+          f"({eff['total_pnl_pct']:+.2f}%)")
     print(f"  Portfolio avg score:  {eff['weighted_score']:>5.1f} / 100")
 
     # Qualitative rating

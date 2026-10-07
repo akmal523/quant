@@ -2,6 +2,7 @@ import datetime as dt
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
+from typing import Any
 
 import pandas as pd
 
@@ -23,7 +24,7 @@ MAX_WORKERS = 5
 INCREMENTAL_OVERLAP_DAYS = 5
 
 
-def get_last_dates(conn) -> dict[str, str]:
+def get_last_dates(conn: Any) -> dict[str, str]:
     """Return {symbol: last_date_str} from market_history. Empty dict if table missing."""
     try:
         rows = conn.execute(
@@ -34,7 +35,8 @@ def get_last_dates(conn) -> dict[str, str]:
         return {}
 
 
-def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None) -> pd.DataFrame | None:
+def fetch_single(sym: str, name: str, sector: str,
+                 last_date: str | None = None) -> pd.DataFrame | None:
     """Fetch a single ticker's history. Incremental if last_date provided.
 
     Intent: avoid re-downloading 5y every run. Fetch only data after last_date
@@ -76,7 +78,9 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
 
         latest_px = valid['Close'].iloc[-1]
         latest_dt = valid.index[-1].strftime('%Y-%m-%d')
-        reporter.detail(f" [OK] {sym} (via {fetch_ticker}): Latest {latest_dt} | Price: {latest_px:.2f}")
+        reporter.detail(
+            f" [OK] {sym} (via {fetch_ticker}): "
+            f"Latest {latest_dt} | Price: {latest_px:.2f}")
 
         df['Symbol'] = sym
         df['Sector'] = sector
@@ -88,7 +92,8 @@ def fetch_single(sym: str, name: str, sector: str, last_date: str | None = None)
             df['Date'] = pd.to_datetime(df['Date']).dt.tz_localize(None)
             df = df.set_index('Date')
 
-        cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol', 'Sector', 'Instrument_Class']
+        cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol',
+                        'Sector', 'Instrument_Class']
         df = df[[c for c in cols_to_keep if c in df.columns]]
         df = df.dropna(subset=['Close'])
 

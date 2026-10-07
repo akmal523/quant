@@ -21,7 +21,8 @@ async def _fetch_news_async(symbol: str, session: aiohttp.ClientSession) -> str:
         pass
     return ""
 
-async def _fetch_single(symbol: str, session: aiohttp.ClientSession, semaphore: asyncio.Semaphore) -> tuple[str, str]:
+async def _fetch_single(symbol: str, session: aiohttp.ClientSession,
+                        semaphore: asyncio.Semaphore) -> tuple[str, str]:
     async with semaphore:
         # 1. Threaded SEC Fetch -> Bypasses GIL for synchronous library
         text = await asyncio.to_thread(fetch_latest_8k, symbol)
@@ -33,6 +34,7 @@ async def _fetch_single(symbol: str, session: aiohttp.ClientSession, semaphore: 
         return symbol, text
 
 async def fetch_all_texts_concurrently(symbols: list[str]) -> dict[str, str]:
+    """Fetch news/filing text for many symbols concurrently. Never raises."""
     semaphore = asyncio.Semaphore(MAX_ASYNC_WORKERS)
     async with aiohttp.ClientSession() as session:
         tasks = [_fetch_single(sym, session, semaphore) for sym in symbols]

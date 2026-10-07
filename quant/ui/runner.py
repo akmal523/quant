@@ -59,6 +59,7 @@ class RunResult:
 
     @property
     def ok(self) -> bool:
+        """True when the run finished successfully."""
         return self.status == "ok"
 
 

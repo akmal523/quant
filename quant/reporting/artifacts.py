@@ -421,12 +421,15 @@ class StructuredLogger:
         self.logger.log(level, json.dumps(record, default=str))
 
     def info(self, event: str, **fields) -> None:
+        """Emit an INFO record."""
         self._emit(logging.INFO, event, **fields)
 
     def warning(self, event: str, **fields) -> None:
+        """Emit a WARNING record."""
         self._emit(logging.WARNING, event, **fields)
 
     def error(self, event: str, **fields) -> None:
+        """Emit an ERROR record."""
         self._emit(logging.ERROR, event, **fields)
 
 
