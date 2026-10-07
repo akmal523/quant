@@ -229,7 +229,7 @@ def read_actions() -> list[dict]:
     A3). Includes the audit columns the table needs (value, weights) plus the
     action fields (action, amount, blocked, status, remedy).
     """
-    from quant.config import MIN_TRADE_SIZE_EUR, REBALANCE_DRIFT_TIERS
+    from quant.config import MIN_TRADE_SIZE_EUR, rebalance_threshold
     from quant.reporting.actions import build_actions
     from quant.ui import copy as ui_copy
 
@@ -251,7 +251,7 @@ def read_actions() -> list[dict]:
         a = by_sym.get(sym, {})
         rec = str(r.get("Recommendation", "") or "")
         tier = str(r.get("Tier", "ACTIVE"))
-        threshold = REBALANCE_DRIFT_TIERS.get(tier, 0.05)
+        threshold = rebalance_threshold(tier)
         drift_frac = _pct(r.get("Drift", ""))
         cooldown = r.get("Cooldown_Until")
         if isinstance(cooldown, float) and cooldown != cooldown:

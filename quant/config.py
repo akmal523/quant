@@ -224,20 +224,21 @@ REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
 MIN_TRADE_SIZE_EUR = 50.0          # minimum trade to clear the 2 EUR round-trip
 REBALANCE_FIRST_RUN = False        # True = force rebalance to targets on first run
 
+# v10.8.0 (2.3): ONE tier vocabulary. The legacy 4-tier keys (CORE/SATELLITE/
+# ACTIVE/SECTOR) are gone; legacy values are carried over through
+# LEGACY_TIER_MAPPING. FORTRESS rebalances only on >10% drift and quarterly.
 # Days between allowed rebalances per tier.
 REBALANCE_FREQUENCY_DAYS = {
-    "CORE": 90,       # quarterly
-    "SATELLITE": 30,  # monthly
-    "ACTIVE": 1,      # daily (active trading)
-    "SECTOR": 14,     # bi-weekly
+    "FORTRESS": 90,     # quarterly (was CORE)
+    "ALPHA": 7,         # weekly
+    "SPECULATIVE": 7,   # weekly
 }
 
 # Per-tier drift thresholds (fraction) that trigger a rebalance.
 REBALANCE_DRIFT_TIERS = {
-    "CORE": 0.10,      # only major drift
-    "SATELLITE": 0.075,
-    "ACTIVE": 0.05,
-    "SECTOR": 0.06,
+    "FORTRESS": 0.10,   # only major drift (was CORE)
+    "ALPHA": 0.05,
+    "SPECULATIVE": 0.05,
 }
 
 # ── Optional email reporting ──────────────────────────────────────────────────
@@ -329,6 +330,22 @@ LEGACY_TIER_MAPPING = {
     "ACTIVE": "ALPHA",
     "SECTOR": "ALPHA",
 }
+
+
+def _canonical_tier(tier) -> str:
+    """Map a legacy tier name to its current name (v10.8.0, 2.3)."""
+    t = str(tier or "").upper()
+    return LEGACY_TIER_MAPPING.get(t, t)
+
+
+def rebalance_threshold(tier) -> float:
+    """The drift threshold for a tier (legacy names mapped first)."""
+    return REBALANCE_DRIFT_TIERS.get(_canonical_tier(tier), REBALANCE_DRIFT_THRESHOLD)
+
+
+def rebalance_min_days(tier) -> int:
+    """The minimum days between rebalances for a tier (legacy names mapped first)."""
+    return REBALANCE_FREQUENCY_DAYS.get(_canonical_tier(tier), 7)
 
 # Per-tier behaviour. max_allocation is a hard cap (None = uncapped).
 TIER_CONSTRAINTS = {

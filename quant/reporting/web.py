@@ -24,7 +24,7 @@ import shutil
 import pandas as pd
 
 from quant import __version__, paths
-from quant.config import MIN_TRADE_SIZE_EUR, REBALANCE_DRIFT_TIERS
+from quant.config import MIN_TRADE_SIZE_EUR, rebalance_threshold
 from quant.portfolio.account import load_account
 from quant.reporting.actions import _tier, build_actions
 from quant.reporting.artifacts import latest_run
@@ -122,7 +122,7 @@ def build_data(run_dir: str) -> dict:
         below = 0
         for _, r in audit.iterrows():
             tier = str(r.get("Tier", "ACTIVE"))
-            threshold = REBALANCE_DRIFT_TIERS.get(tier, 0.05)
+            threshold = rebalance_threshold(tier)
             try:
                 drift = float(str(r.get("Drift", "")).rstrip("%") or 0) / 100.0
             except (TypeError, ValueError):

@@ -13,9 +13,9 @@ from quant import paths
 from quant.config import (
     ACTIVE_ASSETS,
     CORE_ASSETS,
-    REBALANCE_DRIFT_TIERS,
-    REBALANCE_FREQUENCY_DAYS,
     SATELLITE_ASSETS,
+    rebalance_min_days,
+    rebalance_threshold,
     SECTOR_ASSETS,
     TARGET_WEIGHTS,
 )
@@ -160,14 +160,20 @@ def classify_asset(symbol: str) -> str:
 
 
 def get_last_rebalance(symbol: str) -> str | None:
-    """Read last rebalance date for a symbol from rebalance_log.
+    """The date of the last recorded trade for a symbol (v10.8.0, 2.3).
 
-    Intent: time-gate rebalancing per tier. Absence of a row = first run.
-    Dependencies: database.get_connection. Returns ISO date string or None.
+    A cooldown means "since the last trade the user recorded for this asset".
+    Reads the flows ledger first; falls back to the legacy rebalance_log.
+    Absence of both = no recorded trade (no cooldown).
     """
     try:
         from quant.data.database import get_connection
         conn = get_connection()
+        row = conn.execute(
+            "SELECT MAX(date) FROM flows WHERE symbol = ?", [symbol]
+        ).fetchone()
+        if row and row[0]:
+            return str(row[0])
         row = conn.execute(
             "SELECT last_rebalance_date FROM rebalance_log WHERE symbol = ?",
             [symbol],
@@ -211,14 +217,16 @@ def should_rebalance_asset(
     """
     drift = current_weight - target_weight
     abs_drift = abs(drift)
-    threshold = REBALANCE_DRIFT_TIERS.get(tier, REBALANCE_DRIFT_TIERS["ACTIVE"])
-    min_days = REBALANCE_FREQUENCY_DAYS.get(tier, 7)
+    threshold = rebalance_threshold(tier)
+    min_days = rebalance_min_days(tier)
 
     last = get_last_rebalance(symbol)
     if last is None:
-        # First run: baseline ease-in. Record baseline, no forced rebalance.
-        set_last_rebalance(symbol, current_date)
-        return False, f"{tier} first-run baseline set; no forced rebalance"
+        # v10.8.0 (2.3): no recorded trade yet -> no cooldown. The drift
+        # threshold alone decides; the predicate writes nothing.
+        if abs_drift < threshold:
+            return False, f"{tier} drift {abs_drift:.1%} < {threshold:.1%} threshold"
+        return True, f"{tier} drift {abs_drift:.1%} exceeds {threshold:.1%} threshold"
 
     days_since = (pd.to_datetime(current_date) - pd.to_datetime(last)).days
 
@@ -402,8 +410,8 @@ def enhanced_portfolio_audit(
         # H3.8 (M4): the ADVICE is driven by drift vs the tier threshold; the
         # time gate only sets a cooldown (surfaced as Waiting + footnote), never
         # silence. Drift is the ONE calculation shared with the holdings table.
-        threshold = REBALANCE_DRIFT_TIERS.get(tier, REBALANCE_DRIFT_TIERS["ACTIVE"])
-        min_days = REBALANCE_FREQUENCY_DAYS.get(tier, 7)
+        threshold = rebalance_threshold(tier)
+        min_days = rebalance_min_days(tier)
         last = get_last_rebalance(symbol)     # BEFORE the first-run baseline write
         actionable = abs(drift) >= threshold
         cooldown_until = None
@@ -412,8 +420,8 @@ def enhanced_portfolio_audit(
             if days_since < min_days:
                 cooldown_until = (pd.to_datetime(last)
                                   + pd.Timedelta(days=min_days)).date().isoformat()
-        if last is None:
-            set_last_rebalance(symbol, current_date)   # first-run baseline
+        # v10.8.0 (2.3): no recorded trade -> no cooldown; the predicate writes
+        # nothing (the cooldown starts from the last recorded trade).
 
         structural_grade = float(s.get("Structural_Grade", 50) or 50)
         tactical_grade = float(s.get("Tactical_Grade", 50) or 50)
