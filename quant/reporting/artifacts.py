@@ -237,6 +237,31 @@ def read_actions() -> list[dict]:
     if audit.empty:
         return []
 
+    # v10.8.0 (Phase 1): overlay the LIVE positions so the Overview table, the
+    # steps, the action cards and My holdings read the same value, weight and
+    # tier. Before this, the Overview read the frozen review artifact while My
+    # holdings read the live broker CSV, so the two disagreed.
+    try:
+        from quant.engine.positions import positions_now
+        from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+
+        live = {p["symbol"]: p for p in positions_now()}
+        tmap = tier_map(load_tiers_safe()[0])
+        total = sum(float(p["value_eur"]) for p in live.values()) or 1.0
+        if live:
+            audit = audit.copy()
+            for i, r in audit.iterrows():
+                sym = str(r.get("Symbol", ""))
+                p = live.get(sym)
+                if p:
+                    audit.at[i, "Value_EUR"] = float(p["value_eur"])
+                    audit.at[i, "Current_Weight"] = (
+                        f"{float(p['value_eur']) / total * 100:.1f}%")
+                if sym in tmap:
+                    audit.at[i, "Tier"] = tmap[sym]
+    except Exception:  # noqa: BLE001
+        pass
+
     def _pct(value) -> float:
         try:
             return float(str(value).rstrip("%") or 0) / 100.0
