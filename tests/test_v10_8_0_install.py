@@ -46,6 +46,13 @@ def test_review_text_fetch_is_guarded():
     assert "from quant.data.async_fetcher import fetch_all_texts_concurrently" in src
 
 
+def test_no_hardcoded_briefing_date_or_placeholder_cash():
+    """The advanced briefing must use today's date and the real cash (3.1)."""
+    src = (ROOT / "quant" / "main.py").read_text()
+    assert "2026-09-09" not in src
+    assert "placeholder cash" not in src
+
+
 def test_news_outage_message_after_three_failures(tmp_path, monkeypatch):
     from quant import paths
     from quant.data import news

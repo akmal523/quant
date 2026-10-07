@@ -239,25 +239,32 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
 
     # Strategy engine: ensemble scores per portfolio symbol.
     engine = StrategyEngine()
+    # v10.8.0 (3.1): the regime is a documented drawdown proxy in this legacy
+    # path (the HMM regime is computed in the main review, not here).
     regime = "bull_low_vol" if risk_status.get("drawdown", 0) > -0.05 else "bear"
     strategy_weights = engine.regime_weights(regime)
     ensemble_scores = {}
     for sym in port_df["Symbol"]:
         if sym in returns_matrix.columns:
             ret = returns_matrix[sym].dropna()
+            # v10.8.0 (3.1): no placeholder inputs. The strategy engine reads
+            # only the keys it needs; missing keys use its own defaults.
             data = {
                 "returns_6m": float(ret.tail(126).sum()) if len(ret) else 0.0,
                 "volatility_60d": float(ret.tail(60).std()) if len(ret) else 0.0,
-                "rsi_14": 50.0,
-                "pe_ratio": 0.0,
-                "dividend_yield": 0.0,
             }
             ensemble_scores[sym] = engine.compute_ensemble_signal(sym, data, regime)
 
     # Cash manager: target cash + dip alerts.
     cash_mgr = CashManager()
-    cash_target = cash_mgr.target_cash_allocation(regime, vix=18.0, opportunity_score=0.5)
-    cash_eur = port_value * 0.10  # placeholder cash
+    # v10.8.0 (3.1): the real account cash, not a placeholder fraction.
+    from quant.portfolio.account import load_account
+
+    cash_eur = float(load_account().cash_eur or 0.0)
+    # v10.8.0 (3.1): no VIX/opportunity feed in this path; the neutral values
+    # make the target the regime base rate, not a fabricated number.
+    cash_target = cash_mgr.target_cash_allocation(
+        regime, vix=20.0, opportunity_score=0.0)
     # Item 6: gate DIP BUY on underweight vs target tier. Only buy dips on
     # positions that are underweight (or not in the audit), never on overweight
     # positions that are already at/above target.
@@ -320,11 +327,16 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     except Exception as e:  # noqa: BLE001
         logger.warning("Alpha metrics failed (non-fatal): %s", e)
 
+    from datetime import date as _date
+
+    _pnl_eur = float(audit_res["PnL_EUR"].sum()) if "PnL_EUR" in audit_res else 0.0
+    _invested = (float(audit_res["Invested_EUR"].sum())
+                 if "Invested_EUR" in audit_res else 0.0)
     briefing = build_briefing(
-        date_str="2026-09-09",
+        date_str=_date.today().isoformat(),
         portfolio_value=port_value,
-        pnl_eur=float(audit_res["PnL_EUR"].sum()) if "PnL_EUR" in audit_res else 0.0,
-        pnl_pct=0.0,
+        pnl_eur=_pnl_eur,
+        pnl_pct=(_pnl_eur / _invested * 100.0) if _invested else 0.0,
         cash_eur=cash_eur,
         cash_pct=cash_eur / port_value if port_value else 0.0,
         risk_status=risk_status,
