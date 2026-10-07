@@ -1423,7 +1423,7 @@ def _render_candidate_card(c: dict, section: str, active_used: float,
     """One actionable candidate card (v10.7.3, Part 2.4). No dead text cards."""
     from quant.config import ACTIVE_MAX, BETS_MAX
 
-    st.write(f"{c['name']} ({c['symbol']})")
+    st.write(label_for(c["name"], c["symbol"]))
     with st.expander(C.CAND_VIEW_ANALYSIS):
         if c.get("structure") is not None:
             st.write(C.CAND_ANALYSIS_STRUCTURE.format(score=float(c["structure"])))
@@ -1458,7 +1458,7 @@ def _render_buffett_candidates(cands: dict) -> None:
         st.caption(C.BUFFETT_EMPTY)
         return
     for c, result in passing[:5]:
-        st.write(f"{c['name']} ({c['symbol']})")
+        st.write(label_for(c["name"], c["symbol"]))
         with st.expander(C.CAND_VIEW_ANALYSIS):
             st.write(C.BUFFETT_SCORE_LINE.format(score=f"{result['score']:.0f}"))
             st.write(C.BUFFETT_MOAT_LINE.format(moat=C.moat_word(result.get("moat"))))
@@ -2288,7 +2288,7 @@ def page_monthly() -> None:
     actuals: list[dict] = []
     for leg in buy_legs:
         amount = st.number_input(
-            f"{_display_name(leg['symbol'])} ({leg['symbol']})",
+            label_for(_display_name(leg["symbol"]), leg["symbol"]),
             min_value=0.0, value=float(leg.get("amount_eur", 0) or 0), step=5.0,
             key=f"actual_{leg['symbol']}")
         actuals.append({"symbol": leg["symbol"], "amount_eur": amount,

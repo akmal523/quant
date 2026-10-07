@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   day) moves to Settings. My holdings has one Save.
 - One transaction form: the Tax page's record-trade form is deleted; it links to
   the single form on My holdings.
+- One instrument label formatter: every "Human name (TICKER)" label goes through
+  `label_for`; the manual duplicates in the candidate cards and the monthly legs
+  are removed.
 
 ### Added
 
