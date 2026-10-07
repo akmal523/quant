@@ -6,5 +6,19 @@ headless = true
 
 # A4 (v10.5.2): the primary action color is the theme accent (deep blue), not
 # red. Red is reserved for blockers, amber for warnings, green for satisfied.
+# v10.8.0 (Phase 3): light and night themes, same layout in both. Streamlit
+# follows the OS preference and its own settings menu; there is no toggle button.
 [theme]
 primaryColor = "#1F3B73"
+
+[theme.light]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F6F8"
+textColor = "#1F2937"
+primaryColor = "#1F3B73"
+
+[theme.dark]
+backgroundColor = "#12151A"
+secondaryBackgroundColor = "#1B1F26"
+textColor = "#E8EAED"
+primaryColor = "#5B83BF"

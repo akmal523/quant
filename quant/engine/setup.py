@@ -27,7 +27,7 @@ FIRST_WEEK_CHECKLIST = [
     "Enter what you bought (one line), so the math stays honest.",
     "Refresh your broker values if the last sync is older than 35 days.",
     "Live your life.",
-    "Glance at the summary on Fridays.",
+    "Glance at the summary on Overview.",
     "A Telegram alert means place the order in the broker app; it executes at "
     "market open.",
 ]

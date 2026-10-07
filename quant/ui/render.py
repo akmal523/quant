@@ -50,6 +50,7 @@ from quant.reporting.artifacts import (
     read_update_state,
 )
 from quant.ui import copy as C
+from quant.ui import palette as P
 from quant.ui import runner
 from quant.ui.cards import explore_card_fields
 from quant.ui.search import discovery_candidates, label_for, load_index, search
@@ -701,9 +702,7 @@ def page_today() -> None:
         pcts = [v / total * 100 for v in values]
         legend_labels = [f"{lbl} {p:.0f}%" for lbl, p in zip(labels, pcts)]
         slice_text = [f"{p:.0f}%" if p >= 5 else "" for p in pcts]
-        palette = ["#1F3B73", "#3B5C99", "#5B83BF", "#8FA9CF", "#B8C4D9",
-                   "#6B7280", "#8A8F99", "#A7ADB8"]
-        colors = [palette[i % len(palette)] for i in range(len(values))]
+        colors = [P.SERIES[i % len(P.SERIES)] for i in range(len(values))]
         fig = go.Figure(go.Pie(
             labels=legend_labels, values=values, hole=0.55,
             text=slice_text, textinfo="text", sort=False,
@@ -885,8 +884,8 @@ def _render_asset_chart(symbol: str) -> None:
     base = float(df["Close"].iloc[0]) or 1.0
     series = df["Close"] / base * 100.0
     fig = go.Figure(go.Scatter(x=df["d"], y=series, mode="lines",
-                               line=dict(width=2, color="#1F3B73"), fill=None))
-    fig.add_hline(y=100.0, line_dash="dot", line_color="#888")
+                               line=dict(width=2, color=P.ACCENT), fill=None))
+    fig.add_hline(y=100.0, line_dash="dot", line_color=P.BASELINE)
     lo, hi = float(series.min()), float(series.max())
     pad = (hi - lo) * 0.1 or 1.0
     fig.update_layout(height=240, margin=dict(l=8, r=8, t=8, b=8),
@@ -2134,8 +2133,8 @@ def _annotation_kwargs(text: str) -> dict:
     """H3.7 (L5): the in-plot annotation, in the top margin on a white box."""
     return dict(xref="paper", yref="paper", x=0.0, y=1.0, xanchor="left",
                 yanchor="bottom", text=text, showarrow=False, align="left",
-                font=dict(size=12, color="#1F2937"),
-                bgcolor="rgba(255,255,255,0.85)")
+                font=dict(size=12, color=P.ANNOTATION_TEXT),
+                bgcolor=P.ANNOTATION_BG)
 
 
 def _render_value_chart(history, holdings) -> None:
@@ -2169,7 +2168,7 @@ def _render_value_chart(history, holdings) -> None:
     # v10.7.0 (B8): one clean line, no area fill.
     fig.add_trace(go.Scatter(
         x=df["review_ts"], y=port, mode="lines", name="Portfolio",
-        line=dict(width=2, color="#1F3B73"), fill=None))
+        line=dict(width=2, color=P.ACCENT), fill=None))
 
     # v10.7.3 (Part 7.2): exactly one benchmark line, in either view. In Value
     # view it is scaled to the portfolio's start value so it overlays in EUR.
@@ -2190,10 +2189,10 @@ def _render_value_chart(history, holdings) -> None:
                 fig.add_trace(go.Scatter(
                     x=bench["d"], y=y, mode="lines",
                     name=_display_name(C.BENCHMARK_SYMBOL),
-                    line=dict(width=1.5, color="#8A8F99")))
+                    line=dict(width=1.5, color=P.BENCHMARK)))
 
     base = 100.0 if growth else float(df["value_eur"].iloc[0])
-    fig.add_hline(y=base, line_dash="dot", line_color="#888")
+    fig.add_hline(y=base, line_dash="dot", line_color=P.BASELINE)
     ann = _range_annotation(df, growth)
     if ann:
         fig.add_annotation(**_annotation_kwargs(ann))     # H3.7 (L5)
