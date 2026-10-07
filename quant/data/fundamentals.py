@@ -11,20 +11,21 @@ New in this version:
 """
 from __future__ import annotations
 
-import time
 import logging
 import threading
-from quant.data.database import get_connection
+import time
 
 import requests
 import yfinance as yf
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
+
+from quant.data.database import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def _get_from_cache(symbol: str) -> dict | None:
            FROM fundamentals WHERE symbol = ?""",
         [symbol]
     ).fetchone()
-    
+
     if row:
         pe, peg, roe, de, ebit, interest_exp, updated_at = row
         import time
@@ -211,7 +212,7 @@ def _yf_worker(symbol: str, result: list) -> None:
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info or {}
-        
+
         pe  = info.get("trailingPE") or info.get("forwardPE")
         peg = info.get("pegRatio")
         roe = info.get("returnOnEquity")
@@ -250,18 +251,18 @@ def _fetch_yfinance_fallback(symbol: str) -> dict | None:
         result = [None]
         t = threading.Thread(target=_yf_worker, args=(symbol, result), daemon=True)
         t.start()
-        
+
         # Give yfinance 8 seconds max to respond
         t.join(timeout=8.0)
-        
+
         if t.is_alive():
             logger.debug(f"[fundamentals] yfinance timeout for {symbol} (attempt {attempt + 1}).")
             time.sleep(2) # Backoff before retry
             continue
-            
+
         if result[0] is not None:
             return result[0]
-            
+
     return None
 
 # ── Public Interface ──────────────────────────────────────────────────────────

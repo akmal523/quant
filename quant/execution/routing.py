@@ -22,12 +22,13 @@ Dependencies: config, optimizer.minimum_trade_size.
 from __future__ import annotations
 
 from quant.config import (
-    SPARPLAN_STRUCT_MIN, ACTIVE_TACT_MIN,
+    ACTIVE_TACT_MIN,
     ROUND_TRIP_FEE_EUR,
+    SPARPLAN_STRUCT_MIN,
 )
+from quant.execution.taxonomy import INVERSE_STRUCTURE, LEVERAGED_STRUCTURE, PLAIN_STRUCTURE
 from quant.portfolio.cash_rate import current_cash_apy
 from quant.portfolio.optimizer import minimum_trade_size, minimum_trade_size_vol_aware
-from quant.execution.taxonomy import PLAIN_STRUCTURE, INVERSE_STRUCTURE, LEVERAGED_STRUCTURE
 
 
 def route_signal(

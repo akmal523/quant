@@ -5,10 +5,11 @@ with EWMA fallback for short histories. Provides RSI and ATR for backtesting.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from arch import arch_model
-import warnings
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)

@@ -1,16 +1,18 @@
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 # test_db.py
 # DB isolation is provided by tests/conftest.py (ephemeral DuckDB). Never
 # delete the production store from a test.
-from quant.data.database import init_db, get_connection
+from quant.data.database import get_connection, init_db
+
 
 def test_db_init():
     # Act
     init_db()
     conn = get_connection()
-    
+
     # Test Fundamentals Schema
     conn.execute("INSERT INTO fundamentals (symbol, pe) VALUES ('AAPL', 25.5)")
     res_fund = conn.execute("SELECT pe FROM fundamentals WHERE symbol = 'AAPL'").fetchone()

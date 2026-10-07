@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import os
 import sys
@@ -32,13 +33,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from quant.config import CORE_ETFS
 from quant.data.database import get_connection, init_db
+
 # ISIN backfill lives in quant.data.registry_repair so the UI can call it
 # in-process (A6). Re-exported here for the documented script entry point.
 from quant.data.registry_repair import (  # noqa: F401
-    ensure_registry_rows, load_curated, repair_isins,
+    ensure_registry_rows,
+    load_curated,
+    repair_isins,
 )
 from quant.execution.taxonomy import (
-    set_core, set_structure, mark_delisted, INVERSE_STRUCTURE,
+    INVERSE_STRUCTURE,
+    mark_delisted,
+    set_core,
+    set_structure,
     sync_broker_registry,
 )
 

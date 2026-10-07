@@ -6,15 +6,21 @@ and universe graduation detection. Pure-logic tests (no network, no cvxpy).
 """
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import unittest
+
 import pandas as pd
 
-from quant.portfolio.risk import daily_risk_free_rate, calculate_sortino_ratio, calculate_sharpe_ratio
-from quant.portfolio.optimizer import minimum_trade_size, passes_fee_hurdle
-from quant.execution.routing import route_signal, build_execution_instruction
-from quant.execution.taxonomy import classify_instrument, resolve_broker
 from quant.execution.discovery import detect_graduation
+from quant.execution.routing import build_execution_instruction, route_signal
+from quant.execution.taxonomy import classify_instrument, resolve_broker
+from quant.portfolio.optimizer import minimum_trade_size, passes_fee_hurdle
+from quant.portfolio.risk import (
+    calculate_sharpe_ratio,
+    calculate_sortino_ratio,
+    daily_risk_free_rate,
+)
 
 
 class TestFeeHurdle(unittest.TestCase):

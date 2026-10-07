@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import pandas as pd
 
 from quant.config import (
-    TARGET_WEIGHTS, MIN_TRADE_SIZE_EUR,
+    MIN_TRADE_SIZE_EUR,
+    TARGET_WEIGHTS,
 )
-
 
 # ── Tier Classification ───────────────────────────────────────────────────────
 
@@ -74,9 +75,8 @@ def test_should_rebalance_core_drift_threshold():
     """CORE rebalances only on >10% drift (after time gate)."""
     from quant.data.database import init_db
     init_db()
-    from quant.portfolio.portfolio import should_rebalance_asset
     # Force a rebalance_log row so time gate passes (last = 100 days ago).
-    from quant.portfolio.portfolio import set_last_rebalance
+    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
     set_last_rebalance("EUNL.DE", "2026-06-01")
     ok, reason = should_rebalance_asset(
         "EUNL.DE", 0.62, 0.50, "CORE", "2026-09-09",
@@ -89,8 +89,7 @@ def test_should_rebalance_core_small_drift_holds():
     """CORE with <10% drift -> HOLD."""
     from quant.data.database import init_db
     init_db()
-    from quant.portfolio.portfolio import should_rebalance_asset
-    from quant.portfolio.portfolio import set_last_rebalance
+    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
     set_last_rebalance("EUNL.DE", "2026-06-01")
     ok, reason = should_rebalance_asset(
         "EUNL.DE", 0.53, 0.50, "CORE", "2026-09-09",
@@ -103,8 +102,7 @@ def test_should_rebalance_first_run_baseline():
     """First run (no log row) eases in: no forced rebalance."""
     from quant.data.database import init_db
     init_db()
-    from quant.portfolio.portfolio import should_rebalance_asset
-    from quant.portfolio.portfolio import set_last_rebalance
+    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
     # Use a symbol with no prior log entry.
     set_last_rebalance("AMZN", "2026-09-09")  # ensure baseline exists
     ok, reason = should_rebalance_asset(

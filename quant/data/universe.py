@@ -15,6 +15,7 @@ Dependencies: pandas (lazy), os (lazy) for broker_registry read.
 from __future__ import annotations
 
 from quant import paths
+
 # ─── ETF Detection ─────────────────────────────────────────────────────────────
 
 # Known ETF/Index tickers that name-based heuristics would miss. Kept small;
@@ -44,6 +45,7 @@ def is_etf(symbol: str) -> bool:
         return True
     try:
         import os
+
         import pandas as pd
         if os.path.exists(paths.DATA_BROKER_REGISTRY):
             reg = pd.read_csv(paths.DATA_BROKER_REGISTRY)

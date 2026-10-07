@@ -14,10 +14,10 @@ from quant.config import (
     ACTIVE_ASSETS,
     CORE_ASSETS,
     SATELLITE_ASSETS,
-    rebalance_min_days,
-    rebalance_threshold,
     SECTOR_ASSETS,
     TARGET_WEIGHTS,
+    rebalance_min_days,
+    rebalance_threshold,
 )
 from quant.data.currency import get_fx_to_eur
 from quant.errors import DataError

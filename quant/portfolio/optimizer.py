@@ -25,10 +25,13 @@ if TYPE_CHECKING:
     import pandas as pd
 
 from quant.config import (
-    MAX_POSITION_PCT, TARGET_VOLATILITY,
+    ACTIVE_MAX,
+    CVAR_ALPHA,
+    LONG_TERM_MIN,
+    MAX_POSITION_PCT,
+    MIN_TRADE_VOL_MULT,
     ROUND_TRIP_FEE_EUR,
-    LONG_TERM_MIN, ACTIVE_MAX,
-    CVAR_ALPHA, MIN_TRADE_VOL_MULT,
+    TARGET_VOLATILITY,
 )
 from quant.portfolio.risk import daily_risk_free_rate
 

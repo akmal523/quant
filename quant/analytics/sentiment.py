@@ -10,9 +10,10 @@ score/reasoning/doc_hash. Pure scoring, no I/O.
 Dependencies: torch, transformers.
 """
 import hashlib
+
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from quant.config import FINBERT_MODEL
 

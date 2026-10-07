@@ -22,7 +22,9 @@ import pandas as pd  # noqa: E402
 
 def test_corporate_actions_detect_and_adjust():
     from quant.data.corporate_actions import (
-        detect_split, apply_corporate_actions, adjust_cost_basis,
+        adjust_cost_basis,
+        apply_corporate_actions,
+        detect_split,
     )
     dates = pd.bdate_range("2024-01-01", periods=10)
     close = pd.Series([100, 101, 102, 103, 104, 52, 53, 54, 55, 56], index=dates, dtype=float)
@@ -40,8 +42,10 @@ def test_corporate_actions_detect_and_adjust():
 
 def test_assertions_hard_gate():
     from quant.data.assertions import (
-        run_assertions, DataAssertionError,
-        assert_no_duplicate_timestamps, assert_fundamentals_sane,
+        DataAssertionError,
+        assert_fundamentals_sane,
+        assert_no_duplicate_timestamps,
+        run_assertions,
     )
     # Duplicate timestamps -> fail.
     dup = pd.DataFrame({"Date": ["2024-01-01", "2024-01-01"], "Close": [10.0, 11.0]})
@@ -78,7 +82,7 @@ def test_assertions_hard_gate():
 
 
 def test_mean_cvar_optimizer():
-    from quant.portfolio.optimizer import optimize_portfolio_cvar, cvar_of_weights
+    from quant.portfolio.optimizer import cvar_of_weights, optimize_portfolio_cvar
     rng = np.random.RandomState(0)
     R = rng.normal(0.0005, 0.01, size=(250, 4))
     exp_ret = np.array([0.001, 0.0008, 0.0006, 0.0004])
@@ -105,7 +109,8 @@ def test_kill_switch_triggers():
 
 def test_regime_constraints():
     from quant.portfolio.regime_constraints import (
-        regime_from_bull_prob, apply_regime_constraints,
+        apply_regime_constraints,
+        regime_from_bull_prob,
     )
     assert regime_from_bull_prob(0.9) == "bull"
     assert regime_from_bull_prob(0.1) == "bear"
@@ -116,7 +121,7 @@ def test_regime_constraints():
 
 
 def test_tca_implementation_shortfall():
-    from quant.execution.tca import implementation_shortfall, estimate_slippage_bps
+    from quant.execution.tca import estimate_slippage_bps, implementation_shortfall
     # BUY filled above signal -> positive cost.
     assert implementation_shortfall(100.0, 101.0, "BUY") > 0
     # SELL filled below signal -> positive cost.
@@ -128,7 +133,8 @@ def test_tca_implementation_shortfall():
 
 def test_vol_aware_min_trade_size():
     from quant.portfolio.optimizer import (
-        minimum_trade_size, minimum_trade_size_vol_aware,
+        minimum_trade_size,
+        minimum_trade_size_vol_aware,
     )
     base = minimum_trade_size(200.0)
     scaled = minimum_trade_size_vol_aware(200.0, 0.30)
@@ -152,7 +158,9 @@ def test_reconciliation_flags():
 
 def test_alpha_metrics():
     from quant.analytics.metrics import (
-        deflated_sharpe_ratio, information_coefficient, alpha_decay_curve,
+        alpha_decay_curve,
+        deflated_sharpe_ratio,
+        information_coefficient,
         turnover_stats,
     )
     rng = np.random.RandomState(1)
@@ -175,7 +183,7 @@ def test_alpha_metrics():
 
 
 def test_event_bus_new_events():
-    from quant.infra.event_bus import EventBus, EVENTS
+    from quant.infra.event_bus import EVENTS, EventBus
     assert EVENTS["MARKET_CLOSE_DATA_READY"] == "market_close_data_ready"
     assert EVENTS["KILL_SWITCH"] == "kill_switch"
     bus = EventBus()

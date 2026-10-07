@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import yaml
 
 from quant import paths
-from quant.config import RISK_PROFILES, DEFAULT_RISK_PROFILE, BASE_CURRENCY
+from quant.config import BASE_CURRENCY, DEFAULT_RISK_PROFILE, RISK_PROFILES
 
 
 @dataclass(frozen=True)

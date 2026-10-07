@@ -785,7 +785,8 @@ def _cmd_notify_setup(_args: argparse.Namespace) -> int:
 
 def _cmd_daily(_args: argparse.Namespace) -> int:
     """Run the daily job (used by the timer). One line to stdout (Section 3.2)."""
-    from quant.engine import daily, lock as lock_mod
+    from quant.engine import daily
+    from quant.engine import lock as lock_mod
 
     if not _lock_or_fail("daily"):
         return 1

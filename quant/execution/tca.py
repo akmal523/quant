@@ -19,7 +19,6 @@ from __future__ import annotations
 import datetime as dt
 
 
-
 def implementation_shortfall(signal_price: float, fill_price: float, side: str) -> float:
     """Implementation Shortfall in basis points.
 

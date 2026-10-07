@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import pandas as pd
-
 
 # ── Cross-Sectional Factor Scoring ────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ def test_get_fundamentals_as_of_no_lookahead():
     """Only snapshots published on/before as_of_date should be returned."""
     from quant.data.database import init_db
     init_db()  # ensure fundamentals_history table exists
-    from quant.data.fundamentals import save_fundamentals_history, get_fundamentals_as_of
+    from quant.data.fundamentals import get_fundamentals_as_of, save_fundamentals_history
 
     save_fundamentals_history("TEST", {"PE": 10.0, "ROE": 0.30}, "2024-01-01", "2024-01-01")
     save_fundamentals_history("TEST", {"PE": 5.0, "ROE": 0.50}, "2024-06-01", "2024-06-01")
@@ -119,7 +119,7 @@ def test_cost_aware_backtest_empty():
 
 def test_liquidity_score():
     """ADV below threshold -> score < 1; above -> 1."""
-    from quant.analytics.validation import liquidity_score, is_liquid
+    from quant.analytics.validation import is_liquid, liquidity_score
 
     assert liquidity_score(500_000) < 1.0
     assert liquidity_score(2_000_000) == 1.0

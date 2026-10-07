@@ -7,21 +7,23 @@ inverse routing exclusion, and ETF score differentiation. Pure-logic tests
 """
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import unittest
 import datetime as dt
+import unittest
+
 import pandas as pd
 
-from quant.execution.taxonomy import validate_isin, INVERSE_STRUCTURE
-from quant.execution.routing import route_signal, build_execution_instruction
 from quant.analytics.scoring import etf_quality_score, etf_tactical_grade
 from quant.execution.discovery import demote_stale_active, graduate
+from quant.execution.routing import build_execution_instruction, route_signal
+from quant.execution.taxonomy import INVERSE_STRUCTURE, validate_isin
 
 
 class TestGraduationGracePeriod(unittest.TestCase):
     def test_graduate_then_demote_stays_active(self):
         """A symbol graduated today stays ACTIVE inside the grace period."""
-        from quant.data.database import init_db, get_connection
+        from quant.data.database import get_connection, init_db
         init_db()
         conn = get_connection()
         conn.execute(
@@ -42,7 +44,7 @@ class TestGraduationGracePeriod(unittest.TestCase):
 class TestCoreImmunity(unittest.TestCase):
     def test_core_never_demoted(self):
         """CORE symbols are never demoted."""
-        from quant.data.database import init_db, get_connection
+        from quant.data.database import get_connection, init_db
         init_db()
         conn = get_connection()
         conn.execute(
@@ -60,7 +62,7 @@ class TestCoreImmunity(unittest.TestCase):
 
     def test_core_never_graduated(self):
         """CORE symbols are never graduated."""
-        from quant.data.database import init_db, get_connection
+        from quant.data.database import get_connection, init_db
         init_db()
         conn = get_connection()
         conn.execute(
@@ -79,7 +81,7 @@ class TestCoreImmunity(unittest.TestCase):
 class TestDelistTracking(unittest.TestCase):
     def test_three_failures_produce_delisted(self):
         """Three consecutive fetch failures mark a symbol DELISTED."""
-        from quant.data.database import init_db, get_connection
+        from quant.data.database import get_connection, init_db
         from quant.execution.taxonomy import mark_delisted
         init_db()
         conn = get_connection()

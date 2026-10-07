@@ -2,10 +2,12 @@
 reporting.py — Terminal output, conditional-colour Excel workbook, CSV export.
 """
 from __future__ import annotations
-from quant import paths
+
 import os
+
 import pandas as pd
 
+from quant import paths
 
 # ── Colour maps for Excel conditional formatting ──────────────────────────────
 _HORIZON_FILL = {
@@ -91,7 +93,7 @@ def export_excel(
 
     try:
         import openpyxl
-        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.styles import Alignment, Font, PatternFill
         from openpyxl.utils import get_column_letter
     except ImportError:
         print("[Report] openpyxl not installed — skipping Excel export.")
@@ -100,7 +102,7 @@ def export_excel(
     header_fill = PatternFill("solid", fgColor="1F3864")
     header_font = Font(bold=True, color="FFFFFF")
 
-    def _style_sheet(ws: "openpyxl.worksheet.worksheet.Worksheet",
+    def _style_sheet(ws: openpyxl.worksheet.worksheet.Worksheet,
                      col_fill_map: dict[str, dict[str, str]]) -> None:
         """Apply header styling, frozen row, conditional row fill, auto-width."""
         # Header

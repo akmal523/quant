@@ -9,7 +9,6 @@ Dependencies: pandas, polars, json, logging.
 """
 from __future__ import annotations
 
-from quant import paths
 import json
 import logging
 import os
@@ -17,6 +16,8 @@ import re
 from datetime import datetime
 
 import pandas as pd
+
+from quant import paths
 
 OUTPUTS_DIR = str(paths.OUTPUTS_DIR)
 

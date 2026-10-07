@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from quant import paths
 from quant.data import database, names
 

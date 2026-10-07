@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-from quant import paths
 import numpy as np
 import pandas as pd
-
 
 # ── Data Quality ──────────────────────────────────────────────────────────────
 
@@ -58,8 +57,9 @@ def test_data_quality_auto_repair():
 
 def test_feature_cache_roundtrip(tmp_path=None):
     """Cache set then get returns the same data."""
-    from quant.features.feature_cache import FeatureCache
     import tempfile
+
+    from quant.features.feature_cache import FeatureCache
     cache = FeatureCache(cache_dir=tempfile.mkdtemp())
     df = pd.DataFrame({"SMA_200": [1.0, 2.0, 3.0]})
     h = cache.compute_data_hash(pd.DataFrame({"Close": [1.0, 2.0, 3.0]}))
@@ -72,8 +72,9 @@ def test_feature_cache_roundtrip(tmp_path=None):
 
 def test_feature_cache_miss_on_stale_hash():
     """Cache returns None when data_hash changed."""
-    from quant.features.feature_cache import FeatureCache
     import tempfile
+
+    from quant.features.feature_cache import FeatureCache
     cache = FeatureCache(cache_dir=tempfile.mkdtemp())
     df = pd.DataFrame({"SMA_200": [1.0]})
     h1 = cache.compute_data_hash(pd.DataFrame({"Close": [1.0, 2.0]}))
@@ -117,8 +118,9 @@ def test_observability_captures_error():
 
 def test_incremental_change_detection(tmp_path=None):
     """detect_changes returns True only when data changed."""
-    from quant.data.incremental import IncrementalProcessor
     import tempfile
+
+    from quant.data.incremental import IncrementalProcessor
     proc = IncrementalProcessor(state_file=tempfile.mktemp(suffix=".json"))
     df = pd.DataFrame({"Date": pd.date_range("2026-01-01", periods=10),
                        "Close": np.arange(10.0)})

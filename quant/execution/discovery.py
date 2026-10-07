@@ -25,20 +25,26 @@ Dependencies: config, database, taxonomy, yfinance, pandas.
 """
 from __future__ import annotations
 
-from quant import paths
-import time
 import datetime as dt
+import time
+
 import pandas as pd
 
+from quant import paths
 from quant.config import (
-    WATCHLIST_LOOKBACK_DAYS, WATCHLIST_VOLUME_MULT,
-    WATCHLIST_52W_HIGH_DAYS, ACTIVE_DEMOTE_MONTHS,
-    GRADUATION_GRACE_MONTHS, MAX_FETCH_FAILURES,
+    ACTIVE_DEMOTE_MONTHS,
+    GRADUATION_GRACE_MONTHS,
+    MAX_FETCH_FAILURES,
+    WATCHLIST_52W_HIGH_DAYS,
+    WATCHLIST_LOOKBACK_DAYS,
+    WATCHLIST_VOLUME_MULT,
 )
 from quant.data.database import get_connection, init_db
 from quant.execution.taxonomy import (
-    get_instrument_class, log_universe_event, mark_delisted,
     CORE_STATUSES,
+    get_instrument_class,
+    log_universe_event,
+    mark_delisted,
 )
 
 # Legacy watchlist CSV (fallback only). Plan 3 (Phase 1): the graduation engine

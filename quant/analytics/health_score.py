@@ -21,7 +21,6 @@ Dependencies: pandas.
 from __future__ import annotations
 
 
-
 class PortfolioHealthScore:
     """Computes a 0-100 health score for the portfolio."""
 

@@ -11,39 +11,48 @@ Architecture:
   8. Report: top buys + stocks (non-ETF), full scan, portfolio audit
 """
 from __future__ import annotations
-from quant import paths
+
 import hashlib
 import logging
 import multiprocessing
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import pandas as pd
 import polars as pl
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from quant.data.database import get_connection, init_db
-from quant.data.currency import get_eur_rate
-from quant.portfolio.portfolio import load_portfolio, enhanced_portfolio_audit, account_effectiveness, print_effectiveness_report
-from quant.features.indicators import add_all_indicators, fast_volatility
-from quant.analytics.sentiment import NLPScorer
-from quant.portfolio.risk import calculate_risk_penalty
-from quant.config import WEIGHT_TECHNICAL
+from quant import paths
 from quant.analytics.scoring import (
-    evaluate_structural_grade,
-    evaluate_tactical_grade,
     allocate_capital_regime,
-    fit_market_regime,
-    stewardship_score_v2,
     apply_fast_filter,
     etf_tactical_grade,
+    evaluate_structural_grade,
+    evaluate_tactical_grade,
+    fit_market_regime,
+    stewardship_score_v2,
+)
+from quant.analytics.scoring import (
     regime_confidence as regime_confidence_of,
 )
+from quant.analytics.sentiment import NLPScorer
+from quant.cli.output import reporter
+from quant.config import WEIGHT_TECHNICAL
+from quant.data.currency import get_eur_rate
+from quant.data.database import get_connection, init_db
 from quant.data.fundamentals import get_fundamentals
 from quant.data.universe import is_etf
 from quant.execution.taxonomy import get_instrument_class
+from quant.features.indicators import add_all_indicators, fast_volatility
+from quant.portfolio.portfolio import (
+    account_effectiveness,
+    enhanced_portfolio_audit,
+    load_portfolio,
+    print_effectiveness_report,
+)
+from quant.portfolio.risk import calculate_risk_penalty
 from quant.reporting.notifier import notify_daily
-from quant.cli.output import reporter
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -86,10 +95,10 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
         from quant.data.database import get_connection
         conn = get_connection()
         df = conn.execute(
-            "SELECT * FROM market_history WHERE Symbol = ? ORDER BY Date ASC", 
+            "SELECT * FROM market_history WHERE Symbol = ? ORDER BY Date ASC",
             [symbol]
         ).df()
-        
+
         if df.empty:
             return None
 
@@ -197,13 +206,13 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     """
     import pandas as pd
 
+    from quant.portfolio.behavioral_guardrails import BehavioralGuardrails
+    from quant.portfolio.cash_manager import CashManager
     from quant.portfolio.portfolio_context import PortfolioContext
     from quant.portfolio.risk_monitor import RiskMonitor
-    from quant.strategy.strategy_engine import StrategyEngine
-    from quant.portfolio.cash_manager import CashManager
     from quant.portfolio.tax_optimizer import TaxOptimizer
-    from quant.portfolio.behavioral_guardrails import BehavioralGuardrails
     from quant.reporting.reporting_advanced import build_briefing
+    from quant.strategy.strategy_engine import StrategyEngine
 
     # Build a returns matrix from grouped_data (Close pct_change per symbol).
     closes = {}
@@ -233,7 +242,7 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     if kill["triggered"]:
         print(f"\n[KILL SWITCH] {kill['signal']}: {kill['reason']}")
         try:
-            from quant.infra.event_bus import EventBus, EVENTS
+            from quant.infra.event_bus import EVENTS, EventBus
             EventBus().publish(EVENTS["KILL_SWITCH"], kill)
         except Exception:
             pass
@@ -311,7 +320,9 @@ def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None
     alpha_metrics = None
     try:
         from quant.analytics.metrics import (
-            deflated_sharpe_ratio, alpha_decay_curve, turnover_stats,
+            alpha_decay_curve,
+            deflated_sharpe_ratio,
+            turnover_stats,
         )
         port_ret = returns_matrix.mean(axis=1)
         signals = returns_matrix.rolling(20).sum()
@@ -518,8 +529,8 @@ def main() -> None:
     # ETF subset (workers lack the full subset). Passed to process_asset.
     etf_quality_map: dict[str, float] = {}
     try:
-        from quant.features.build_features import latest_features
         from quant.analytics.scoring import etf_quality_score
+        from quant.features.build_features import latest_features
         etf_syms = [s for s in survivors if is_etf(s)]
         if etf_syms:
             feat = latest_features()
@@ -619,7 +630,7 @@ def main() -> None:
     try:
         mp.set_start_method('spawn')
     except RuntimeError:
-        pass 
+        pass
 
 
     # ── Step 4: Multiprocessing (no FinBERT in workers) ──────────────────────
@@ -706,11 +717,12 @@ def main() -> None:
 
     # ── v10.5.0: terse default output (spec 3.3, max 20 lines) ──────────────
     import datetime as _dt
+
     from quant import __version__
-    from quant.reporting.artifacts import new_run_dir
-    from quant.reporting.actions import build_actions, format_action_line
-    from quant.reporting.briefing import build_briefing_md
     from quant.portfolio.account import load_account
+    from quant.reporting.actions import build_actions, format_action_line
+    from quant.reporting.artifacts import new_run_dir
+    from quant.reporting.briefing import build_briefing_md
 
     run_dir = new_run_dir()
     today = _dt.date.today().isoformat()
@@ -898,7 +910,7 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("Telemetry persist failed (non-fatal): %s", e)
     try:
-        from quant.infra.event_bus import EventBus, EVENTS
+        from quant.infra.event_bus import EVENTS, EventBus
         EventBus().publish(EVENTS["SCORING_COMPLETE"], {"symbols": len(final_df)})
     except Exception:
         pass

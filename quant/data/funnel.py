@@ -25,10 +25,12 @@ import os
 import pandas as pd
 
 from quant.cli.output import reporter
-
 from quant.config import (
-    FUNNEL_MIN_PRICE, FUNNEL_MIN_DAILY_VOLUME,
-    FUNNEL_STAGE1_TARGET, FUNNEL_TOP_N, FUNNEL_MAX_WORKERS,
+    FUNNEL_MAX_WORKERS,
+    FUNNEL_MIN_DAILY_VOLUME,
+    FUNNEL_MIN_PRICE,
+    FUNNEL_STAGE1_TARGET,
+    FUNNEL_TOP_N,
 )
 
 

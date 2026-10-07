@@ -50,7 +50,9 @@ def compute_snapshot() -> dict:
     regeneration script call this. Invariants: returns a JSON-serializable dict.
     """
     from quant.strategy.backtest import (
-        run_cost_aware_backtest, walk_forward_optimization, run_macro_backtest,
+        run_cost_aware_backtest,
+        run_macro_backtest,
+        walk_forward_optimization,
     )
 
     hist = build_synthetic_hist()

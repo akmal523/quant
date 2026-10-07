@@ -195,7 +195,11 @@ def ensure_display_names() -> dict:
     later UI reads stay read_only. Idempotent: missing cells only.
     """
     try:
-        from quant.data.database import connect_with_retry, get_connection, migrate_registry_display_name
+        from quant.data.database import (
+            connect_with_retry,
+            get_connection,
+            migrate_registry_display_name,
+        )
     except Exception:  # noqa: BLE001
         return {}
     own = False

@@ -16,10 +16,10 @@ Dependencies: strategies package.
 from __future__ import annotations
 
 from quant.strategy.strategies import (
-    MomentumStrategy,
     MeanReversionStrategy,
-    ValueStrategy,
+    MomentumStrategy,
     RiskParityStrategy,
+    ValueStrategy,
 )
 
 

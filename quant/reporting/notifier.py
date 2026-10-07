@@ -21,8 +21,8 @@ Dependencies: requests, config, risk.daily_risk_free_rate.
 """
 from __future__ import annotations
 
-import os
 import logging
+import os
 
 import requests
 

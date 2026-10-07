@@ -23,7 +23,8 @@ import numpy as np
 import pandas as pd
 
 from quant.config import COMMISSION_SLIPPAGE, WFO_IS_DAYS, WFO_OOS_DAYS, WFO_STEP_DAYS
-from quant.features.indicators import rsi as calc_rsi, atr
+from quant.features.indicators import atr
+from quant.features.indicators import rsi as calc_rsi
 
 # Realistic cost model (Pillar 1.4): commission + slippage + spread.
 COST_BPS = 10      # commission

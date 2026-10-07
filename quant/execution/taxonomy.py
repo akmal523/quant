@@ -15,12 +15,13 @@ Dependencies: pandas, database.get_connection, universe.is_etf.
 """
 from __future__ import annotations
 
-from quant import paths
 import os
 import threading
 import time
+
 import pandas as pd
 
+from quant import paths
 from quant.data.database import get_connection
 
 BROKER_REGISTRY_PATH = paths.DATA_BROKER_REGISTRY

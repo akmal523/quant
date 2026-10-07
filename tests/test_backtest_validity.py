@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys as _sys
 from pathlib import Path as _Path
+
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
@@ -51,8 +52,8 @@ def test_survivorship_bias_warning_empty():
 
 def test_wfo_windows():
     """WFO should produce OOS periods only when sufficient data exists."""
-    from quant.strategy.backtest import walk_forward_optimization
     from quant.config import WFO_IS_DAYS, WFO_OOS_DAYS, WFO_STEP_DAYS
+    from quant.strategy.backtest import walk_forward_optimization
 
     min_required = WFO_IS_DAYS + WFO_OOS_DAYS  # 455 days
     excess_days = min_required + WFO_STEP_DAYS * 2  # enough for ~3 windows

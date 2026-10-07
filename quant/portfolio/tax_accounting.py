@@ -30,7 +30,7 @@ from datetime import date
 
 import pandas as pd
 
-from quant.data.database import read_only_connection, write_connection
+from quant.data.database import read_only_connection
 
 logger = logging.getLogger(__name__)
 

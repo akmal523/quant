@@ -2377,7 +2377,8 @@ def _save_actuals(month: str, actuals: list[dict], approved: bool) -> None:
     """
     try:
         from quant.data.database import connect_with_retry
-        from quant.engine import flows, plans as plans_mod
+        from quant.engine import flows
+        from quant.engine import plans as plans_mod
 
         conn = connect_with_retry()
         try:

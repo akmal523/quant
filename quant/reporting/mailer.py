@@ -1,12 +1,14 @@
-from quant import paths
+import os
 import smtplib
 from email.message import EmailMessage
-import os
+
+from quant import paths
+
 
 def send_results_email(
-    sender_email: str, 
-    sender_password: str, 
-    recipient_email: str, 
+    sender_email: str,
+    sender_password: str,
+    recipient_email: str,
     output_dir: str = str(paths.OUTPUTS_DIR)
 ) -> None:
     msg = EmailMessage()
@@ -23,9 +25,9 @@ def send_results_email(
             with open(filepath, 'rb') as f:
                 file_data = f.read()
                 msg.add_attachment(
-                    file_data, 
-                    maintype='application', 
-                    subtype='octet-stream', 
+                    file_data,
+                    maintype='application',
+                    subtype='octet-stream',
                     filename=filename
                 )
 

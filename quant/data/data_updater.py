@@ -1,14 +1,16 @@
-from quant import paths
-import time
-import random
 import datetime as dt
+import random
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
+
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from quant.data.database import get_connection, init_db
-from quant.execution.taxonomy import resolve_broker, get_instrument_class
-from quant.data.yf_utils import history_with_timeout, rate_limited
-from quant.data.assertions import DataAssertionError
+
+from quant import paths
 from quant.cli.output import reporter
+from quant.data.assertions import DataAssertionError
+from quant.data.database import get_connection, init_db
+from quant.data.yf_utils import history_with_timeout, rate_limited
+from quant.execution.taxonomy import get_instrument_class, resolve_broker
 
 OUTPUT_FILE = "market_data.parquet"
 # Spacing between the (batched-friendly) per-symbol fetches. yfinance 1.x rate
@@ -202,8 +204,8 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
     # fresh DB it is empty -> the funnel would silently return 0 survivors and
     # the scan universe would collapse to CORE + portfolio only. Build on demand.
     try:
-        from quant.data.universe_builder import load_universe_master, build_universe_master
         from quant.data.funnel import run_funnel, save_survivors
+        from quant.data.universe_builder import build_universe_master, load_universe_master
         pool = load_universe_master()
         if not pool:
             reporter.detail("  [UNIVERSE] universe_master empty - building broad 1000+ pool...")
@@ -231,8 +233,8 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
 def main() -> int:
     """Fetch market data + run the funnel. Returns an exit code (spec 3.1)."""
     from quant import __version__
-    from quant.reporting.artifacts import new_run_dir
     from quant.data.database import connect_with_retry, use_connection
+    from quant.reporting.artifacts import new_run_dir
     from quant.ui import copy as ui_copy
 
     _t0 = time.time()
@@ -306,7 +308,7 @@ def main() -> int:
     # Explicit column list: market_history carries an extra ingested_at
     # column (v10.4.0 bitemporal audit) that final_df does not, so a bare
     # `SELECT *` supplies 9 values for 10 columns (BinderException).
-    final_df["ingested_at"] = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    final_df["ingested_at"] = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     insert_cols = ("Date, Open, High, Low, Close, Volume, Symbol, Sector, "
                    "Instrument_Class, ingested_at")
     insert_select = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, "
@@ -326,8 +328,8 @@ def main() -> int:
     # Publish market_close_data_ready so subscribers (scoring) can react
     # without a hard call chain. A Yahoo outage cannot cascade.
     try:
+        from quant.infra.event_bus import EVENTS, EventBus
         from quant.infra.observability import ObservabilityCollector
-        from quant.infra.event_bus import EventBus, EVENTS
         obs = ObservabilityCollector()
         obs.record_metric("fetch_latency_s", time.time() - _t0)
         obs.record_metric("tickers_fetched", len(all_data))

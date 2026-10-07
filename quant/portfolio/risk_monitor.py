@@ -20,7 +20,9 @@ import numpy as np
 import pandas as pd
 
 from quant.config import (
-    MAX_DAILY_DRAWDOWN, VOL_KILL_MULTIPLIER, TARGET_VOLATILITY,
+    MAX_DAILY_DRAWDOWN,
+    TARGET_VOLATILITY,
+    VOL_KILL_MULTIPLIER,
 )
 
 

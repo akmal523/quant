@@ -25,10 +25,12 @@ if str(ROOT) not in sys.path:
 import pandas as pd  # noqa: E402
 
 from quant import paths  # noqa: E402
-from quant.portfolio.portfolio import load_portfolio  # noqa: E402
 from quant.execution.reconciliation import (  # noqa: E402
-    build_theoretical_snapshot, reconcile, save_snapshot,
+    build_theoretical_snapshot,
+    reconcile,
+    save_snapshot,
 )
+from quant.portfolio.portfolio import load_portfolio  # noqa: E402
 
 
 def _load_scan() -> pd.DataFrame:
