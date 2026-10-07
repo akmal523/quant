@@ -48,7 +48,7 @@ def test_today_empty_state_when_no_reviews():
     text = _all_text(at)
     # v10.5.3 S0: the Today page shows the guidance card and the building chart.
     assert (
-        ("No review yet. Save and review from Portfolio" in text)
+        ("No check yet. Save in My holdings" in text)
         or ("The value chart builds up after a few reviews" in text)
         or ("Nothing to do today" in text)
     )

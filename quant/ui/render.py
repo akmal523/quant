@@ -2322,8 +2322,7 @@ def page_monthly() -> None:
         # no fee suffix; buy legs name the tier word and the route.
         if leg.get("kind") == "cash":
             st.write(C.MONTHLY_CASH_LEG_LINE.format(
-                amount=f"{leg['amount_eur']:.0f}",
-                apy=f"{current_cash_apy()*100:g}"))
+                amount=f"{leg['amount_eur']:.0f}"))
             st.caption(C.MONTHLY_LEG_REASON.format(reason=leg["reason"]))
         else:
             st.write(C.MONTHLY_LEG_LINE.format(

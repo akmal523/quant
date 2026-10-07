@@ -78,8 +78,7 @@ def test_required_new_strings_exact():
         kind=C.monthly_leg_kind("long_term"), fee="0") == (
         "140 EUR to Global Aero & Defense (5J50.DE), Long-term (never sell), "
         "via savings plan. Fee 0 EUR.")
-    assert C.MONTHLY_CASH_LEG_LINE.format(amount="60", apy="2.5") == (
-        "60 EUR to operational cash at 2.5 percent per year.")
+    assert C.MONTHLY_CASH_LEG_LINE.format(amount="60") == "Keep 60 EUR in cash."
     assert C.NOTHING_REJECTED == "No considered actions were rejected this week."
     assert C.BTN_SAVE_AND_REVIEW == "Save and run review"
     assert C.BTN_SAVE_AND_REVIEW_HELP == \

@@ -52,7 +52,7 @@ BTN_VIEW_LOG = "View log"
 BTN_REPAIR_REGISTRY = "Repair registry"
 BTN_HOW_TO_BUY = "How to buy"
 BTN_TRY_AGAIN = "Try again"
-BTN_OPEN_TODAY = "Open Today"
+BTN_OPEN_TODAY = "Open Overview"
 
 # ── Empty and status states (exact strings, spec 3.2) ─────────────────────────
 # P4 (v10.5.2): an empty state may describe a MISSING-DATA condition only. A
@@ -69,7 +69,7 @@ EMPTY_NO_MATCHES = ("No instrument matches {query}. Try a company or fund name, 
 EMPTY_REGIME = "Not enough market history yet."
 EMPTY_REGIME_ERROR = "Market regime unavailable (see Health)."
 EMPTY_NO_MARKET_DATA = "No market data yet. Press Refresh market data to start."
-EMPTY_NO_REVIEWS = "No reviews yet. Save and review from Portfolio, or wait for the daily run."
+EMPTY_NO_REVIEWS = "No checks yet. Save in My holdings, or wait for the daily check."
 STATUS_ALL_CURRENT = "All data current."
 EMPTY_VALUE_CHART = "The value chart appears after your second review."
 
@@ -82,9 +82,9 @@ ACTION_ADD = ("Add about {amount} EUR to {symbol} ({name}). It sits {pct} percen
               "its {target} percent target. Suitable for your savings plan.")
 ACTION_SELL = "Sell about {amount} EUR of {symbol}. It sits {pct} percent above its {target} percent target."
 ACTION_BLOCKED = "ISIN missing for {symbol}."
-ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Add a verified row "
-                         "to data/isin_curated.csv (from your broker app or the fund factsheet), "
-                         "then run Repair registry again.")
+ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Add a verified "
+                         "row from your broker app or the fund factsheet, then press Repair "
+                         "registry again.")
 
 # ── v10.6.2 / v10.7.0: Three-tier dashboard, cash, tax-loss ──────────────────
 # v10.7.0 naming dictionary (Section 11): plain words, invested pool only.
@@ -160,7 +160,7 @@ ONBOARD_ADD_FORTRESS = "Add to FORTRESS"
 ONBOARD_ADD_ALPHA = "Add to ALPHA"
 ONBOARD_SPARPLAN_LABEL = "Monthly savings plan (EUR)"
 ONBOARD_COMPLETE = "Complete setup"
-ONBOARD_DONE = "Setup complete. Add your holdings in the Portfolio editor, then save and review."
+ONBOARD_DONE = "Setup complete. Add your holdings in My holdings, then save."
 ONBOARD_SKIP = "Skip onboarding"
 
 # ── Errors (spec 3.2) ─────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ COLUMN_HEADERS = {
 
 # ── First-run guide (spec 8) ──────────────────────────────────────────────────
 FIRST_RUN_STEPS = [
-    "Open Portfolio and add your holdings.",
+    "Open My holdings and add your positions.",
     "Set cash and risk profile.",
     "Press Save and review.",
 ]
@@ -348,7 +348,7 @@ def regime_word(regime: str) -> str:
 # ── v10.5.3 (spec v4): state machines, charts, feedback, calendar ─────────────
 
 # Today (spec 2.1)
-GUIDE_NO_REVIEW = "No review yet. Save and review from Portfolio to get your first advice."
+GUIDE_NO_REVIEW = "No check yet. Save in My holdings to get your first advice."
 HEADER_REVIEW = "Report as of {date} close, prepared {prepared}."
 # H3.8 (M1): a legacy artifact with no close date renders only the prepared line.
 # v10.7.3 (Part 1.1): "Review prepared ..." becomes "Report as of ...".
@@ -435,9 +435,9 @@ SETUP_NOTIFY = "Notifications"
 SETUP_BACKUP = "Backup"
 SETUP_CHECKLIST = "First-week checklist"
 SETUP_MARKET_DONE = "last refresh {date}"
-SETUP_MARKET_TODO = "no market data yet; run quant update"
+SETUP_MARKET_TODO = "no market data yet; press Refresh market data"
 SETUP_TIERS_DONE = "{n} tiers"
-SETUP_TIERS_TODO = "missing; run python scripts/migrate_tiers.py"
+SETUP_TIERS_TODO = "missing"
 SETUP_SCHEDULE_DONE = "installed"
 SETUP_SCHEDULE_TODO = "not installed; run quant schedule"
 SETUP_NOTIFY_DONE = "configured"
@@ -449,14 +449,14 @@ SETUP_SKIP = "skip"
 SETUP_ACTION = "do it now"
 # H3.5: discovery-universe loop closure (Explore zero-match + Portfolio add).
 DISCOVERY_NOT_TRACKED = ("{label} is in the discovery universe but not tracked. "
-                         "Add it in Portfolio to track it.")
+                         "Add it in My holdings to track it.")
 NOT_TRACKED_LABEL = "{label} - not tracked yet"
 
 # Portfolio (spec 2.3)
 VALIDATION_UNIVERSE = ("{n} holdings are not in the universe yet; they will be added "
                        "on the next refresh.")
 VALIDATION_UNIVERSE_ONE = "1 holding is not in the universe yet; it will be added on the next refresh."
-OUTCOME_ACTIONS = "Review complete. {n} actions on Today."
+OUTCOME_ACTIONS = "Check complete. {n} actions on Overview."
 OUTCOME_NOTHING = "Review complete. Nothing to do today."
 SAVE_ONLY_DONE = "Saved. The next review will use these values."
 LABEL_MATCHES = "Matches"
@@ -735,7 +735,7 @@ MONTHLY_SPLIT_HEADER = "The system splits it:"
 # v10.7.3 (Part 1.5): no raw keys. The long/active/bet leg names the tier word and
 # the route; the cash leg is its own sentence with no fee suffix.
 MONTHLY_LEG_LINE = "{amount} EUR to {name} ({symbol}), {kind}, via savings plan. Fee {fee} EUR."
-MONTHLY_CASH_LEG_LINE = "{amount} EUR to operational cash at {apy} percent per year."
+MONTHLY_CASH_LEG_LINE = "Keep {amount} EUR in cash."
 MONTHLY_LEG_REASON = "Reason: {reason}"
 MONTHLY_NEW_IDEAS = "New ideas this month (optional, you may ignore all):"
 MONTHLY_CANDIDATE_LINE = "{name} - {detail}"

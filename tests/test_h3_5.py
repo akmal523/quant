@@ -89,7 +89,7 @@ def test_discovery_candidates_and_sentence():
         assert any(c["symbol"] == "ZZAAPL" for c in cands)
         assert DISCOVERY_NOT_TRACKED.format(label="ZZAAPL") == (
             "ZZAAPL is in the discovery universe but not tracked. "
-            "Add it in Portfolio to track it.")
+            "Add it in My holdings to track it.")
         assert NOT_TRACKED_LABEL.format(label="X (X)") == "X (X) - not tracked yet"
     finally:
         conn.execute("DELETE FROM universe_master WHERE symbol='ZZAAPL'")
