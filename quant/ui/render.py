@@ -739,18 +739,10 @@ def page_today() -> None:
 # ── Page: My holdings (v10.7.1, Section 10.2) ─────────────────────────────────
 
 def _latest_close(symbol: str) -> float | None:
-    """Latest close for a symbol from market_history; None when absent."""
-    try:
-        df = q("SELECT Close FROM market_history WHERE Symbol = ? "
-               "ORDER BY Date DESC LIMIT 1", [symbol])
-    except Exception:  # noqa: BLE001
-        return None
-    if df is None or df.empty:
-        return None
-    try:
-        return float(df["Close"].iloc[0])
-    except (TypeError, ValueError):
-        return None
+    """Latest close for a symbol in EUR (v10.8.0, 2.2); None when absent."""
+    from quant.data.currency import price_in_eur
+
+    return price_in_eur(symbol)
 
 
 def _standing_budget() -> float | None:

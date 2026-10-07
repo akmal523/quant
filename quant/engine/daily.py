@@ -154,21 +154,10 @@ def gap_line(gap_days: int | None) -> str | None:
 
 
 def _latest_close(conn, symbol: str) -> float | None:
-    """Latest close for a symbol from market_history; None when absent."""
-    try:
-        row = conn.execute(
-            "SELECT Close FROM market_history WHERE Symbol = ? "
-            "ORDER BY Date DESC LIMIT 1",
-            [symbol],
-        ).fetchone()
-    except Exception:  # noqa: BLE001
-        return None
-    if not row or row[0] is None:
-        return None
-    try:
-        return float(row[0])
-    except (TypeError, ValueError):
-        return None
+    """Latest close for a symbol in EUR (v10.8.0, 2.2); None when absent."""
+    from quant.data.currency import price_in_eur
+
+    return price_in_eur(symbol, conn=conn)
 
 
 def _default_holdings(conn) -> list[dict]:

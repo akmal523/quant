@@ -386,13 +386,9 @@ def main() -> None:
         from quant.engine import valuation
 
         def _latest_close(sym: str) -> float | None:
-            try:
-                row = conn.execute(
-                    "SELECT Close FROM market_history WHERE Symbol = ? "
-                    "ORDER BY Date DESC LIMIT 1", [sym]).fetchone()
-                return float(row[0]) if row and row[0] is not None else None
-            except Exception:  # noqa: BLE001
-                return None
+            from quant.data.currency import price_in_eur
+
+            return price_in_eur(sym, conn=conn)
 
         _synced = valuation.sync_holdings_meta(
             conn, port_df, _latest_close, first_time_only=True)

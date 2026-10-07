@@ -3,11 +3,13 @@ currency.py — FX helpers: dynamic rate fetching, OHLCV normalisation to EUR.
 Graceful degradation: falls back to cached or 1.0 rate rather than crashing.
 """
 from __future__ import annotations
+
+import json
+import urllib.request
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import urllib.request
-import json
 
 from quant.cli.output import reporter
 from quant.data.universe import CURRENCY_SYMBOLS
@@ -40,7 +42,8 @@ def get_eur_rate() -> float:
 
     # Method 2: Frankfurter API (ECB)
     try:
-        req = urllib.request.urlopen("https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=5)
+        req = urllib.request.urlopen(
+            "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=5)
         data = json.loads(req.read())
         rate = float(data["rates"]["USD"])
         _eur_rate_cache = rate
@@ -110,6 +113,54 @@ def get_fx_to_eur(symbol: str) -> float:
     dummy = pd.DataFrame({"Close": [1.0]})
     conv = apply_fx_conversion(dummy, ccy, "EUR")
     return float(conv["Close"].iloc[0])
+
+
+def _native_close(symbol: str, as_of=None, conn=None) -> float | None:
+    """The native-currency close on (or before) a date; None when absent."""
+    sql = "SELECT Close FROM market_history WHERE Symbol = ?"
+    params: list = [symbol]
+    if as_of is not None:
+        sql += " AND Date <= ?"
+        params.append(str(as_of)[:10])
+    sql += " ORDER BY Date DESC LIMIT 1"
+    try:
+        if conn is not None:
+            row = conn.execute(sql, params).fetchone()
+        else:
+            from quant.data.database import read_only_connection
+
+            with read_only_connection() as c:
+                row = c.execute(sql, params).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    if not row or row[0] is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def price_in_eur(symbol: str, as_of=None, conn=None) -> float | None:
+    """The EUR price of a symbol on (or before) a date (v10.8.0, 2.2).
+
+    Intent: valuation, the daily job, the Overview estimate, buy and sell
+    recording, the chart series and the audit all need a price in EUR. The
+    native close comes from ``market_history``; the FX multiplier comes from
+    :func:`get_fx_to_eur` (the documented nearest-available rate). Returns None
+    when no close exists.
+
+    ``as_of`` may be a date, an ISO string, or None (latest). ``conn`` is an
+    optional open connection; when omitted a short-lived read-only connection is
+    used.
+    """
+    close = _native_close(symbol, as_of, conn)
+    if close is None:
+        return None
+    try:
+        return close * get_fx_to_eur(symbol)
+    except Exception:  # noqa: BLE001
+        return close
 
 
 def apply_fx_conversion(
