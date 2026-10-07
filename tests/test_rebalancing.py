@@ -71,13 +71,28 @@ def test_passes_fee_hurdle():
 
 # ── Rebalance Logic ───────────────────────────────────────────────────────────
 
+def _reset_rebalance(symbol: str, date_str: str) -> None:
+    """Clear both ledgers for a symbol, then set the rebalance date.
+
+    v10.8.0 (2.3): get_last_rebalance reads the flows ledger first, so a flow
+    row left by another test would shadow the rebalance_log row. Clearing both
+    keeps these tests order-independent under xdist.
+    """
+    from quant.data.database import get_connection, init_db
+    from quant.portfolio.portfolio import set_last_rebalance
+
+    init_db()
+    conn = get_connection()
+    conn.execute("DELETE FROM flows WHERE symbol = ?", [symbol])
+    conn.execute("DELETE FROM rebalance_log WHERE symbol = ?", [symbol])
+    set_last_rebalance(symbol, date_str)
+
+
 def test_should_rebalance_core_drift_threshold():
     """CORE rebalances only on >10% drift (after time gate)."""
-    from quant.data.database import init_db
-    init_db()
+    from quant.portfolio.portfolio import should_rebalance_asset
     # Force a rebalance_log row so time gate passes (last = 100 days ago).
-    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
-    set_last_rebalance("EUNL.DE", "2026-06-01")
+    _reset_rebalance("EUNL.DE", "2026-06-01")
     ok, reason = should_rebalance_asset(
         "EUNL.DE", 0.62, 0.50, "CORE", "2026-09-09",
     )  # 12% drift
@@ -87,10 +102,8 @@ def test_should_rebalance_core_drift_threshold():
 
 def test_should_rebalance_core_small_drift_holds():
     """CORE with <10% drift -> HOLD."""
-    from quant.data.database import init_db
-    init_db()
-    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
-    set_last_rebalance("EUNL.DE", "2026-06-01")
+    from quant.portfolio.portfolio import should_rebalance_asset
+    _reset_rebalance("EUNL.DE", "2026-06-01")
     ok, reason = should_rebalance_asset(
         "EUNL.DE", 0.53, 0.50, "CORE", "2026-09-09",
     )  # 3% drift
@@ -100,11 +113,9 @@ def test_should_rebalance_core_small_drift_holds():
 
 def test_should_rebalance_first_run_baseline():
     """First run (no log row) eases in: no forced rebalance."""
-    from quant.data.database import init_db
-    init_db()
-    from quant.portfolio.portfolio import set_last_rebalance, should_rebalance_asset
+    from quant.portfolio.portfolio import should_rebalance_asset
     # Use a symbol with no prior log entry.
-    set_last_rebalance("AMZN", "2026-09-09")  # ensure baseline exists
+    _reset_rebalance("AMZN", "2026-09-09")  # ensure baseline exists
     ok, reason = should_rebalance_asset(
         "AMZN", 0.18, 0.20, "ACTIVE", "2026-09-09",
     )
