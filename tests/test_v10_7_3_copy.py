@@ -110,9 +110,9 @@ def test_holdings_renders_new_strings():
     assert C.HELP_BROKER_VALUES in text
     # The expander label is not part of the text harness; its caption is.
     assert C.BROKER_STATEMENT_CAPTION in text
+    # v10.8.0 (Phase 2): one Save; the separate "Save only" button is removed.
     assert C.BTN_SAVE_AND_REVIEW in text
     assert C.BTN_SAVE_AND_REVIEW_HELP in text
-    assert C.BTN_SAVE_ONLY_HELP in text
     assert C.EMERGENCY_HINT in text
 
 

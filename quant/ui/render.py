@@ -581,23 +581,6 @@ def _render_overview_steps(holdings) -> None:
         st.caption(C.NOTHING_REJECTED)
 
 
-def _render_overview_savings(plan) -> None:
-    """Block C: the savings plan."""
-    st.subheader(C.SEC_SAVINGS_PLAN)
-    if plan:
-        st.write(f"Budget: {plan['budget_eur']:.0f} EUR per month. This month: "
-                 f"approved on {C.fmt_date(plan.get('approved_date'))}.")
-    else:
-        # v10.7.3 (Part 4.3): never a bare dead end. Show the standing budget and
-        # a button that navigates to the Monthly decision.
-        st.write(C.SAVINGS_NO_PLAN)
-        standing = _standing_budget()
-        if standing:
-            st.caption(C.SAVINGS_STANDING_BUDGET.format(amount=f"{standing:.0f}"))
-        if st.button(C.BTN_SET_BUDGET, key="overview_set_budget"):
-            st.switch_page("pages/monthly.py")
-
-
 def _render_market_expander(has_review: bool) -> None:
     """Block E: the market expander (regime + the honest news-pillar line).
 
@@ -673,45 +656,17 @@ def page_today() -> None:
     _account = load_account()
     _render_overview_money(portfolio, _account)
     _render_overview_steps(holdings)
-    try:
-        from quant.data.database import read_only_connection
-        from quant.engine import plans as _plans
-
-        with read_only_connection() as _conn:
-            _plan = _plans.load_plan(_conn, _month_key())
-    except Exception:  # noqa: BLE001
-        _plan = None
-    _render_overview_savings(_plan)
+    # v10.8.0 (Phase 2): the savings-plan block is deleted from Overview. The
+    # plan lives once, on the Monthly decision page; the sidebar links there.
     _render_market_expander(has_review)
 
     # 2. Portfolio value chart (spec 3.1).
     st.subheader(C.SEC_PORTFOLIO_VALUE)
     _render_value_chart(history, holdings)
 
-    # 3. How your invested money is split (donut). v10.7.0: the INVESTED pool
-    #    only. Operational cash is never a slice (it is not an investment
-    #    buffer). Categorical blue/gray palette only; semantic colors never
-    #    encode composition (A4). Percent labels only for slices >= 5 percent.
-    st.subheader(C.SEC_WHERE_MONEY)
+    # v10.8.0 (Phase 2): the "Where your money is" donut is deleted. The split
+    # lives once, on My holdings, as plain lines (no duplicate composition view).
     account = load_account()
-    if not portfolio.empty:
-        import plotly.graph_objects as go
-        values = list(portfolio["Amount_EUR"])
-        # v10.7.3 (Part 2.2): the donut legend uses company names.
-        labels = [_display_name(s) for s in portfolio["Symbol"].astype(str)]
-        total = sum(values) or 1.0
-        pcts = [v / total * 100 for v in values]
-        legend_labels = [f"{lbl} {p:.0f}%" for lbl, p in zip(labels, pcts)]
-        slice_text = [f"{p:.0f}%" if p >= 5 else "" for p in pcts]
-        colors = [P.SERIES[i % len(P.SERIES)] for i in range(len(values))]
-        fig = go.Figure(go.Pie(
-            labels=legend_labels, values=values, hole=0.55,
-            text=slice_text, textinfo="text", sort=False,
-            marker=dict(colors=colors)))
-        fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0),
-                          showlegend=True, legend=dict(orientation="h"))
-        st.plotly_chart(fig, width="stretch")
-        st.caption("of invested")
 
     # 4. Holdings table. Status comes from the audit actions so the table and the
     #    cards can never disagree (A3). S0 -> every row "Not reviewed yet".
@@ -756,20 +711,6 @@ def _latest_close(symbol: str) -> float | None:
     from quant.data.currency import price_in_eur
 
     return price_in_eur(symbol)
-
-
-def _standing_budget() -> float | None:
-    """The most recent approved monthly budget, or None (v10.7.3, Part 4.3)."""
-    try:
-        from quant.data.database import read_only_connection
-
-        with read_only_connection() as conn:
-            row = conn.execute(
-                "SELECT budget_eur FROM monthly_plans ORDER BY month DESC LIMIT 1"
-            ).fetchone()
-        return float(row[0]) if row and row[0] is not None else None
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _income_12m(cash: float) -> tuple[float, float]:
@@ -1265,29 +1206,8 @@ def page_portfolio() -> None:
     # Block 7: quick events.
     _render_quick_events(portfolio)
 
-    # Block 8: Account.
-    st.subheader("Account")
-    account = load_account()
-    cash_val = account.cash_eur if account.cash_is_set else 0.0
-    cash = st.number_input("Operational cash (EUR)", min_value=0.0,
-                           value=float(cash_val), step=10.0)
-    st.caption(C.OPERATIONAL_CASH_LINE.format(
-        amount=f"{cash:.0f}",
-        date=C.fmt_date(account.cash_updated or _date.today()),
-        apy=f"{current_cash_apy()*100:g}"))
-    profile = st.radio(
-        "Risk profile", list(RISK_PROFILES.keys()),
-        index=list(RISK_PROFILES.keys()).index(account.risk_profile),
-        captions=[RISK_PROFILE_DESCRIPTIONS[p] for p in RISK_PROFILES],
-        format_func=lambda p: p.capitalize(),
-    )
-    savings_day = st.number_input(
-        C.SAVINGS_DAY_LABEL, min_value=1, max_value=31,
-        value=int(account.savings_plan_day or 1), step=1)
-    st.caption(C.SAVINGS_DAY_CAPTION)
-    rate = current_rate()
-    st.caption(C.HELP_CASH_APY.format(
-        apy=f"{rate.apy * 100:g}", date=C.fmt_date(rate.effective_date)))
+    # v10.8.0 (Phase 2): the Account block (cash, risk profile, savings day)
+    # moved to Settings. My holdings saves the broker statement only.
 
     # Buttons.
     registry = q("SELECT symbol FROM asset_registry")
@@ -1302,9 +1222,6 @@ def page_portfolio() -> None:
                 st.error(e)
             return
         save_portfolio(cleaned, paths.DATA_PORTFOLIO)
-        save_account(AccountState(account.base_currency, float(cash), profile, True,
-                                  int(savings_day),
-                                  cash_updated=_date.today().isoformat()))
         st.session_state["_extra"] = []
         st.session_state["_saved_unknown"] = len(warnings)
 
@@ -1317,10 +1234,8 @@ def page_portfolio() -> None:
     if st.session_state.get("_review_ok"):
         if st.button(C.BTN_OPEN_TODAY, key="open_today"):
             st.switch_page("pages/today.py")
-    if st.button(C.BTN_SAVE_ONLY, width="stretch"):
-        _save_inputs()
-        st.success(C.SAVE_ONLY_DONE)
-    st.caption(C.BTN_SAVE_ONLY_HELP)
+    # v10.8.0 (Phase 2): one Save. The separate "Save only" button is removed;
+    # the primary action saves and runs the review.
     unknown = st.session_state.get("_saved_unknown")
     if unknown:
         tpl = C.VALIDATION_UNIVERSE_ONE if unknown == 1 else C.VALIDATION_UNIVERSE
@@ -1917,6 +1832,35 @@ def page_settings() -> None:
         st.info(C.EMPTY_NO_MARKET_DATA)
     _run_operation(C.BTN_REFRESH, C.BTN_REFRESHING, runner.REFRESH, "refresh")
     st.caption(C.HELP_REVIEW_CADENCE)
+
+    # Account (v10.8.0, Phase 2): moved here from My holdings. One place for the
+    # operational cash, the risk profile, and the savings-plan day.
+    st.subheader(C.SEC_ACCOUNT)
+    account = load_account()
+    cash_val = account.cash_eur if account.cash_is_set else 0.0
+    cash = st.number_input("Operational cash (EUR)", min_value=0.0,
+                           value=float(cash_val), step=10.0, key="acct_cash")
+    st.caption(C.OPERATIONAL_CASH_LINE.format(
+        amount=f"{cash:.0f}",
+        date=C.fmt_date(account.cash_updated or _date.today()),
+        apy=f"{current_cash_apy()*100:g}"))
+    profile = st.radio(
+        "Risk profile", list(RISK_PROFILES.keys()),
+        index=list(RISK_PROFILES.keys()).index(account.risk_profile),
+        captions=[RISK_PROFILE_DESCRIPTIONS[p] for p in RISK_PROFILES],
+        format_func=lambda p: p.capitalize(), key="acct_profile")
+    savings_day = st.number_input(
+        C.SAVINGS_DAY_LABEL, min_value=1, max_value=31,
+        value=int(account.savings_plan_day or 1), step=1, key="acct_savings_day")
+    st.caption(C.SAVINGS_DAY_CAPTION)
+    rate = current_rate()
+    st.caption(C.HELP_CASH_APY.format(
+        apy=f"{rate.apy * 100:g}", date=C.fmt_date(rate.effective_date)))
+    if st.button(C.BTN_SAVE_ACCOUNT, key="save_account"):
+        save_account(AccountState(account.base_currency, float(cash), profile, True,
+                                  int(savings_day),
+                                  cash_updated=_date.today().isoformat()))
+        st.success(C.SAVE_ACCOUNT_DONE)
 
     # Report history (last ten). The value-chart sentence belongs to Overview (A2).
     st.subheader(C.SEC_REPORT_HISTORY)

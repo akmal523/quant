@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - My holdings takes the broker's own total and warns when the entered positions
   do not add up to it (the 1,075.94 vs 852.23 class of error).
 
+### Changed
+
+- Overview is trimmed: the "Where your money is" donut and the savings-plan
+  block are deleted (the split lives once on My holdings; the plan lives once on
+  the Monthly decision page). The Account block (cash, risk profile, savings
+  day) moves to Settings. My holdings has one Save.
+
 ### Added
 
 - The daily value chart is independent of reviews: `quant/engine/value_series.py`

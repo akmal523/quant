@@ -876,6 +876,10 @@ MONTHLY_PLAN_SAVED = ("Plan saved. Planned flows dated {date}. Overview steps wi
 SAVINGS_NO_PLAN = "No plan approved yet for this month."
 BTN_SET_BUDGET = "Set this month's budget"
 SAVINGS_STANDING_BUDGET = "Standing budget: {amount} EUR per month."
+# Account section (v10.8.0, Phase 2): moved from My holdings to Settings.
+SEC_ACCOUNT = "Account"
+BTN_SAVE_ACCOUNT = "Save account"
+SAVE_ACCOUNT_DONE = "Account saved."
 # Overview income line (Block A).
 INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR from flows, cash "
                "yield about {cash_yield} EUR at {apy} percent.")
