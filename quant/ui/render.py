@@ -1234,6 +1234,24 @@ def page_portfolio() -> None:
         if _sync:
             st.caption(C.BROKER_STATEMENT_AS_OF.format(date=C.fmt_date(_sync)))
         edited = _render_broker_editor(portfolio)
+        # v10.8.0 (redesign 3.1): the reconciliation check. The broker's own
+        # total vs the sum of the entered positions catches a missing or
+        # mistyped position (defect 2.8: 1,075.94 shown vs 852.23 entered).
+        broker_total = st.number_input(
+            C.RECONCILE_TOTAL_LABEL, min_value=0.0, value=0.0, step=10.0,
+            key="reconcile_total")
+        st.caption(C.RECONCILE_TOTAL_CAPTION)
+        entered = float(pd.to_numeric(
+            edited.get("Current_Value_EUR", pd.Series(dtype=float)),
+            errors="coerce").fillna(0.0).sum())
+        if broker_total > 0:
+            diff = abs(entered - broker_total)
+            if diff <= 1.0:
+                st.caption(C.RECONCILE_MATCH)
+            else:
+                st.warning(C.RECONCILE_MISMATCH.format(
+                    entered=C.fmt_eur(entered), broker=C.fmt_eur(broker_total),
+                    diff=C.fmt_eur(diff)))
 
     # Block 4: how your money is split.
     _render_split_lines(portfolio)

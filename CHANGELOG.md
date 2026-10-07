@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exemption, and keeps one loss-harvesting card.
 - A failed computation shows a plain failure state, never an empty success.
 - The Overview reads the live positions, so it agrees with My holdings.
+- My holdings takes the broker's own total and warns when the entered positions
+  do not add up to it (the 1,075.94 vs 852.23 class of error).
 
 ### Added
 

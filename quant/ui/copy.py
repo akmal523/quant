@@ -851,6 +851,16 @@ BROKER_STATEMENT_CAPTION = ("This is what your broker reported at the last sync.
                             "Edit only after exporting fresh values from Trade "
                             "Republic.")
 BROKER_STATEMENT_AS_OF = "broker statement, as of {date}"
+# Reconciliation check (v10.8.0, redesign 3.1): the broker's own total vs the
+# sum of the entered positions. Catches the class of error where a position is
+# missing or mistyped (e.g. 1,075.94 shown vs 852.23 entered).
+RECONCILE_TOTAL_LABEL = "Total shown in Trade Republic (EUR)"
+RECONCILE_TOTAL_CAPTION = ("Optional. Enter the total your broker shows. We compare "
+                           "it with the sum of the positions above.")
+RECONCILE_MATCH = "The positions add up to the broker total."
+RECONCILE_MISMATCH = ("The positions add up to {entered}, but your broker shows "
+                      "{broker}. A difference of {diff} usually means a missing or "
+                      "mistyped position.")
 # Verdicts table scores caption.
 SCORES_CAPTION = ("Structure and Tactics are scores from 0 to 100. Structure is "
                   "fundamental quality; Tactics is timing.")
