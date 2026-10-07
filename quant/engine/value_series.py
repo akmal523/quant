@@ -14,22 +14,24 @@ Invariants:
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 
 
-def _as_date(value) -> date:
+def _as_date(value: Any) -> date:
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value)[:10])
 
 
-def _days(start: date, end: date):
+def _days(start: date, end: date) -> Any:
     d = start
     while d <= end:
         yield d
         d += timedelta(days=1)
 
 
-def _close_eur(symbol, day, closes, fx, last_close) -> float | None:
+def _close_eur(symbol: str, day: date, closes: dict, fx: dict,
+               last_close: dict) -> float | None:
     """The EUR close on a day, carrying the previous close when missing."""
     native = closes.get((symbol, day.isoformat()))
     if native is None:
@@ -42,7 +44,8 @@ def _close_eur(symbol, day, closes, fx, last_close) -> float | None:
     return float(native) * float(rate)
 
 
-def build_value_series(snapshots, flows, closes, fx) -> list[dict]:
+def build_value_series(snapshots: list[dict], flows: list[dict],
+                       closes: dict, fx: dict) -> list[dict]:
     """Build the daily invested-value series. Pure; no I/O.
 
     Args:

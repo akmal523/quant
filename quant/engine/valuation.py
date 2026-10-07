@@ -106,7 +106,7 @@ def sync_holdings_meta(
     return written
 
 
-def record_snapshot(conn, when: date | None = None) -> int:
+def record_snapshot(conn: Any, when: date | None = None) -> int:
     """Append the current holdings_meta shares as a dated snapshot (v10.8.0).
 
     Intent: the Overview value chart needs an append-only history of positions
