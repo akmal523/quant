@@ -44,6 +44,7 @@ REFRESH = "update"
 REVIEW = "run"
 SAVE_AND_REVIEW = "all"
 REPAIR = "repair"
+SCHEDULE = "schedule"
 
 
 @dataclass

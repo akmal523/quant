@@ -59,7 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward and never rewrites past points. The chart works on a database with
   zero reviews.
 - Light and night themes (`.streamlit/config.toml`) and one palette module
-  (`quant/ui/palette.py`); a test fails on a hex literal outside it.
+  (`quant/ui/palette.py`); a test fails on a hex literal outside it. Tables
+  scroll instead of clipping at 1280px and the layout collapses at 390px.
+- Settings installs the daily timer and sets up Telegram in the app (an inline
+  token + chat-id form), not only on the command line.
 - `install.sh` / `install.bat` and `start.sh` / `start.bat`; `quant refresh`
   (with a hidden `update` alias) and `quant upgrade`.
 - The README is rewritten to 77 lines with no private paths.

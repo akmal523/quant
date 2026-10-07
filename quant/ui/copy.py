@@ -444,6 +444,18 @@ SETUP_BACKUP_TODO = "no backup yet; run quant backup"
 SETUP_CHECKLIST_HINT = "see docs/first_week.md"
 SETUP_SKIP = "skip"
 SETUP_ACTION = "do it now"
+# Automation buttons (v10.8.0, Phase 4): install the timer and set up Telegram
+# in the app, not only on the command line.
+BTN_INSTALL_TIMER = "Install the daily timer"
+BTN_INSTALLING_TIMER = "Installing the timer"
+BTN_TELEGRAM_SETUP = "Set up Telegram"
+TELEGRAM_TOKEN_LABEL = "Bot token"
+TELEGRAM_CHAT_LABEL = "Chat id"
+TELEGRAM_HELP = ("Create a bot with BotFather, then get your chat id from a "
+                 "user-info bot. The token is stored locally and never logged.")
+BTN_SAVE_TELEGRAM = "Save and send a test"
+TELEGRAM_SAVED = "Telegram saved; test message sent."
+TELEGRAM_SAVED_UNTESTED = "Telegram saved; the test message failed. Check the token and chat id."
 # H3.5: discovery-universe loop closure (Explore zero-match + Portfolio add).
 DISCOVERY_NOT_TRACKED = ("{label} is in the discovery universe but not tracked. "
                          "Add it in My holdings to track it.")

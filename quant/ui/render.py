@@ -1848,6 +1848,24 @@ def page_settings() -> None:
         st.write(f"Notifications: {_notify.status_line()}")
     except Exception:  # noqa: BLE001
         st.write("Notifications: off; run quant notify-setup")
+    # v10.8.0 (Phase 4): install the timer and set up Telegram in the app.
+    _run_operation(C.BTN_INSTALL_TIMER, C.BTN_INSTALLING_TIMER,
+                   runner.SCHEDULE, "install_timer")
+    with st.expander(C.BTN_TELEGRAM_SETUP):
+        st.caption(C.TELEGRAM_HELP)
+        _tg_token = st.text_input(C.TELEGRAM_TOKEN_LABEL, type="password",
+                                  key="tg_token")
+        _tg_chat = st.text_input(C.TELEGRAM_CHAT_LABEL, key="tg_chat")
+        if st.button(C.BTN_SAVE_TELEGRAM, key="save_telegram"):
+            if _tg_token and _tg_chat:
+                from quant.engine import notify as _notify2
+
+                _cfg = {"channel": "telegram", "telegram_bot_token": _tg_token,
+                        "telegram_chat_id": _tg_chat}
+                _ok = _notify2.send_test(_cfg)
+                _cfg["tested"] = bool(_ok)
+                _notify2.save_config(_cfg)
+                st.success(C.TELEGRAM_SAVED if _ok else C.TELEGRAM_SAVED_UNTESTED)
     try:
         _size_mb = os.path.getsize(paths.DB_FILE) / (1024 * 1024)
         st.write(f"Database size: {_size_mb:.2f} MB")

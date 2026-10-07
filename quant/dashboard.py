@@ -23,6 +23,22 @@ from quant.ui import copy as C
 
 st.set_page_config(page_title="Quant-AI", layout="centered")
 
+# v10.8.0 (Phase 3): responsive layout. Tables scroll horizontally instead of
+# clipping at 1280px; the layout collapses cleanly at 390px (phone).
+st.markdown(
+    """
+    <style>
+    [data-testid="stDataFrame"] { overflow-x: auto; }
+    [data-testid="stDataFrame"] > div { min-width: 0; }
+    @media (max-width: 420px) {
+      .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
+      [data-testid="stDataFrame"] { font-size: 0.8rem; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # (script path, title, default) in the fixed order.
 _NAV = [
     ("pages/today.py", C.PAGE_TODAY, True),
