@@ -837,43 +837,18 @@ def _estimate_is_fresher() -> bool:
 
 
 def _holding_display_values(portfolio) -> dict:
-    """Per-symbol display value/entry, estimated when holdings_meta is fresher.
+    """Per-symbol display value/entry from the ONE position source (v10.8.0, 2.1).
 
-    v10.7.3 (Part 3.1/3.2): value = shares * latest close; entry = invested /
-    shares. Falls back to the broker CSV numbers when the estimate is not
-    fresher. Returns {symbol: {value, entry, estimated, as_of}}.
+    Returns {symbol: {value, entry, estimated, as_of}}.
     """
-    out: dict = {}
-    fresher = _estimate_is_fresher()
-    meta: dict = {}
-    if fresher:
-        try:
-            from quant.data.database import read_only_connection
+    from quant.engine.positions import positions_now
 
-            with read_only_connection() as conn:
-                for sym, shares, sync_date, invested in conn.execute(
-                        "SELECT symbol, shares, sync_date, invested_at_sync "
-                        "FROM holdings_meta").fetchall():
-                    meta[str(sym)] = (float(shares or 0), sync_date,
-                                      float(invested or 0))
-        except Exception:  # noqa: BLE001
-            meta = {}
-    if portfolio is not None and not portfolio.empty:
-        for _, r in portfolio.iterrows():
-            sym = str(r["Symbol"])
-            if fresher and sym in meta:
-                shares, sync_date, invested = meta[sym]
-                price = _latest_close(sym)
-                value = (shares * price) if price is not None else \
-                    float(r.get("Current_Value_EUR", 0) or 0)
-                entry = (invested / shares) if shares else \
-                    float(r.get("Avg_Entry_Price", 0) or 0)
-                out[sym] = {"value": value, "entry": entry,
-                            "estimated": True, "as_of": sync_date}
-            else:
-                out[sym] = {"value": float(r.get("Current_Value_EUR", 0) or 0),
-                            "entry": float(r.get("Avg_Entry_Price", 0) or 0),
-                            "estimated": False, "as_of": None}
+    out: dict = {}
+    for p in positions_now():
+        out[p["symbol"]] = {
+            "value": p["value_eur"], "entry": p["entry_eur"],
+            "estimated": p["estimated"], "as_of": p["as_of"],
+        }
     return out
 
 
@@ -2237,13 +2212,14 @@ def _month_name() -> str:
 
 
 def _monthly_holdings() -> list[dict]:
-    """Build holding dicts for the allocator (value, tier, weights).
+    """Build holding dicts for the allocator from the ONE position source.
 
-    v10.7.3 (Part 5.1): the target comes from the ONE invested-pool target map
-    (config.TARGET_WEIGHTS_INVESTED, overridable by tiers.csv target_pct), not
-    from an equal split within FORTRESS.
+    v10.8.0 (2.1): the value comes from positions_now, so the allocator, the
+    Overview table and My holdings can never disagree. The target comes from the
+    ONE invested-pool target map (config.TARGET_WEIGHTS_INVESTED, overridable by
+    tiers.csv target_pct).
     """
-    from quant.portfolio.portfolio import load_portfolio
+    from quant.engine.positions import positions_now
     from quant.portfolio.tier_manager import (
         load_tiers_safe,
         target_weights_invested,
@@ -2251,20 +2227,20 @@ def _monthly_holdings() -> list[dict]:
     )
 
     try:
-        df = load_portfolio()
+        positions = positions_now()
         tiers_df, _ = load_tiers_safe()
         tmap = tier_map(tiers_df)
         targets = target_weights_invested(tiers_df)
     except Exception:  # noqa: BLE001
         return []
-    if df is None or df.empty:
+    if not positions:
         return []
-    total = float(df["Current_Value_EUR"].sum()) or 1.0
+    total = sum(float(p["value_eur"]) for p in positions) or 1.0
     out: list[dict] = []
-    for _, row in df.iterrows():
-        symbol = str(row["Symbol"])
+    for p in positions:
+        symbol = p["symbol"]
         tier = str(tmap.get(symbol, "ALPHA")).upper()
-        value = float(row.get("Current_Value_EUR", 0) or 0)
+        value = float(p["value_eur"])
         out.append({
             "symbol": symbol, "name": _display_name(symbol), "tier": tier,
             "value_eur": value, "current_weight": value / total,
