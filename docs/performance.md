@@ -7,8 +7,7 @@ assets) and slow environments.
 
 ## Measured benchmarks
 
-Measured with `python scripts/benchmark.py` on the live portfolio (4 assets,
-v10.6.5):
+Measured with `python scripts/benchmark.py` on a 4-asset portfolio (v10.6.5):
 
 | Benchmark | Symbols | Elapsed | Peak memory |
 |:--|--:|--:|--:|
