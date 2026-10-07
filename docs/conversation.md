@@ -124,5 +124,5 @@ The Tax summary page shows:
 - losses you can use to lower tax (selling losers before year-end to offset
   gains).
 
-Record a trade on the Tax summary page, or use the quick-events form on My
-holdings; both write to the same ledger.
+Record a trade once, on My holdings (the quick-events form). The Tax summary
+page reads the same ledger and links there.

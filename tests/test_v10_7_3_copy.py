@@ -83,8 +83,6 @@ def test_required_new_strings_exact():
     assert C.BTN_SAVE_AND_REVIEW == "Save and run review"
     assert C.BTN_SAVE_AND_REVIEW_HELP == \
         "Saves, then recomputes scores and advice now."
-    assert C.BTN_SAVE_ONLY_HELP == \
-        "Saves without recomputing; the evening run will pick it up."
     assert C.EMERGENCY_HINT == \
         "Enter an amount to see the order in which positions would be sold."
     assert C.SCORES_CAPTION == (

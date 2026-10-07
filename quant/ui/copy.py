@@ -32,7 +32,6 @@ SEC_WHAT_TO_DO = "What to do today"
 SEC_NEEDS_ATTENTION = "Needs attention first"
 SEC_YOUR_PORTFOLIO = "Your portfolio"
 SEC_PORTFOLIO_VALUE = "Portfolio value"
-SEC_WHERE_MONEY = "Where your money is"
 SEC_WHY_SCORES = "Why these scores"
 SEC_NEWS = "News and filings"
 SEC_HOW_TO_BUY = "How to buy"
@@ -44,10 +43,8 @@ SEC_GLOSSARY = "What do these mean?"
 # ── Buttons (P5: verb phrases describing the outcome) ─────────────────────────
 BTN_REFRESH = "Refresh market data"
 BTN_SAVE_AND_REVIEW = "Save and run review"
-BTN_SAVE_ONLY = "Save only"
-# v10.7.3 (Part 1.10): each account button states what it does.
+# v10.7.3 (Part 1.10): the button states what it does.
 BTN_SAVE_AND_REVIEW_HELP = "Saves, then recomputes scores and advice now."
-BTN_SAVE_ONLY_HELP = "Saves without recomputing; the evening run will pick it up."
 BTN_VIEW_LOG = "View log"
 BTN_REPAIR_REGISTRY = "Repair registry"
 BTN_HOW_TO_BUY = "How to buy"
@@ -872,10 +869,6 @@ MONTHLY_ADHOC_NOTE = ("Recorded as an ad-hoc buy outside the monthly plan. Appro
 # Monthly decision: post-approve impact line.
 MONTHLY_PLAN_SAVED = ("Plan saved. Planned flows dated {date}. Overview steps will "
                       "track execution.")
-# Overview savings plan: no approved plan is not a dead end.
-SAVINGS_NO_PLAN = "No plan approved yet for this month."
-BTN_SET_BUDGET = "Set this month's budget"
-SAVINGS_STANDING_BUDGET = "Standing budget: {amount} EUR per month."
 # Account section (v10.8.0, Phase 2): moved from My holdings to Settings.
 SEC_ACCOUNT = "Account"
 BTN_SAVE_ACCOUNT = "Save account"
@@ -948,24 +941,11 @@ TAX_HARVEST_REASON = "{reason}"
 TAX_HARVEST_NOTE = ("Selling this position reduces your taxable income by "
                     "{loss}.")
 SEC_TAX_RECORD = "Record a trade"
-TAX_RECORD_DATE = "Date"
-TAX_RECORD_SYMBOL = "Symbol"
-TAX_RECORD_ACTION = "Action"
-TAX_RECORD_SHARES = "Shares"
-TAX_RECORD_PRICE = "Price per share (EUR)"
-TAX_RECORD_DIVIDEND = "Dividend amount (EUR)"
-TAX_RECORD_FEE = "Fee (EUR)"
-TAX_RECORD_PNL = "Realized profit or loss (EUR)"
-TAX_RECORD_PNL_HELP = "Profit or loss from this sale."
-BTN_RECORD_TRADE = "Record trade"
-TAX_RECORD_SAVED = "Recorded: {action} {symbol} for {amount}."
 # v10.8.0 (Phase 2): one transaction form. The Tax page links to it instead of
 # duplicating the record-trade form.
 TAX_RECORD_LINK = ("Record buys, sells, and dividends once, on My holdings. "
                    "They feed this summary automatically.")
 BTN_GO_RECORD_TRADE = "Go to My holdings"
-TAX_RECORD_NEED_SYMBOL = "Choose a symbol first."
-TAX_RECORD_FAILED = "Could not record the trade. Try again."
 SEC_TAX_EXPORT = "Export"
 BTN_EXPORT_TAX = "Export tax report CSV"
 

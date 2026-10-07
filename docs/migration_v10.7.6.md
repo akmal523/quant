@@ -15,7 +15,8 @@ is required.
 - **Tax summary page.** A new page tracks realized gains and dividends, applies
   the German Sparerpauschbetrag (1000 EUR single, 2000 EUR married), estimates
   the Abgeltungssteuer at 26.375 percent, and lists losses you can use to lower
-  tax. Record a trade on the page, or use the quick-events form on My holdings.
+  tax. Record a trade once, on My holdings (the quick-events form); the Tax
+  summary page reads the same ledger.
 - **No PyPI.** The project is a local-first personal tool. The PyPI publishing
   and git-cliff release workflows are removed. Install with `pip install -e .`.
 
