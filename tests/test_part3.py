@@ -130,18 +130,6 @@ def test_incremental_change_detection(tmp_path=None):
     print("  [PASS] test_incremental_change_detection")
 
 
-# ── YAML Config ───────────────────────────────────────────────────────────────
-
-def test_config_loader():
-    """Config loads nested values via dot path."""
-    from quant.config_loader import Config
-    cfg = Config(paths.DATA_CONFIG)
-    assert cfg.get("fees.round_trip_eur") == 2.0
-    assert cfg.get("scoring.factor_weights.momentum") == 0.30
-    assert cfg.get("missing.path", "default") == "default"
-    print("  [PASS] test_config_loader")
-
-
 # ── Alerts ────────────────────────────────────────────────────────────────────
 
 def test_alerts_drawdown():

@@ -31,16 +31,30 @@ from quant.portfolio.cash_rate import current_cash_apy
 logger = logging.getLogger(__name__)
 
 
+def _notify_cfg() -> dict:
+    """The app's notification config (data/notify.toml), or {} (v10.8.0, 2.6).
+
+    One user path: the app writes data/notify.toml via `quant notify-setup`.
+    The environment variables remain a fallback for CI and advanced use.
+    """
+    from quant.engine import notify as _notify
+
+    return _notify.load_config()
+
+
 def _telegram_token() -> str:
-    return os.getenv("TELEGRAM_BOT_TOKEN", "")
+    return str(_notify_cfg().get("telegram_bot_token")
+               or os.getenv("TELEGRAM_BOT_TOKEN", ""))
 
 
 def _telegram_chat_id() -> str:
-    return os.getenv("TELEGRAM_CHAT_ID", "")
+    return str(_notify_cfg().get("telegram_chat_id")
+               or os.getenv("TELEGRAM_CHAT_ID", ""))
 
 
 def _discord_webhook() -> str:
-    return os.getenv("DISCORD_WEBHOOK_URL", "")
+    return str(_notify_cfg().get("discord_webhook_url")
+               or os.getenv("DISCORD_WEBHOOK_URL", ""))
 
 
 def is_configured() -> bool:
