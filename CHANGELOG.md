@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.0] - 2026-10-07
+
+"Privacy, one source of truth, and honest install."
+
+### Fixed
+
+- Privacy: user state (`portfolio.csv`, `account.yaml`, `tiers.csv`,
+  `backups/`) is untracked; neutral examples ship in `data/examples/`; a
+  pre-commit/CI guard blocks re-adding it. The public briefing workflow and its
+  README link are removed.
+- Install: `selectolax` is bounded (`<1.0`), the real Streamlit minimum is
+  declared (`>=1.49`), and the optional text-fetch step degrades visibly.
+- One position source (`quant/engine/positions.py`) and one EUR price helper
+  (`price_in_eur`) replace the three disagreeing value paths.
+
 ## [10.7.6] - 2026-10-06
 
 "Buffett Filter, Tax Accounting, and Remove the Noise." This version adds two
