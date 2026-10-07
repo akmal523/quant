@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block are deleted (the split lives once on My holdings; the plan lives once on
   the Monthly decision page). The Account block (cash, risk profile, savings
   day) moves to Settings. My holdings has one Save.
+- One transaction form: the Tax page's record-trade form is deleted; it links to
+  the single form on My holdings.
 
 ### Added
 

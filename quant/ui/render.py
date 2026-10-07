@@ -1667,7 +1667,6 @@ def page_tax() -> None:
     """Render the Tax summary page (v10.7.6, Part 2)."""
     from quant.portfolio.tax_accounting import (
         calculate_yearly_tax_summary,
-        record_trade,
         suggest_tax_loss_harvesting,
     )
 
@@ -1723,52 +1722,12 @@ def page_tax() -> None:
                 st.caption(C.TAX_HARVEST_NOTE.format(
                     loss=C.fmt_eur(s["unrealized_loss_eur"])))
 
+    # v10.8.0 (Phase 2): one transaction form. The record-trade form is deleted
+    # here; the Tax page links to the single form on My holdings.
     st.subheader(C.SEC_TAX_RECORD)
-    with st.form("record_trade_form"):
-        trade_date = st.date_input(C.TAX_RECORD_DATE, value=_date.today())
-        trade_symbol = st.text_input(C.TAX_RECORD_SYMBOL)
-        trade_action = st.selectbox(C.TAX_RECORD_ACTION, ["buy", "sell", "dividend"])
-        if trade_action != "dividend":
-            trade_shares = st.number_input(C.TAX_RECORD_SHARES, min_value=0.0,
-                                           step=0.001)
-            trade_price = st.number_input(C.TAX_RECORD_PRICE, min_value=0.0,
-                                          step=0.01)
-            trade_amount = trade_shares * trade_price
-            default_fee = 1.0 if trade_action == "buy" else 0.0
-            trade_fee = st.number_input(C.TAX_RECORD_FEE, min_value=0.0,
-                                        value=default_fee, step=0.01)
-        else:
-            trade_amount = st.number_input(C.TAX_RECORD_DIVIDEND, min_value=0.0,
-                                           step=0.01)
-            trade_shares = None
-            trade_price = None
-            trade_fee = 0.0
-        trade_pnl = None
-        if trade_action == "sell":
-            trade_pnl = st.number_input(C.TAX_RECORD_PNL, value=0.0, step=0.01,
-                                        help=C.TAX_RECORD_PNL_HELP)
-        submitted = st.form_submit_button(C.BTN_RECORD_TRADE)
-        if submitted:
-            if not trade_symbol:
-                st.warning(C.TAX_RECORD_NEED_SYMBOL)
-            else:
-                try:
-                    record_trade(
-                        date=trade_date.isoformat(),
-                        symbol=trade_symbol,
-                        action=trade_action,
-                        amount_eur=float(trade_amount),
-                        shares=trade_shares,
-                        price_eur=trade_price,
-                        fee_eur=float(trade_fee),
-                        realized_pnl_eur=trade_pnl,
-                    )
-                    st.success(C.TAX_RECORD_SAVED.format(
-                        action=trade_action, symbol=trade_symbol,
-                        amount=C.fmt_eur(float(trade_amount))))
-                    st.rerun()
-                except Exception:  # noqa: BLE001
-                    st.warning(C.TAX_RECORD_FAILED)
+    st.write(C.TAX_RECORD_LINK)
+    if st.button(C.BTN_GO_RECORD_TRADE, key="tax_go_record"):
+        st.switch_page("pages/portfolio.py")
 
     st.subheader(C.SEC_TAX_EXPORT)
     report = pd.DataFrame([{

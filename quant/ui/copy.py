@@ -959,6 +959,11 @@ TAX_RECORD_PNL = "Realized profit or loss (EUR)"
 TAX_RECORD_PNL_HELP = "Profit or loss from this sale."
 BTN_RECORD_TRADE = "Record trade"
 TAX_RECORD_SAVED = "Recorded: {action} {symbol} for {amount}."
+# v10.8.0 (Phase 2): one transaction form. The Tax page links to it instead of
+# duplicating the record-trade form.
+TAX_RECORD_LINK = ("Record buys, sells, and dividends once, on My holdings. "
+                   "They feed this summary automatically.")
+BTN_GO_RECORD_TRADE = "Go to My holdings"
 TAX_RECORD_NEED_SYMBOL = "Choose a symbol first."
 TAX_RECORD_FAILED = "Could not record the trade. Try again."
 SEC_TAX_EXPORT = "Export"
