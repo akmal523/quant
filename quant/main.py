@@ -529,9 +529,22 @@ def main() -> None:
         logger.warning("ETF quality map failed (fallback to 85.0): %s", e)
 
     # ── Step 2: Async text fetch (Tier 3 — only on funnel survivors) ────────
+    # v10.8.0 (1.3): the optional text-fetch step must degrade visibly, never
+    # crash the review. If the fetcher (or its parser dependency) is missing,
+    # the review continues with no news text and Health names the missing input.
     import asyncio
-    from quant.data.async_fetcher import fetch_all_texts_concurrently
-    survivor_texts = asyncio.run(fetch_all_texts_concurrently(list(survivors.keys())))
+    survivor_texts: dict[str, str] = {}
+    try:
+        from quant.data.async_fetcher import fetch_all_texts_concurrently
+        survivor_texts = asyncio.run(
+            fetch_all_texts_concurrently(list(survivors.keys())))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Text fetch unavailable (news/filings input missing): %s", e)
+        try:
+            from quant.data.news import record_fetch_result
+            record_fetch_result(False)
+        except Exception:  # noqa: BLE001
+            pass
 
     # v10.5.3 (R7): route portfolio holdings through the shared news cache so the
     # review and Explore can never disagree for the same symbol on the same day.

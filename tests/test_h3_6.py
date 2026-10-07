@@ -144,6 +144,11 @@ def test_default_scorer_drops_sentiment_word(monkeypatch):
 
 
 def test_model_scorer_keeps_sentiment_word(monkeypatch):
+    # v10.8.0 (1.3): the word renders only when the FinBERT stack is importable.
+    # Skip (with a reason) when torch/transformers are absent, so the test is
+    # deterministic across environments instead of failing on a light install.
+    if not render._sentiment_available():
+        pytest.skip("FinBERT stack (torch/transformers) not installed")
     items = [{"source": "Yahoo Finance", "headline": "H",
               "published_at": "2026-09-13T10:00:00+00:00",
               "score": 0.0, "scorer": "model"}]
