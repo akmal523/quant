@@ -12,7 +12,7 @@ setup command prints.
 5. Enter what you bought (one line), so the math stays honest.
 6. Refresh your broker values if the last sync is older than 35 days.
 7. Live your life.
-8. Glance at the summary on Fridays.
+8. Glance at the summary on Overview.
 9. A Telegram alert means place the order in the broker app; it executes at market open.
 
 ## Setting up the Telegram bot (5 minutes, once)
@@ -75,7 +75,7 @@ statement keeps the numbers you typed, labeled with the last sync date.
    honest.
 4. If the last broker sync is older than a month, refresh your broker values
    (four fields per position, about 5 minutes).
-5. Live your life. Glance at the summary on Fridays. An alert arrives in
+5. Live your life. Glance at the summary on Overview. An alert arrives in
    Telegram on its own; you place the order from your phone in the evening and
    it executes at the next market open.
 6. After a week, run `quant doctor`: the last daily run should be yesterday and
