@@ -16,7 +16,7 @@ Dependencies: datetime only.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 # ── Page titles (P12) ─────────────────────────────────────────────────────────
 # v10.7.0 nav order: Overview, Monthly decision, My holdings, Find investments,
@@ -499,6 +499,10 @@ def savings_plan_line(today: date, day: int) -> str:
         if m > 12:
             m, y = 1, y + 1
         target = date(y, m, min(day, _days_in_month(y, m)))
+    # v10.8.0 (2.5): a broker executes on the next trading day, so a weekend
+    # target is shown as the following Monday.
+    while target.weekday() >= 5:
+        target = target + timedelta(days=1)
     days = (target - today).days
     return SAVINGS_COUNTDOWN.format(days=days, date=fmt_weekday_date(target))
 
@@ -727,7 +731,7 @@ MONTHLY_SPLIT_HEADER = "The system splits it:"
 # v10.7.3 (Part 1.5): no raw keys. The long/active/bet leg names the tier word and
 # the route; the cash leg is its own sentence with no fee suffix.
 MONTHLY_LEG_LINE = "{amount} EUR to {name} ({symbol}), {kind}, via savings plan. Fee {fee} EUR."
-MONTHLY_CASH_LEG_LINE = "{amount} EUR to operational cash at 2.5 percent per year."
+MONTHLY_CASH_LEG_LINE = "{amount} EUR to operational cash at {apy} percent per year."
 MONTHLY_LEG_REASON = "Reason: {reason}"
 MONTHLY_NEW_IDEAS = "New ideas this month (optional, you may ignore all):"
 MONTHLY_CANDIDATE_LINE = "{name} - {detail}"
@@ -765,7 +769,7 @@ FORTRESS_LEG_SUGGESTION = ("Consider raising the savings-plan leg for {name} fro
 # {label} is the "Name (TICKER)" form (label_for), so the ticker is never doubled.
 STEP_TOP_UP = ("Top up the savings plan for {label}: it is {pct} percent "
                "of invested vs {target} percent target.")
-CASH_REGIME_LINE = ("New active money goes to cash at 2.5 percent until the market "
+CASH_REGIME_LINE = ("New active money goes to cash at {apy} percent until the market "
                     "regime recovers.")
 # v10.7.4 (R2-R5): classification-grid copy.
 # R2: a FORTRESS holding far OVER target gets a plan-change note, never a sell.
@@ -860,7 +864,7 @@ BTN_SET_BUDGET = "Set this month's budget"
 SAVINGS_STANDING_BUDGET = "Standing budget: {amount} EUR per month."
 # Overview income line (Block A).
 INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR from flows, cash "
-               "yield about {cash_yield} EUR at 2.5 percent.")
+               "yield about {cash_yield} EUR at {apy} percent.")
 INCOME_NONE = "No dividends recorded yet; record them in My holdings when they arrive."
 # Actuals confirmation states the consequence.
 ACTUALS_CONSEQUENCE = ("Actuals saved. Estimated value of {name} is now {value} EUR; "

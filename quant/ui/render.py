@@ -505,12 +505,15 @@ def _render_overview_money(portfolio, account) -> None:
             date=C.fmt_date(est_as_of or _date.today())))
     cols[1].metric("Operational cash", C.fmt_eur_whole(cash))
     cols[1].caption(C.OPERATIONAL_CASH_LINE.format(
-        amount=f"{cash:.0f}", date=C.fmt_date(_date.today()), apy="2.5"))
+        amount=f"{cash:.0f}",
+        date=C.fmt_date(account.cash_updated or _date.today()),
+        apy=f"{current_cash_apy()*100:g}"))
     # v10.7.3 (Part 4.4): the income line.
     dividends, cash_yield = _income_12m(cash)
     if dividends > 0:
         st.caption(C.INCOME_LINE.format(
-            dividends=f"{dividends:.0f}", cash_yield=f"{cash_yield:.0f}"))
+            dividends=f"{dividends:.0f}", cash_yield=f"{cash_yield:.0f}",
+            apy=f"{current_cash_apy()*100:g}"))
     else:
         st.caption(C.INCOME_NONE)
     # v10.7.3 (Part 8.2): link the provenance section.
@@ -775,7 +778,7 @@ def _income_12m(cash: float) -> tuple[float, float]:
                     dividends += float(f.get("amount_eur", 0) or 0)
     except Exception:  # noqa: BLE001
         pass
-    return dividends, float(cash) * 0.025
+    return dividends, float(cash) * current_cash_apy()
 
 
 def _last_sync_date():
@@ -1252,7 +1255,9 @@ def page_portfolio() -> None:
     cash = st.number_input("Operational cash (EUR)", min_value=0.0,
                            value=float(cash_val), step=10.0)
     st.caption(C.OPERATIONAL_CASH_LINE.format(
-        amount=f"{cash:.0f}", date=C.fmt_date(_date.today()), apy="2.5"))
+        amount=f"{cash:.0f}",
+        date=C.fmt_date(account.cash_updated or _date.today()),
+        apy=f"{current_cash_apy()*100:g}"))
     profile = st.radio(
         "Risk profile", list(RISK_PROFILES.keys()),
         index=list(RISK_PROFILES.keys()).index(account.risk_profile),
@@ -1260,7 +1265,7 @@ def page_portfolio() -> None:
         format_func=lambda p: p.capitalize(),
     )
     savings_day = st.number_input(
-        C.SAVINGS_DAY_LABEL, min_value=1, max_value=28,
+        C.SAVINGS_DAY_LABEL, min_value=1, max_value=31,
         value=int(account.savings_plan_day or 1), step=1)
     st.caption(C.SAVINGS_DAY_CAPTION)
     rate = current_rate()
@@ -1281,7 +1286,8 @@ def page_portfolio() -> None:
             return
         save_portfolio(cleaned, paths.DATA_PORTFOLIO)
         save_account(AccountState(account.base_currency, float(cash), profile, True,
-                                  int(savings_day)))
+                                  int(savings_day),
+                                  cash_updated=_date.today().isoformat()))
         st.session_state["_extra"] = []
         st.session_state["_saved_unknown"] = len(warnings)
 
@@ -2305,7 +2311,8 @@ def page_monthly() -> None:
         # no fee suffix; buy legs name the tier word and the route.
         if leg.get("kind") == "cash":
             st.write(C.MONTHLY_CASH_LEG_LINE.format(
-                amount=f"{leg['amount_eur']:.0f}"))
+                amount=f"{leg['amount_eur']:.0f}",
+                apy=f"{current_cash_apy()*100:g}"))
             st.caption(C.MONTHLY_LEG_REASON.format(reason=leg["reason"]))
         else:
             st.write(C.MONTHLY_LEG_LINE.format(

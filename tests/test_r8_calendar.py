@@ -52,9 +52,9 @@ def test_savings_plan_line_countdown():
 
 
 def test_savings_plan_line_month_wrap():
-    # 28 Sep -> 3 Oct = 5 days (month wrap); 3 Oct 2026 is a Saturday.
+    # 28 Sep -> 3 Oct (a Saturday) -> next trading day Monday 5 Oct = 7 days.
     line = C.savings_plan_line(date(2026, 9, 28), 3)
-    assert line == C.SAVINGS_COUNTDOWN.format(days=5, date="Saturday 3 Oct 2026")
+    assert line == C.SAVINGS_COUNTDOWN.format(days=7, date="Monday 5 Oct 2026")
 
 
 def test_savings_plan_line_clamps_to_month_end():

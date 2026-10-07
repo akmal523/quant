@@ -35,6 +35,8 @@ class AccountState:
     loaded: bool
     # R8: optional savings-plan day of month (1-31); None when unset.
     savings_plan_day: int | None = None
+    # v10.8.0 (2.5): the date the user last saved the cash figure (ISO string).
+    cash_updated: str | None = None
 
     def risk_limits(self) -> tuple[float, float, float]:
         """Return (long_term_min, active_max, max_position) of the INVESTED pool.
@@ -79,7 +81,10 @@ def load_account(path: str | None = None) -> AccountState:
             spd = None
     except (TypeError, ValueError):
         spd = None
-    return AccountState(base, cash_eur, profile, loaded=True, savings_plan_day=spd)
+    cash_updated = data.get("cash_updated")
+    cash_updated = str(cash_updated) if cash_updated else None
+    return AccountState(base, cash_eur, profile, loaded=True, savings_plan_day=spd,
+                        cash_updated=cash_updated)
 
 
 def save_account(state: AccountState, path: str | None = None) -> None:
@@ -93,6 +98,9 @@ def save_account(state: AccountState, path: str | None = None) -> None:
     # R8: only persist the optional key when set (keeps the file minimal).
     if state.savings_plan_day is not None:
         payload["savings_plan_day"] = state.savings_plan_day
+    # v10.8.0 (2.5): record when the cash figure was last saved.
+    if state.cash_updated is not None:
+        payload["cash_updated"] = state.cash_updated
     directory = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:

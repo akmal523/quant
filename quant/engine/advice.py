@@ -38,6 +38,7 @@ from quant.config import (
     TARGET_WEIGHTS_INVESTED,
 )
 from quant.engine import sizing
+from quant.portfolio.cash_rate import current_cash_apy
 from quant.ui import copy as ui_copy
 
 FORTRESS_GAP_SUGGESTION = 0.10
@@ -366,6 +367,7 @@ def build_advice(
     if is_bear and buy_considered:
         advice.append(_advice(
             "to_cash", None, "cash", None, ui_copy.ADVICE_FROM_CASH,
-            ui_copy.CASH_REGIME_LINE, 0.0, "ALPHA", "monitor"))
+            ui_copy.CASH_REGIME_LINE.format(apy=f"{current_cash_apy()*100:g}"),
+            0.0, "ALPHA", "monitor"))
 
     return advice, rejected
