@@ -16,6 +16,7 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+import logging
 import os
 import threading
 from datetime import date as _date
@@ -52,6 +53,8 @@ from quant.ui import copy as C
 from quant.ui import runner
 from quant.ui.cards import explore_card_fields
 from quant.ui.search import discovery_candidates, label_for, load_index, search
+
+logger = logging.getLogger(__name__)
 
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 _COLUMN_CONFIG = {
@@ -537,18 +540,25 @@ def _render_overview_steps(holdings) -> None:
     built = steps_mod.build_steps(_date.today(), open_now, plan, holdings)
     # v10.7.1: the "Not this week" block renders the advice pipeline's rejected
     # notes (the system showing its work), not a second computation.
+    _advice_failed = False
     try:
         from quant.engine.advice import build_advice
 
         _advice, rejected = build_advice(
             _monthly_holdings(), open_alerts=open_now, plans=plan)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        # v10.8.0 (3.2): a failed computation is a visible failure, never an
+        # empty success state.
+        logger.warning("Advice failed: %s", e)
         _advice, rejected = [], []
+        _advice_failed = True
     # v10.7.3 (Part 4.2): change_savings_plan and buy advice become steps, so the
     # Overview names the same asset as quant run for the same reason.
     advice_steps = [a for a in _advice
                     if a.get("kind") in ("change_savings_plan", "buy")]
-    if built or advice_steps:
+    if _advice_failed:
+        st.warning(C.COULD_NOT_CHECK.format(reason="the advice step failed"))
+    elif built or advice_steps:
         i = 0
         for step in built:
             i += 1

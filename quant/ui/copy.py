@@ -58,6 +58,10 @@ BTN_OPEN_TODAY = "Open Today"
 # P4 (v10.5.2): an empty state may describe a MISSING-DATA condition only. A
 # computation that ran and failed is a Health item, never an empty state.
 EMPTY_NOTHING_TO_DO = "Nothing to do today. The next review runs after the next market close."
+# v10.8.0 (3.2): a computation that failed is a visible failure, never an
+# empty success state.
+COULD_NOT_CHECK = ("Could not check what to do: {reason}. "
+                   "Try Refresh prices in Settings.")
 EMPTY_NO_NEWS = "No recent news for {name}. Scores use price history and fundamentals only."
 # H3.4: exact zero-match sentence (distinct from the empty-query helper).
 EMPTY_NO_MATCHES = ("No instrument matches {query}. Try a company or fund name, "
