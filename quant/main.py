@@ -118,7 +118,8 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
         # not per-asset HMM. Saves ~1s/asset and is statistically sound.
         hmm_prob_bull = market_regime_prob
 
-        returns = np.log(hist_ind["Close"] / hist_ind["Close"].shift(1)).dropna()
+        with np.errstate(invalid="ignore", divide="ignore"):
+            returns = np.log(hist_ind["Close"] / hist_ind["Close"].shift(1)).dropna()
         var_penalty = calculate_risk_penalty(returns)
 
         # Phase 4 (3.1): bifurcated scoring by instrument_class.

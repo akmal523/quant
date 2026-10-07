@@ -16,7 +16,9 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 def calculate_log_returns(close_prices: pd.Series) -> pd.Series:
     """Compute log returns for stationarity. Scaled x100 for GARCH optimizer stability."""
-    log_returns = np.log(close_prices / close_prices.shift(1)).dropna()
+    # v10.8.0: a non-positive price is invalid; suppress the log warning.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        log_returns = np.log(close_prices / close_prices.shift(1)).dropna()
     return log_returns * 100
 
 
@@ -61,7 +63,8 @@ def ewma_volatility(close_prices: pd.Series, span: int = 20) -> pd.Series:
     Exponentially weighted moving average volatility (annualized).
     Used as fallback when GARCH cannot converge or data is too short.
     """
-    returns = np.log(close_prices / close_prices.shift(1)).dropna()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        returns = np.log(close_prices / close_prices.shift(1)).dropna()
     ewma_std = returns.ewm(span=span).std()
     annualized = ewma_std * np.sqrt(252)
     vol_series = pd.Series(index=close_prices.index, dtype=float)
@@ -77,7 +80,8 @@ def fast_volatility(close_prices: pd.Series, span: int = 21) -> pd.Series:
     Invariants: returns non-NaN series aligned to close_prices.index.
     Dependencies: numpy/pandas only. No arch_model.
     """
-    returns = np.log(close_prices / close_prices.shift(1)).dropna()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        returns = np.log(close_prices / close_prices.shift(1)).dropna()
     ewma_std = returns.ewm(span=span).std()
     annualized = ewma_std * np.sqrt(252)
     vol_series = pd.Series(index=close_prices.index, dtype=float)

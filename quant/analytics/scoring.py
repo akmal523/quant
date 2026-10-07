@@ -71,7 +71,8 @@ def fit_market_regime(
     if len(hist_close) < 252 or vol.isna().all():
         return max_points / 2.0
 
-    returns = np.log(hist_close / hist_close.shift(1)).dropna()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        returns = np.log(hist_close / hist_close.shift(1)).dropna()
     common_index = returns.index.intersection(vol.dropna().index)
     if len(common_index) < 252:
         return max_points / 2.0
@@ -104,7 +105,8 @@ def hmm_market_state_score(
     if len(hist_close) < 252 or garch_vol.isna().all():
         return max_points / 2.0
 
-    returns = np.log(hist_close / hist_close.shift(1)).dropna()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        returns = np.log(hist_close / hist_close.shift(1)).dropna()
     common_index = returns.index.intersection(garch_vol.dropna().index)
 
     if len(common_index) < 252:
