@@ -627,6 +627,11 @@ TIER_WORDS = {
 SEC_YOUR_MONEY = "Your money"
 SEC_STEPS = "Your steps this week"
 SEC_NOT_THIS_WEEK = "Not this week"
+# v10.8.0 (Phase 1, redesign 3.2): the ONE decision list, three groups.
+DECISION_GROUP_INPUT = "Needs your input"
+DECISION_GROUP_RECOMMENDED = "Recommended"
+DECISION_GROUP_OPTIONAL = "Optional"
+DECISION_EMPTY = "Nothing needs your input right now."
 SEC_YOUR_ASSETS = "Your assets"
 SEC_SAVINGS_PLAN = "Savings plan"
 SEC_MARKET = "Market"

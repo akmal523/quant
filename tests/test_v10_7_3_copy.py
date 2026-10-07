@@ -98,9 +98,14 @@ def test_required_new_strings_exact():
 
 def test_overview_renders_new_strings():
     text = _render(C.PAGE_TODAY)
-    assert C.NOTHING_REJECTED in text
+    # v10.8.0 (Phase 1, redesign 3.2): one decision list, three groups. The
+    # steps block always renders; with data it shows a group header, otherwise
+    # the honest empty state.
     assert C.SEC_STEPS in text
-    assert C.SEC_NOT_THIS_WEEK in text
+    assert (C.DECISION_GROUP_RECOMMENDED in text
+            or C.DECISION_GROUP_INPUT in text
+            or C.DECISION_GROUP_OPTIONAL in text
+            or C.NOTHING_TO_DO_WEEK in text)
 
 
 def test_holdings_renders_new_strings():

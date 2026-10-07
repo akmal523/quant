@@ -530,7 +530,6 @@ def _render_overview_steps(holdings) -> None:
     from quant.data.database import read_only_connection
     from quant.engine import alerts as alerts_mod
     from quant.engine import plans
-    from quant.engine import steps as steps_mod
 
     st.subheader(C.SEC_STEPS)
     try:
@@ -539,7 +538,6 @@ def _render_overview_steps(holdings) -> None:
             plan = plans.load_plan(conn, _month_key())
     except Exception:  # noqa: BLE001
         open_now, plan = [], None
-    built = steps_mod.build_steps(_date.today(), open_now, plan, holdings)
     # v10.7.1: the "Not this week" block renders the advice pipeline's rejected
     # notes (the system showing its work), not a second computation.
     _advice_failed = False
@@ -554,31 +552,28 @@ def _render_overview_steps(holdings) -> None:
         logger.warning("Advice failed: %s", e)
         _advice, rejected = [], []
         _advice_failed = True
-    # v10.7.3 (Part 4.2): change_savings_plan and buy advice become steps, so the
-    # Overview names the same asset as quant run for the same reason.
-    advice_steps = [a for a in _advice
-                    if a.get("kind") in ("change_savings_plan", "buy")]
+    # v10.8.0 (Phase 1, redesign 3.2): ONE decision list, three groups. The
+    # Overview renders the same list every other surface reads.
+    from quant.engine.decisions import build_decision_list, group_order
+
     if _advice_failed:
         st.warning(C.COULD_NOT_CHECK.format(reason="the advice step failed"))
-    elif built or advice_steps:
-        i = 0
-        for step in built:
-            i += 1
-            st.write(f"{i}. {step['what']}")
-            if step.get("amount_eur"):
-                st.caption(f"{C.fmt_eur(step['amount_eur'])}. {step['why']}")
-        for a in advice_steps:
-            i += 1
-            st.write(f"{i}. {a['why']}")
-    else:
+        return
+    decisions = build_decision_list(_advice, holdings, rejected)
+    if not decisions:
         st.write(C.NOTHING_TO_DO_WEEK)
-    st.write(C.SEC_NOT_THIS_WEEK)
-    if rejected:
-        for note in rejected:
-            st.caption(f"{note['symbol']}: {note['plain_reason']}")
-    else:
-        # v10.7.3 (Part 1.9): never repeat the first block's phrase.
-        st.caption(C.NOTHING_REJECTED)
+        return
+    for group in group_order():
+        items = [d for d in decisions if d["group"] == group]
+        if not items:
+            continue
+        st.markdown(f"**{group}**")
+        for d in items:
+            line = d["reason"] or d["label"]
+            if d.get("amount_eur"):
+                st.write(f"- {line} ({C.fmt_eur(d['amount_eur'])})")
+            else:
+                st.write(f"- {line}")
 
 
 def _render_market_expander(has_review: bool) -> None:

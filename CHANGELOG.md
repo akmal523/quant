@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- One unified decision list (`quant/engine/decisions.py`): every decision is
+  grouped into "Needs your input", "Recommended", and "Optional". The Overview
+  renders this one list; the "Not this week" notes fold into Optional.
 - The daily value chart is independent of reviews: `quant/engine/value_series.py`
   builds the invested-value series from append-only position snapshots
   (`position_snapshots`), recorded flows, and daily closes in EUR. Every sync
