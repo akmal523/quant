@@ -49,7 +49,9 @@ def _load_trades(year: int, action: str) -> pd.DataFrame:
                 [int(year), str(action)],
             ).df()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("trades read failed: %s", exc)
+        # v10.8.2: a busy database is an expected, handled condition (the History
+        # page shows "Tax figures unavailable"); log it at debug, not warning.
+        logger.debug("trades read unavailable: %s", exc)
         return pd.DataFrame()
 
 

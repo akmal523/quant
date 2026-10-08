@@ -36,7 +36,6 @@ from quant.analytics.scoring import (
 from quant.analytics.scoring import (
     regime_confidence as regime_confidence_of,
 )
-from quant.analytics.sentiment import NLPScorer
 from quant.cli.output import reporter
 from quant.config import WEIGHT_TECHNICAL
 from quant.data.currency import get_eur_rate
@@ -395,7 +394,16 @@ def main() -> None:
         logger.warning("Holdings news merge failed: %s", e)
 
     # ── Step 3: NLP scoring in MAIN process (single FinBERT, DI) ────────────
-    scorer = NLPScorer()
+    # v10.8.2: the news stack (torch/transformers) is an optional extra. When it
+    # is absent, every symbol gets a neutral, low-confidence score and the rest
+    # of the pipeline runs unchanged.
+    try:
+        from quant.analytics.sentiment import NLPScorer
+
+        scorer = NLPScorer()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("News sentiment unavailable (%s); using neutral scores.", e)
+        scorer = None
 
     nlp_cache_rows: list[tuple] = []
     nlp_data_map: dict[str, dict] = {}
@@ -422,6 +430,13 @@ def main() -> None:
                 "data_confidence": 1.0,
             }
             logger.debug("[NLP] %s: cache hit (score=%.1f)", sym, row[0])
+        elif scorer is None:
+            nlp_data_map[sym] = {
+                "score": 0.0,
+                "reasoning": "News sentiment is off (install the 'news' extra).",
+                "doc_hash": None,
+                "data_confidence": 0.0,
+            }
         else:
             nlp_result = scorer.score_document(text)
             nlp_data_map[sym] = {

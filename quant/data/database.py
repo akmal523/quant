@@ -170,7 +170,9 @@ def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     still opened per call and closed on exit, so no persistent connection is
     held.
     """
-    delays = [0.1, 0.2]
+    # v10.8.2: a longer grace so a brief writer collision (a refresh/daily job, or
+    # a stale process) does not surface as a failed read. Total ~6.7s.
+    delays = [0.2, 0.5, 1.0, 2.0, 3.0]
     last: Exception | None = None
     for i in range(len(delays) + 1):
         try:
