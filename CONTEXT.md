@@ -3,6 +3,28 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.3 — Live pages, class investing, editable history (rulings)
+
+- **The live holdings view** ([`quant/engine/holdings_view.py`](quant/engine/holdings_view.py))
+  is the ONE input to the five pages: `positions_now()` + tiers + per-symbol
+  targets. No page reads a review artifact.
+- **The ONE list is timed and directional** ([`decisions.timed_items`](quant/engine/decisions.py)):
+  horizon **Today** (urgent sells, stop-loss, alerts) or **This month** (buys,
+  savings-plan changes, rebalancing); direction **Buy** or **Sell**; tagged by
+  **class** (tier).
+- **Class-based investing** ([`quant/engine/invest_plan.py`](quant/engine/invest_plan.py)):
+  one amount, a `Class | Now | Target | Suggested` table for FORTRESS / ALPHA /
+  SPECULATIVE, then instruments. Long-term = savings plan (free); active = one-off.
+  The strategy (risk profile) lives on Portfolio. No Every-month/Once, no Plan now.
+- **Cost basis, English** (v10.8.3): the column is **"Average cost per share"**, the
+  fee-inclusive average (Trade Republic "Buy In"); shares = invested / cost.
+- **History is editable** ([`ledger.replace_trades`](quant/engine/ledger.py)):
+  correct the derived rows in one transaction.
+- **Instrument type** can be overridden ([`registry_repair.set_instrument_class`](quant/data/registry_repair.py)),
+  in plain words (Stock / Fund / Commodity); never "cash".
+- **Settings** holds the few controls not on another page; Refresh prices, Update
+  software and Back up now are buttons that run and report.
+
 ## v10.8.2 — One workflow (rulings)
 
 The product is one workflow: enter what you own, Review changes, Confirm and

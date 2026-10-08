@@ -78,7 +78,7 @@ def test_home_shows_value_and_what_to_do():
     at = _run_page("Portfolio")
     text = _all_text(at)
     assert C.SEC_WHAT_TO_DO in text
-    assert "Nothing to do" in text or "Buy" in text or "Sell" in text
+    assert C.WHAT_TO_DO_EMPTY in text or "Buy" in text or "Sell" in text
 
 
 def test_settings_shows_data_folder():

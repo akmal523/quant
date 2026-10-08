@@ -83,7 +83,8 @@ def test_update_holdings_has_the_add_holding_input():
     assert at.text_input, "Update holdings has no add-holding input"
 
 
-def test_settings_has_the_risk_profile_control():
-    at = _run("Settings")
+def test_portfolio_has_the_strategy_control():
+    # v10.8.3: the risk-profile (strategy) selector moved to the Portfolio block.
+    at = _run("Portfolio")
     labels = [str(getattr(r, "label", "")) for r in at.radio]
-    assert any("Risk profile" in lbl for lbl in labels)
+    assert any("Strategy" in lbl for lbl in labels)

@@ -120,6 +120,7 @@ def _render_broker_editor(portfolio) -> pd.DataFrame:
     The autocomplete input says what it does; selecting a match appends an
     empty-value row and shows one helper line. No silent add.
     """
+    st.caption(C.COST_BASIS_HINT)
     query = st.text_input(
         C.PLACEHOLDER_ADD_HOLDING, key="add_q",
         placeholder=C.PLACEHOLDER_ADD_HOLDING, label_visibility="collapsed",

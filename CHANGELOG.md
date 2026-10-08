@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.3] - 2026-10-08
+
+"Live pages, editable history, class-based investing." The five pages now read the
+user's real holdings the moment the table is saved, the invest block balances the
+three classes toward the chosen strategy, and the History ledger can be corrected.
+
+### Fixed
+
+- **Empty pages after an update** (#3): Portfolio, Full analysis and "What to do"
+  read [`holdings_view()`](quant/engine/holdings_view.py) (live positions + tiers +
+  targets) instead of a `quant run` review artifact the one-workflow never
+  produced.
+- **Tax figures always 0.00** (#4b): [`page_history`](quant/ui/pages.py) read the
+  wrong dict keys; it now uses `realized_gains_eur`,
+  `sparerpauschbetrag_remaining_eur`, `estimated_tax_eur` and wires the Filing
+  status radio.
+- **"Nothing to do … next market close"** (#4c): the empty state now says the
+  classes are in balance and prices are up to date.
+- **"Change type" did nothing** (#4a): it is now a real instrument-class override
+  ([`set_instrument_class`](quant/data/registry_repair.py)), in plain words (Stock /
+  Fund / Commodity).
+- **Settings stubs** (#6, #7): "Refresh prices", "Update software" and "Back up
+  now" now run and report instead of printing a console instruction.
+
+### Changed
+
+- **The invest block is class-based** (#4d): one amount input, a
+  `Class | Now | Target | Suggested` table (FORTRESS / ALPHA / SPECULATIVE), then
+  the instruments to buy. Long-term buys are the savings plan (free); active buys
+  are one-off. The strategy (risk profile) selector moved here from Settings. The
+  Every month / Once toggle and the "Plan now" column are removed.
+  Engine: [`quant/engine/invest_plan.py`](quant/engine/invest_plan.py).
+- **The ONE list is timed and directional** (#4d follow-up): "Today" (urgent sells,
+  stop-loss, alerts) and "This month" (savings-plan buys, rebalancing), each Buy
+  and Sell, tagged by class ([`decisions.timed_items`](quant/engine/decisions.py)).
+- **"Entry price per share" → "Average cost per share"** (#2): the fee-inclusive
+  cost basis, in English, with a one-line hint.
+- **History is editable** (#1): an editable trades table (update, add, delete in
+  one transaction) via [`ledger.replace_trades`](quant/engine/ledger.py).
+- **Settings** (#5): the duplicate "Monthly amount to invest" is gone.
+
+### Removed
+
+- The `Every month / Once` toggle and the `Plan now` column from the invest block.
+
+### Tests
+
+- [`tests/test_v10_8_3.py`](tests/test_v10_8_3.py): live view, class invest plan,
+  timed list, editable ledger, instrument override, tax keys.
+
 ## [10.8.2] - 2026-10-08
 
 "One workflow." The product is reset around a single workflow: enter what you own,

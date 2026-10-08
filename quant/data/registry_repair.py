@@ -53,6 +53,28 @@ def load_curated(path: str = paths.DATA_ISIN_CURATED) -> dict[str, str]:
     return curated
 
 
+def set_instrument_class(symbol: str, instrument_class: str) -> bool:
+    """Set one symbol's instrument class in asset_registry (v10.8.3).
+
+    The "Change type" override on the Update holdings page. Returns True when a
+    row was written. Never raises.
+    """
+    from quant.data.database import write_connection
+
+    sym = str(symbol or "").strip()
+    cls = str(instrument_class or "").strip().upper()
+    if not sym or not cls:
+        return False
+    try:
+        with write_connection() as conn:
+            conn.execute(
+                "UPDATE asset_registry SET instrument_class = ? WHERE symbol = ?",
+                [cls, sym])
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _yahoo_isin(symbol: str) -> str | None:
     """Best-effort live ISIN from Yahoo instrument metadata. Never raises."""
     try:

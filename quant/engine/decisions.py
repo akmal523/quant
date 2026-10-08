@@ -131,3 +131,37 @@ def actionable_items(decisions: list[dict] | None) -> list[dict]:
     """
     keep = (ui_copy.DECISION_GROUP_INPUT, ui_copy.DECISION_GROUP_RECOMMENDED)
     return [d for d in (decisions or []) if d.get("group") in keep]
+
+
+# ── v10.8.3: the timed list (Today / This month, Buy / Sell, by class) ─────────
+
+def timed_items(holdings: list[dict] | None,
+                advice: list[dict] | None) -> list[dict]:
+    """The ONE list with a horizon, a class and a direction. Pure; no I/O.
+
+    A sell (drift or alert) is "Today"; a buy or a savings-plan change is "This
+    month". The class is the holding's tier. Only actionable advice is included.
+    """
+    tier_by_sym = {str(h.get("symbol")): str(h.get("tier", "ALPHA")).upper()
+                   for h in holdings or []}
+    out: list[dict] = []
+    for a in advice or []:
+        kind = str(a.get("kind") or "")
+        if kind not in _ACTIONABLE:
+            continue
+        sym = str(a.get("symbol") or "")
+        direction = ui_copy.DIRECTION_SELL if kind == "sell_part" else ui_copy.DIRECTION_BUY
+        horizon = (ui_copy.HORIZON_TODAY
+                   if (a.get("source") == "alert" or kind == "sell_part")
+                   else ui_copy.HORIZON_MONTH)
+        out.append({
+            "horizon": horizon,
+            "class": tier_by_sym.get(sym, "ALPHA"),
+            "direction": direction,
+            "verb": kind,
+            "label": _label(a),
+            "amount_eur": a.get("eur"),
+            "reason": str(a.get("why") or ""),
+            "symbol": sym,
+        })
+    return out

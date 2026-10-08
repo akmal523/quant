@@ -235,7 +235,8 @@ STATUS_NOT_REVIEWED = "Not reviewed yet"
 # Column-name -> human header (P2: no column names in the UI).
 COLUMN_HEADERS = {
     "Symbol": "Instrument",
-    "Avg_Entry_Price": "Entry price per share",
+    # v10.8.3: the fee-inclusive average cost basis, in plain English.
+    "Avg_Entry_Price": "Average cost per share",
     "Current_Value_EUR": "Value (EUR)",
     "Broker_PnL_EUR": "Profit (EUR)",
     "Plan_EUR_month": "Plan (EUR/month)",
@@ -667,6 +668,30 @@ INVEST_ONCE_EMPTY = "No order is large enough to be worth the fee."
 DIFF_BOUGHT_SAVINGS = "Bought (savings plan)"
 PLAN_DAY_REMINDER = ("Your savings plan ran on day {day}. Check the broker and "
                      "update your holdings.")
+# v10.8.3: the timed ONE list (Today / This month, Buy / Sell, by class).
+HORIZON_TODAY = "Today"
+HORIZON_MONTH = "This month"
+DIRECTION_BUY = "Buy"
+DIRECTION_SELL = "Sell"
+WHAT_TO_DO_EMPTY = "All classes are in balance. Prices are up to date."
+CLASS_FORTRESS = "Long-term"
+CLASS_ALPHA = "Active"
+CLASS_SPECULATIVE = "Small bets"
+CLASS_LABELS = {"FORTRESS": CLASS_FORTRESS, "ALPHA": CLASS_ALPHA,
+                "SPECULATIVE": CLASS_SPECULATIVE}
+# v10.8.3: the class-based invest block.
+INVEST_CLASS_HEADER = "Class"
+INVEST_NOW_HEADER = "Now"
+INVEST_TARGET_HEADER = "Target"
+INVEST_SUGGESTED_HEADER = "Suggested"
+INVEST_HOW_HEADER = "How"
+INVEST_STRATEGY_LABEL = "Strategy"
+INVEST_NOTHING = "Nothing to buy: every class is already at or above its target."
+INVEST_NOT_ALLOCATED = "{amount} EUR stays uninvested (no suitable holding yet)."
+# v10.8.3: the cost-basis column (English; fee-inclusive average cost).
+COST_BASIS_HEADER = "Average cost per share"
+COST_BASIS_HINT = ("The average you paid per share, including fees "
+                   "(Trade Republic calls it Buy In).")
 # v10.8.2: the news-sentiment stack is an optional extra.
 MARKET_NEWS_OFF = ("News sentiment is off. Install the 'news' extra to enable it; "
                    "everything else works without it.")
