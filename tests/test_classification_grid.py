@@ -156,13 +156,13 @@ def test_alpha_buy_below_100_eur_is_rejected():
     assert any("below 100 EUR" in r["plain_reason"] for r in rejected)
 
 
-def test_bear_regime_suppresses_buy_and_emits_to_cash():
-    """R9: regime override -> no buy, one to_cash, one rejected note."""
+def test_bear_regime_suppresses_buy():
+    """R9: regime override -> no buy, one rejected note (v10.8.2: no cash line)."""
     advice, rejected = build_advice(
         [alpha_case(-0.09, value=500.0, conviction=90.0)],
         tiers={"AMZN": "ALPHA"}, regime="bear", as_of=AS_OF)
     assert not any(a["kind"] == "buy" for a in advice)
-    assert len([a for a in advice if a["kind"] == "to_cash"]) == 1
+    assert not any(a["kind"] == "to_cash" for a in advice)
     notes = [r for r in rejected if r["considered_action"] == ADVICE_BUY]
     assert notes and "suppressed by bear regime" in notes[0]["plain_reason"]
 

@@ -53,37 +53,6 @@ def test_data_quality_auto_repair():
     print("  [PASS] test_data_quality_auto_repair")
 
 
-# ── Feature Cache ─────────────────────────────────────────────────────────────
-
-def test_feature_cache_roundtrip(tmp_path=None):
-    """Cache set then get returns the same data."""
-    import tempfile
-
-    from quant.features.feature_cache import FeatureCache
-    cache = FeatureCache(cache_dir=tempfile.mkdtemp())
-    df = pd.DataFrame({"SMA_200": [1.0, 2.0, 3.0]})
-    h = cache.compute_data_hash(pd.DataFrame({"Close": [1.0, 2.0, 3.0]}))
-    cache.set("EUNL.DE", "sma_200", h, df)
-    got = cache.get("EUNL.DE", "sma_200", h)
-    assert got is not None
-    assert got["SMA_200"].tolist() == [1.0, 2.0, 3.0]
-    print("  [PASS] test_feature_cache_roundtrip")
-
-
-def test_feature_cache_miss_on_stale_hash():
-    """Cache returns None when data_hash changed."""
-    import tempfile
-
-    from quant.features.feature_cache import FeatureCache
-    cache = FeatureCache(cache_dir=tempfile.mkdtemp())
-    df = pd.DataFrame({"SMA_200": [1.0]})
-    h1 = cache.compute_data_hash(pd.DataFrame({"Close": [1.0, 2.0]}))
-    h2 = cache.compute_data_hash(pd.DataFrame({"Close": [5.0, 6.0]}))
-    cache.set("X", "sma_200", h1, df)
-    assert cache.get("X", "sma_200", h2) is None
-    print("  [PASS] test_feature_cache_miss_on_stale_hash")
-
-
 # ── Observability ─────────────────────────────────────────────────────────────
 
 def test_observability_summary():
@@ -114,24 +83,6 @@ def test_observability_captures_error():
     print("  [PASS] test_observability_captures_error")
 
 
-# ── Incremental Processing ────────────────────────────────────────────────────
-
-def test_incremental_change_detection(tmp_path=None):
-    """detect_changes returns True only when data changed."""
-    import tempfile
-
-    from quant.data.incremental import IncrementalProcessor
-    proc = IncrementalProcessor(state_file=tempfile.mktemp(suffix=".json"))
-    df = pd.DataFrame({"Date": pd.date_range("2026-01-01", periods=10),
-                       "Close": np.arange(10.0)})
-    assert proc.detect_changes(df, "AMZN") is True   # first time
-    assert proc.detect_changes(df, "AMZN") is False  # unchanged
-    df2 = df.copy()
-    df2.loc[9, "Close"] = 99.0
-    assert proc.detect_changes(df2, "AMZN") is True  # changed
-    print("  [PASS] test_incremental_change_detection")
-
-
 # ── Alerts ────────────────────────────────────────────────────────────────────
 
 def test_alerts_drawdown():
@@ -153,59 +104,6 @@ def test_alerts_rebalance():
     assert "SELL" in alerts[0].action
     print("  [PASS] test_alerts_rebalance")
 
-
-# ── Health Score ──────────────────────────────────────────────────────────────
-
-def test_health_score_bounds():
-    """Health score is in [0, 100] with a grade."""
-    from quant.analytics.health_score import PortfolioHealthScore
-    data = {
-        "holdings": [{"Symbol": "A"}, {"Symbol": "B"}, {"Symbol": "C"}],
-        "weights": {"A": 0.4, "B": 0.3, "C": 0.3},
-        "correlation_to_spx": 0.7,
-        "sharpe": 0.8,
-        "max_drawdown": -0.08,
-        "fee_drag_pct": 0.5,
-        "liquid_pct": 0.9,
-    }
-    result = PortfolioHealthScore().compute(data)
-    assert 0 <= result["total_score"] <= 100
-    assert result["grade"] in "ABCDF+"
-    print(f"  [PASS] test_health_score_bounds: {result['total_score']} ({result['grade']})")
-
-
-# ── Scenario Simulator ────────────────────────────────────────────────────────
-
-def test_scenario_simulator_trade():
-    """Simulated trade returns vol/sharpe metrics."""
-    from quant.scenario_simulator import ScenarioSimulator
-    portfolio = pd.DataFrame({"Symbol": ["A", "B"], "Amount_EUR": [500.0, 500.0]})
-    rng = np.random.default_rng(42)
-    returns = pd.DataFrame({
-        "A": rng.normal(0.0005, 0.01, 300),
-        "B": rng.normal(0.0005, 0.01, 300),
-    })
-    sim = ScenarioSimulator(portfolio, returns)
-    result = sim.simulate_trade("A", "B", 200.0)
-    assert "new_volatility" in result
-    assert "recommendation" in result
-    print(f"  [PASS] test_scenario_simulator_trade: {result['recommendation']}")
-
-
-def test_scenario_simulator_crash():
-    """Crash simulation returns impact and hedges."""
-    from quant.scenario_simulator import ScenarioSimulator
-    portfolio = pd.DataFrame({"Symbol": ["A"], "Amount_EUR": [1000.0]})
-    rng = np.random.default_rng(1)
-    returns = pd.DataFrame({
-        "A": rng.normal(0, 0.01, 300),
-        "SPX": rng.normal(0, 0.01, 300),
-    })
-    sim = ScenarioSimulator(portfolio, returns)
-    result = sim.simulate_crash(-0.20)
-    assert "portfolio_impact" in result
-    assert "recommended_hedges" in result
-    print(f"  [PASS] test_scenario_simulator_crash: impact={result['portfolio_impact']}")
 
 
 if __name__ == "__main__":

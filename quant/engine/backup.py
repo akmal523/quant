@@ -106,6 +106,42 @@ def prune_backups(out_dir: str | None = None, keep: int = KEEP_BACKUPS) -> int:
     return removed
 
 
+def snapshot_user_files(custom_dir: str | None = None,
+                        now: datetime | None = None) -> dict:
+    """Lightweight auto-backup of the user input files (v10.8.1, A2).
+
+    Copies the table, tiers and account settings (NOT the large database) into a
+    timestamped archive, pruned to the 5 most recent. Used before every confirmed
+    table save and before every update. Never raises.
+    """
+    now = now or datetime.now()
+    try:
+        out_dir = backup_dir(custom_dir)
+        os.makedirs(out_dir, exist_ok=True)
+        members = [
+            (arc, src) for arc, src in (
+                ("data/portfolio.csv", paths.DATA_PORTFOLIO),
+                ("data/tiers.csv", paths.DATA_TIERS),
+                ("data/account.yaml", paths.DATA_ACCOUNT),
+            ) if os.path.exists(src)
+        ]
+        if not members:
+            return {"ok": False, "path": None, "members": [], "error": "nothing to back up"}
+        name = f"{PREFIX}{now.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+        path = os.path.join(out_dir, name)
+        with tarfile.open(path, "w:gz") as tar:
+            for arc, src in members:
+                tar.add(src, arcname=arc)
+        prune_backups(out_dir)
+        meta = read_meta()
+        meta["last_backup_at"] = now.isoformat(timespec="seconds")
+        write_meta(meta)
+        return {"ok": True, "path": path, "members": [a for a, _ in members],
+                "error": None}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "path": None, "members": [], "error": str(e)}
+
+
 def create_backup(custom_dir: str | None = None, include_secrets: bool = False,
                   now: datetime | None = None) -> dict:
     """Create a backup archive under the runner lock. Never raises.

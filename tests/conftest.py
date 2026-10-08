@@ -15,7 +15,10 @@ Dependencies: quant.paths, quant.data.database.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,6 +27,34 @@ from pytest import MonkeyPatch
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# v10.8.1 (A2): user state lives in the per-user data dir, never the repo. Point
+# every test at a throwaway data dir BEFORE importing quant.paths, so no test can
+# read or write the owner's real data. Seed the shipped curated inputs the tests
+# rely on and mark the one-time migration done (so tests never copy repo state).
+_TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="quant-test-data-"))
+os.environ["QUANT_DATA_DIR"] = str(_TEST_DATA_DIR)
+
+
+def _seed_test_data_dir() -> None:
+    data = _TEST_DATA_DIR / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    for name in ("broker_registry.csv", "isin_curated.csv", "names_curated.csv",
+                 "themes.csv", "watchlist.csv"):
+        src = ROOT / "data" / name
+        if src.exists():
+            try:
+                shutil.copyfile(src, data / name)
+            except Exception:  # noqa: BLE001
+                pass
+    # Skip the legacy migration in tests: no copy of repo state into the temp dir.
+    try:
+        (data / ".migrated_to_user_data").write_text("migrated\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_seed_test_data_dir()
 
 
 @pytest.fixture(scope="session", autouse=True)

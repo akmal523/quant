@@ -12,7 +12,6 @@ def test_cash_apy_is_one_source():
     assert ui_copy.OPERATIONAL_CASH_LINE.format(
         amount="100", date="1 Jan 2026", apy=apy)
     assert ui_copy.MONTHLY_CASH_LEG_LINE.format(amount="60", apy=apy)
-    assert ui_copy.CASH_REGIME_LINE.format(apy=apy)
     assert ui_copy.INCOME_LINE.format(dividends="0", cash_yield="0", apy=apy)
 
 

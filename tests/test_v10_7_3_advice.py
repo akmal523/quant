@@ -12,7 +12,6 @@ from __future__ import annotations
 from quant.engine import allocator
 from quant.engine.advice import build_advice
 from quant.ui import copy as C
-from quant.ui.render import _verdict_word
 
 # The live-shaped fixture: EUNL.DE under target, 5J50.DE over target.
 _LIVE = [
@@ -39,9 +38,6 @@ def test_fortress_verdict_never_sell():
     # 5J50.DE is FORTRESS and over target: it can never be sold.
     assert by_sym["5J50.DE"]["kind"] in ("keep", "change_savings_plan")
     assert by_sym["5J50.DE"]["kind"] != "sell_part"
-    word = _verdict_word(by_sym["5J50.DE"])
-    assert word in (C.ADVICE_KEEP, C.ADVICE_TOP_UP) or "savings plan" in word
-    assert "Sell part" not in word
 
 
 def test_allocator_and_advice_agree_on_topup():

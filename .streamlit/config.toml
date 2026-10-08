@@ -4,6 +4,11 @@ gatherUsageStats = false
 [server]
 headless = true
 
+# v10.8.2: drop the Streamlit developer toolbar ("Deploy" / dev banner). The
+# product is the five pages; there is nothing to deploy from the app.
+[client]
+toolbarMode = "minimal"
+
 # A4 (v10.5.2): the primary action color is the theme accent (deep blue), not
 # red. Red is reserved for blockers, amber for warnings, green for satisfied.
 # v10.8.0 (Phase 3): light and night themes, same layout in both. Streamlit

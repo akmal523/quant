@@ -17,7 +17,7 @@ from __future__ import annotations
 from quant.ui import copy as ui_copy
 
 # The advice kinds that ask the user to act now.
-_ACTIONABLE = {"buy", "top_up", "sell_part", "change_savings_plan", "to_cash"}
+_ACTIONABLE = {"buy", "top_up", "sell_part", "change_savings_plan"}
 
 
 def _label(item: dict) -> str:
@@ -88,3 +88,46 @@ def group_order() -> list[str]:
     """The three group headers, in display order."""
     return [ui_copy.DECISION_GROUP_INPUT, ui_copy.DECISION_GROUP_RECOMMENDED,
             ui_copy.DECISION_GROUP_OPTIONAL]
+
+
+# v10.8.2 (section 6): the first line is always "Verb Name (TICKER) amount".
+_VERB_TEMPLATES = {
+    "buy": "Buy {amount} EUR of {label}",
+    "top_up": "Buy {amount} EUR of {label}",
+    "sell_part": "Sell about {amount} EUR of {label}",
+    "change_savings_plan": "Change the savings plan for {label}",
+}
+
+
+def _amount_text(amount) -> str:
+    """Whole EUR with a thousands separator (v10.8.2 money rule)."""
+    try:
+        return f"{float(amount):,.0f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def format_item_line(item: dict) -> str:
+    """The first line of a decision item: "Verb Name (TICKER) amount".
+
+    v10.8.2 (section 6): never a bare reason. Falls back to the label when the
+    kind has no verb template, so a line is always produced.
+    """
+    kind = str(item.get("verb") or item.get("kind") or "").strip().lower()
+    label = str(item.get("label") or _label(item))
+    amount = _amount_text(item.get("amount_eur"))
+    tpl = _VERB_TEMPLATES.get(kind)
+    if tpl is None:
+        return label
+    if amount:
+        return tpl.format(amount=amount, label=label)
+    return tpl.format(amount="", label=label).replace("  ", " ").strip()
+
+
+def actionable_items(decisions: list[dict] | None) -> list[dict]:
+    """Items that ask the user to act: Needs your input + Recommended.
+
+    v10.8.2 (section 6): a position that needs nothing (Optional) is not an item.
+    """
+    keep = (ui_copy.DECISION_GROUP_INPUT, ui_copy.DECISION_GROUP_RECOMMENDED)
+    return [d for d in (decisions or []) if d.get("group") in keep]

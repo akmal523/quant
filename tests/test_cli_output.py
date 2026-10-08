@@ -13,12 +13,12 @@ from quant.cli import build_parser, output
 from quant.reporting.actions import format_action_line
 
 
-def test_parser_has_verbose_and_publish():
+def test_parser_has_verbose_and_a_command():
     parser = build_parser()
     args = parser.parse_args(["--verbose", "run"])
     assert args.verbose is True
-    args2 = parser.parse_args(["publish"])
-    assert args2.command == "publish"
+    args2 = parser.parse_args(["doctor"])
+    assert args2.command == "doctor"
 
 
 def test_detail_goes_to_log_not_stdout(tmp_path):

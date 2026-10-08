@@ -179,178 +179,6 @@ def process_asset(symbol: str, f_data: dict, sector: str, nlp_data: dict,
         return None
 
 
-# ── Part 2: Advanced Portfolio Manager Briefing ───────────────────────────────
-
-def _print_advanced_briefing(port_df, audit_res, final_df, grouped_data) -> None:
-    """Assemble and print the unified Part 2 briefing.
-
-    Intent: wire all Part 2 modules (risk monitor, portfolio context, strategy
-    engine, cash manager, tax optimizer, attribution, guardrails) into a single
-    coherent report. Non-fatal — wrapped in try/except by the caller.
-    """
-    import pandas as pd
-
-    from quant.portfolio.behavioral_guardrails import BehavioralGuardrails
-    from quant.portfolio.cash_manager import CashManager
-    from quant.portfolio.portfolio_context import PortfolioContext
-    from quant.portfolio.risk_monitor import RiskMonitor
-    from quant.portfolio.tax_optimizer import TaxOptimizer
-    from quant.reporting.reporting_advanced import build_briefing
-    from quant.strategy.strategy_engine import StrategyEngine
-
-    # Build a returns matrix from grouped_data (Close pct_change per symbol).
-    closes = {}
-    for sym, df in grouped_data.items():
-        if "Close" in df.columns and not df["Close"].dropna().empty:
-            closes[sym] = df["Close"]
-    if not closes:
-        return
-    returns_matrix = pd.DataFrame(closes).pct_change().dropna(how="all")
-
-    # Portfolio context: risk contribution + concentration penalties.
-    ctx = PortfolioContext(port_df, returns_matrix)
-    risk_contrib = ctx.compute_risk_contribution().to_dict()
-    penalties = {s: ctx.concentration_penalty(s) for s in port_df["Symbol"]}
-
-    # Risk monitor: circuit breakers on portfolio value series.
-    port_value = port_df["Amount_EUR"].sum()
-    # Use a synthetic portfolio value series from the first asset as proxy.
-    first_sym = next(iter(closes))
-    value_series = closes[first_sym]
-    risk_mon = RiskMonitor(value_series)
-    risk_status = risk_mon.check_circuit_breakers()
-
-    # v10.4.0 (Phase 3): hard kill switch. On breach, emit LIQUIDATE TO CASH and
-    # publish the event so subscribers (scanner) can halt.
-    kill = risk_mon.check_kill_switch()
-    if kill["triggered"]:
-        print(f"\n[KILL SWITCH] {kill['signal']}: {kill['reason']}")
-        try:
-            from quant.infra.event_bus import EVENTS, EventBus
-            EventBus().publish(EVENTS["KILL_SWITCH"], kill)
-        except Exception:
-            pass
-
-    # Strategy engine: ensemble scores per portfolio symbol.
-    engine = StrategyEngine()
-    # v10.8.0 (3.1): the regime is a documented drawdown proxy in this legacy
-    # path (the HMM regime is computed in the main review, not here).
-    regime = "bull_low_vol" if risk_status.get("drawdown", 0) > -0.05 else "bear"
-    strategy_weights = engine.regime_weights(regime)
-    ensemble_scores = {}
-    for sym in port_df["Symbol"]:
-        if sym in returns_matrix.columns:
-            ret = returns_matrix[sym].dropna()
-            # v10.8.0 (3.1): no placeholder inputs. The strategy engine reads
-            # only the keys it needs; missing keys use its own defaults.
-            data = {
-                "returns_6m": float(ret.tail(126).sum()) if len(ret) else 0.0,
-                "volatility_60d": float(ret.tail(60).std()) if len(ret) else 0.0,
-            }
-            ensemble_scores[sym] = engine.compute_ensemble_signal(sym, data, regime)
-
-    # Cash manager: target cash + dip alerts.
-    cash_mgr = CashManager()
-    # v10.8.0 (3.1): the real account cash, not a placeholder fraction.
-    from quant.portfolio.account import load_account
-
-    cash_eur = float(load_account().cash_eur or 0.0)
-    # v10.8.0 (3.1): no VIX/opportunity feed in this path; the neutral values
-    # make the target the regime base rate, not a fabricated number.
-    cash_target = cash_mgr.target_cash_allocation(
-        regime, vix=20.0, opportunity_score=0.0)
-    # Item 6: gate DIP BUY on underweight vs target tier. Only buy dips on
-    # positions that are underweight (or not in the audit), never on overweight
-    # positions that are already at/above target.
-    weight_map = {}
-    if not audit_res.empty and {"Current_Weight", "Target_Weight"}.issubset(audit_res.columns):
-        for _, r in audit_res.iterrows():
-            try:
-                cw = float(str(r.get("Current_Weight", "0%")).rstrip("%")) / 100.0
-                tw = float(str(r.get("Target_Weight", "0%")).rstrip("%")) / 100.0
-                weight_map[r["Symbol"]] = (cw, tw)
-            except Exception:
-                continue
-    dip_alerts = []
-    for sym in port_df["Symbol"]:
-        if sym in closes:
-            s = closes[sym]
-            dd = float((s.iloc[-1] - s.max()) / s.max()) if s.max() > 0 else 0.0
-            amt = cash_mgr.dip_buying_algorithm(sym, dd, cash_eur)
-            if amt > 0:
-                cw, tw = weight_map.get(sym, (0.0, 0.0))
-                if sym not in weight_map or cw < tw:
-                    dip_alerts.append((sym, amt))
-
-    # Tax optimizer.
-    tax_df = audit_res.copy()
-    if "PnL_EUR" not in tax_df.columns:
-        tax_df["PnL_EUR"] = 0.0
-    if "Tier" not in tax_df.columns:
-        tax_df["Tier"] = "ACTIVE"
-    tax_opt = TaxOptimizer(tax_df)
-    tax_position = tax_opt.compute_tax_position()
-    harvest = tax_opt.harvest_opportunities()
-
-    # Guardrails: block signals on cooldown.
-    guardrails = BehavioralGuardrails()
-    guardrail_blocks = []
-    for sym in port_df["Symbol"]:
-        ok, reason = guardrails.check_cooldown(sym)
-        if not ok:
-            guardrail_blocks.append(f"{sym}: {reason}")
-
-    # v10.4.0 (Phase 5): advanced alpha metrics (DSR, IC decay, turnover variance).
-    alpha_metrics = None
-    try:
-        from quant.analytics.metrics import (
-            alpha_decay_curve,
-            deflated_sharpe_ratio,
-            turnover_stats,
-        )
-        port_ret = returns_matrix.mean(axis=1)
-        signals = returns_matrix.rolling(20).sum()
-        prices_proxy = (1.0 + returns_matrix.fillna(0.0)).cumprod()
-        eq_weights = pd.DataFrame(
-            1.0 / returns_matrix.shape[1],
-            index=returns_matrix.index, columns=returns_matrix.columns,
-        )
-        alpha_metrics = {
-            "dsr": deflated_sharpe_ratio(port_ret, n_trials=5),
-            "ic_curve": alpha_decay_curve(signals, prices_proxy),
-            "turnover": turnover_stats(eq_weights),
-        }
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Alpha metrics failed (non-fatal): %s", e)
-
-    from datetime import date as _date
-
-    _pnl_eur = float(audit_res["PnL_EUR"].sum()) if "PnL_EUR" in audit_res else 0.0
-    _invested = (float(audit_res["Invested_EUR"].sum())
-                 if "Invested_EUR" in audit_res else 0.0)
-    briefing = build_briefing(
-        date_str=_date.today().isoformat(),
-        portfolio_value=port_value,
-        pnl_eur=_pnl_eur,
-        pnl_pct=(_pnl_eur / _invested * 100.0) if _invested else 0.0,
-        cash_eur=cash_eur,
-        cash_pct=cash_eur / port_value if port_value else 0.0,
-        risk_status=risk_status,
-        risk_contrib=risk_contrib,
-        concentration_penalties=penalties,
-        regime=regime,
-        strategy_weights=strategy_weights,
-        ensemble_scores=ensemble_scores,
-        cash_target=cash_target,
-        dip_alerts=dip_alerts,
-        tax_position=tax_position,
-        harvest_opportunities=harvest,
-        attribution_df=None,
-        guardrail_blocks=guardrail_blocks,
-        alpha_metrics=alpha_metrics,
-    )
-    print(briefing)
-
 
 # ── Main Orchestration ─────────────────────────────────────────────────────────
 
@@ -710,7 +538,6 @@ def main() -> None:
     from quant.portfolio.account import load_account
     from quant.reporting.actions import build_actions, format_action_line
     from quant.reporting.artifacts import new_run_dir
-    from quant.reporting.briefing import build_briefing_md
 
     run_dir = new_run_dir()
     today = _dt.date.today().isoformat()
@@ -818,19 +645,6 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("Review history/metrics failed (non-fatal): %s", e)
 
-    # Briefing document (spec 3.4).
-    briefing_md = build_briefing_md(
-        as_of=today, version=__version__, regime_label=regime_label,
-        regime_prob=market_regime_prob, regime_source=regime_sym,
-        audit_df=audit_res, account=account, total_value=total_value,
-        pnl_eur=pnl_eur, pnl_pct=pnl_pct, with_news=with_news,
-        without_news=without_news, latest_bar=latest_bar,
-    )
-    briefing_path = os.path.join(run_dir, "briefing.md")
-    with open(briefing_path, "w", encoding="utf-8") as f:
-        f.write(briefing_md)
-    reporter.line(f"  report {briefing_path}")
-
     # ── Verbose-only detail (R4: diagnostics go to --verbose + the run log) ──
     if reporter.verbose:
         reporter.detail(f" CURRENCY: 1 EUR = {get_eur_rate():.4f} USD")
@@ -868,10 +682,6 @@ def main() -> None:
             eff = account_effectiveness(audit_res, port_df)
             reporter.detail(print_effectiveness_report.__doc__ or "")
             reporter.detail(str(eff))
-            try:
-                _print_advanced_briefing(port_df, audit_res, final_df, grouped_data)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Advanced briefing failed (non-fatal): %s", e)
 
         reporter.detail("\n" + obs.summary())
 

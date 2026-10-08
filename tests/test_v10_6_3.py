@@ -160,16 +160,6 @@ def test_prioritize_sells_with_tax():
     assert "tax-free" in out[1]["tax_note"]
 
 
-# ── Weekly report edge case ───────────────────────────────────────────────────
-
-def test_weekly_report_empty_portfolio():
-    """An empty portfolio yields a guidance report, not a crash."""
-    from quant.reporting.weekly_report import build_weekly_report
-
-    md, html = build_weekly_report("2026-10-01", portfolio_df=pd.DataFrame())
-    assert "No assets in the portfolio" in md
-    assert "<html" in html
-
 
 # ── Signal cache staleness ────────────────────────────────────────────────────
 
@@ -190,29 +180,6 @@ def test_signal_cache_stale_detection(tmp_path, monkeypatch):
     sc.invalidate_signal_cache()
     assert not cache_file.exists()
 
-
-# ── Behavioral guardrail dict return ──────────────────────────────────────────
-
-def test_check_alpha_weekly_limit_dict():
-    """The weekly cap returns a dict with a warning and override flag."""
-    from quant.portfolio.behavioral_guardrails import BehavioralGuardrails
-
-    g = BehavioralGuardrails()
-    blocked = g.check_alpha_weekly_limit(trades_this_week=3, max_trades=2)
-    assert blocked["allowed"] is False
-    assert blocked["override_required"] is True
-    assert "Overtrading" in blocked["warning"]
-
-    allowed = g.check_alpha_weekly_limit(trades_this_week=0, max_trades=2)
-    assert allowed["allowed"] is True
-    assert allowed["trades_remaining"] == 2
-
-
-def test_track_weekly_trades_empty():
-    """No trade_log rows yields zero trades this week."""
-    from quant.portfolio.behavioral_guardrails import track_weekly_trades
-
-    assert track_weekly_trades("2026-10-01") == 0
 
 
 # ── Batch scoring ─────────────────────────────────────────────────────────────

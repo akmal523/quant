@@ -19,7 +19,7 @@ import pandas as pd
 
 def test_survivorship_bias_warning_emitted():
     """WFO result must include survivorship_bias_warning on every call."""
-    from quant.strategy.backtest import walk_forward_optimization
+    from scripts.backtest import walk_forward_optimization
 
     # Create mock price data with known trend
     dates = pd.date_range("2020-01-01", periods=500, freq="B")
@@ -39,7 +39,7 @@ def test_survivorship_bias_warning_emitted():
 
 def test_survivorship_bias_warning_empty():
     """Even with insufficient data, warning must be included."""
-    from quant.strategy.backtest import walk_forward_optimization
+    from scripts.backtest import walk_forward_optimization
 
     short = pd.DataFrame({"Close": [100.0] * 10})
     result = walk_forward_optimization(short)
@@ -53,7 +53,7 @@ def test_survivorship_bias_warning_empty():
 def test_wfo_windows():
     """WFO should produce OOS periods only when sufficient data exists."""
     from quant.config import WFO_IS_DAYS, WFO_OOS_DAYS, WFO_STEP_DAYS
-    from quant.strategy.backtest import walk_forward_optimization
+    from scripts.backtest import walk_forward_optimization
 
     min_required = WFO_IS_DAYS + WFO_OOS_DAYS  # 455 days
     excess_days = min_required + WFO_STEP_DAYS * 2  # enough for ~3 windows
@@ -77,7 +77,7 @@ def test_wfo_windows():
 
 def test_wfo_insufficient_data():
     """WFO with data < IS + OOS should return empty dict."""
-    from quant.strategy.backtest import walk_forward_optimization
+    from scripts.backtest import walk_forward_optimization
 
     short = pd.DataFrame({
         "Close": np.random.randn(100).cumsum() + 100,
@@ -96,7 +96,7 @@ def test_wfo_insufficient_data():
 
 def test_macro_backtest_returns_dict():
     """run_macro_backtest should always return a dict with expected keys."""
-    from quant.strategy.backtest import run_macro_backtest
+    from scripts.backtest import run_macro_backtest
 
     result = run_macro_backtest(None)
     assert isinstance(result, dict), "Should return dict for None input"
@@ -127,7 +127,7 @@ def test_macro_backtest_returns_dict():
 
 def test_historical_backtest_edge_cases():
     """Historical backtest should handle insufficient data gracefully."""
-    from quant.strategy.backtest import run_historical_backtest
+    from scripts.backtest import run_historical_backtest
 
     result = run_historical_backtest(None)
     assert result["Backtest_Signal"] == "N/A", "Expected N/A for None input"

@@ -57,24 +57,25 @@ def test_fee_hurdle_allows_large_buy():
 # ── Part 2.2: conviction vs action ────────────────────────────────────────────
 
 CONVICTION_MATRIX = [
-    # conviction, cooldown, regime, buy, to_cash, keep, rejected
-    (90.0, None, "rising", True, False, False, False),
-    (90.0, FAR_FUTURE, "rising", True, False, False, False),
-    (90.0, None, "bear", False, True, False, True),
-    (60.0, None, "rising", False, False, True, True),
-    (40.0, None, "rising", False, False, False, False),
+    # conviction, cooldown, regime, buy, keep, rejected
+    (90.0, None, "rising", True, False, False),
+    (90.0, FAR_FUTURE, "rising", True, False, False),
+    (90.0, None, "bear", False, False, True),
+    (60.0, None, "rising", False, True, True),
+    (40.0, None, "rising", False, False, False),
 ]
 
 
 @pytest.mark.parametrize(
-    "conviction,cooldown,regime,buy,to_cash,keep,rejected", CONVICTION_MATRIX)
-def test_conviction_vs_action(conviction, cooldown, regime, buy, to_cash, keep, rejected):
+    "conviction,cooldown,regime,buy,keep,rejected", CONVICTION_MATRIX)
+def test_conviction_vs_action(conviction, cooldown, regime, buy, keep, rejected):
     holding_ = alpha_case(-0.09, value=500.0, cooldown=cooldown, conviction=conviction)
     advice, rej = build_advice(
         [holding_], tiers={"AMZN": "ALPHA"}, regime=regime, as_of=AS_OF)
     kinds = {a["kind"] for a in advice if a.get("symbol") == "AMZN"}
     assert ("buy" in kinds) == buy
-    assert any(a["kind"] == "to_cash" for a in advice) == to_cash
+    # v10.8.2: the cash concept is gone; no advice kind is "to_cash".
+    assert not any(a["kind"] == "to_cash" for a in advice)
     assert ("keep" in kinds) == keep
     assert bool(rej) == rejected
 

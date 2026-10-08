@@ -290,14 +290,6 @@ def run_daily(
         new_alerts=new_alerts,
     )
 
-    # Retention: keep the store bounded (Section 13).
-    try:
-        from quant.engine import retention
-
-        retention.run_retention(conn, today)
-    except Exception:  # noqa: BLE001
-        pass
-
     # v10.7.2 (Part 2.3): recompute the news-pillar status on the Friday run.
     # Absent when zero model-scored items in the last 30 days; the daily job then
     # never imports torch (the performance win on the old laptop).

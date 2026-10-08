@@ -1,18 +1,20 @@
 """
 paths.py — Central filesystem paths.
 
-Intent: the app must run from any CWD AND from an installed wheel. A source
-checkout resolves writable paths to the repo root (so tests and the repo ``data/``
-are used); an installed package resolves them to the OS per-user data dir, because
-a wheel must NEVER write into site-packages.
+Intent: the app must run from any CWD AND from an installed wheel. Since v10.8.1
+user state NEVER lives in the repository, even in a source checkout: the writable
+root is always the OS per-user data dir. The repository folder holds only code
+and shipped examples.
 
-State Transition (F-series):
-  source checkout (manifest/VCS next to the package) -> writable root = repo root
-  installed wheel                                   -> writable root = user_data_dir("quant-ai")
+State Transition (v10.8.1, A2):
+  any launch (checkout or wheel) -> writable root = user_data_dir("quant-ai")
+  QUANT_DATA_DIR set             -> writable root = that path (tests, CI, portable)
 
 Invariants:
   - ``PACKAGE_DIR`` is always the installed package dir (shipped assets live here).
-  - ``PROJECT_ROOT`` is the writable root (repo root in dev, user data dir in prod).
+  - ``CODE_ROOT`` is the code checkout / install dir (git ops, scheduler cwd).
+  - ``PROJECT_ROOT`` is the writable root (the per-user data dir). It is NEVER
+    inside ``CODE_ROOT``.
   - Importing this module performs NO filesystem writes.
   - ``ensure_dirs()``/bootstrap create the directories, never import time.
 """
@@ -32,7 +34,7 @@ def _is_development(root: Path) -> bool:
 
 
 def _user_data_dir() -> Path:
-    """Per-user writable dir for an installed package (never site-packages)."""
+    """Per-user writable dir for the app (never the repository, never site-packages)."""
     try:
         from platformdirs import user_data_dir
 
@@ -43,21 +45,27 @@ def _user_data_dir() -> Path:
 
 
 def _resolve_root() -> Path:
-    """Writable root: explicit override > repo checkout > per-user data dir.
+    """Writable root: explicit override > per-user data dir.
 
-    ``QUANT_DATA_DIR`` (env) is an explicit escape hatch for tests, CI, and
-    portable installs; it takes precedence over auto-detection.
+    v10.8.1 (A2): the repository is never the writable root. ``QUANT_DATA_DIR``
+    (env) is the escape hatch for tests, CI, and portable installs.
     """
     override = os.environ.get("QUANT_DATA_DIR")
     if override:
         return Path(override).expanduser()
-    return _DEV_ROOT if _is_development(_DEV_ROOT) else _user_data_dir()
+    return _user_data_dir()
 
 
+# The code checkout / install dir. Used for git operations, the scheduler's
+# working directory, and as the source of the one-time legacy migration.
+CODE_ROOT: Path = _DEV_ROOT
 IS_DEVELOPMENT: bool = _is_development(_DEV_ROOT)
 
-# Writable root: repo root in a checkout, user data dir when installed, or the
-# QUANT_DATA_DIR override when set.
+# Pre-10.8.1 in-repo data dir. Never a writable root; read by the one-time
+# migration (quant.data.user_data) and re-copy of shipped curated inputs.
+LEGACY_DATA_DIR: Path = _DEV_ROOT / "data"
+
+# Writable root: the per-user data dir (or the QUANT_DATA_DIR override).
 PROJECT_ROOT: Path = _resolve_root()
 
 DATA_DIR: Path = PROJECT_ROOT / "data"

@@ -26,7 +26,6 @@ from quant import paths
 from quant.data.database import get_connection
 from quant.engine import allocator, flows, lock, sizing, valuation
 from quant.engine.advice import build_advice
-from quant.ui.render import _verdict_word
 from tests.fixtures.live_portfolio import alpha_case, live_shaped, live_tiers
 
 AS_OF = date(2026, 10, 2)
@@ -125,4 +124,4 @@ def test_regression_fortress_verdict_never_sell():
                "target_weight": 0.10, "conviction": 0.0}
     advice, _ = build_advice([holding], tiers={"5J50.DE": "FORTRESS"}, as_of=AS_OF)
     record = next(a for a in advice if a.get("symbol") == "5J50.DE")
-    assert "Sell part" not in _verdict_word(record)
+    assert record["kind"] != "sell_part"

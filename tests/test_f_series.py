@@ -27,7 +27,9 @@ from quant.ui.search import load_themes, resolve_theme_symbols
 def test_development_checkout_is_detected():
     # The test runs from the source checkout (pyproject.toml + .git present).
     assert paths.IS_DEVELOPMENT is True
-    assert paths.PROJECT_ROOT == paths.PACKAGE_DIR.parent
+    # v10.8.1: the code root is the checkout; the writable root is NOT the repo.
+    assert paths.CODE_ROOT == paths.PACKAGE_DIR.parent
+    assert paths.PROJECT_ROOT != paths.CODE_ROOT
 
 
 def test_is_development_false_for_bare_dir(tmp_path):
@@ -66,9 +68,15 @@ def test_bundled_themes_resolve_space():
 def test_bootstrap_seeds_missing_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(paths, "BUNDLED_DATA_DIR", paths.PACKAGE_DIR / "_data")
+    # No legacy dir: this test isolates template seeding, not the migration.
+    monkeypatch.setattr(paths, "LEGACY_DATA_DIR", tmp_path / "no-legacy")
+    monkeypatch.setattr(paths, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(paths, "CODE_ROOT", tmp_path)
     created = seed_user_data()
     assert "portfolio.csv" in created and "account.yaml" in created
-    assert "themes.csv" in created
+    # themes.csv is brought forward by the migration step (bundled seed) before
+    # the template pass, so it exists on disk either way.
+    assert (tmp_path / "data" / "themes.csv").exists()
     assert (tmp_path / "data" / "portfolio.csv").read_text(
         encoding="utf-8").startswith("Symbol,Avg_Entry_Price")
     assert "space" in (tmp_path / "data" / "themes.csv").read_text(encoding="utf-8")

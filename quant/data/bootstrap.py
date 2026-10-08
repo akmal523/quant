@@ -44,9 +44,17 @@ _BUNDLED: tuple[str, ...] = ("themes.csv",)
 def seed_user_data() -> list[str]:
     """Create the writable dirs and seed missing inputs. Returns created filenames.
 
-    Existing files are left untouched; a missing bundled asset is skipped.
+    v10.8.1 (A2): first bring forward any legacy in-repo user state (copy only,
+    once), THEN seed empty templates for anything still missing. Existing files
+    are left untouched; a missing bundled asset is skipped.
     """
     paths.ensure_dirs()
+    try:
+        from quant.data.user_data import migrate_legacy_user_data
+
+        migrate_legacy_user_data()
+    except Exception:  # noqa: BLE001
+        pass
     data = Path(paths.DATA_DIR)
     try:
         data.mkdir(parents=True, exist_ok=True)

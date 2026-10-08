@@ -93,19 +93,6 @@ def test_mean_cvar_optimizer():
     assert cvar >= 0.0
 
 
-def test_kill_switch_triggers():
-    from quant.portfolio.risk_monitor import RiskMonitor
-    # 3.5% single-day drop -> kill switch.
-    values = pd.Series([100.0, 100.0, 96.5])
-    rm = RiskMonitor(values)
-    kill = rm.check_kill_switch()
-    assert kill["triggered"] is True
-    assert kill["signal"] == "LIQUIDATE TO CASH"
-
-    # Flat series -> no trigger.
-    flat = RiskMonitor(pd.Series([100.0, 100.0, 100.0]))
-    assert flat.check_kill_switch()["triggered"] is False
-
 
 def test_regime_constraints():
     from quant.portfolio.regime_constraints import (

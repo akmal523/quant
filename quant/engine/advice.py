@@ -38,7 +38,6 @@ from quant.config import (
     TARGET_WEIGHTS_INVESTED,
 )
 from quant.engine import sizing
-from quant.portfolio.cash_rate import current_cash_apy
 from quant.ui import copy as ui_copy
 
 FORTRESS_GAP_SUGGESTION = 0.10
@@ -205,7 +204,6 @@ def build_advice(
             or str(h.get("tier", "")).upper()) == "SPECULATIVE")
     regime_label = regime.get("label") if isinstance(regime, dict) else regime
     is_bear = str(regime_label).lower() == "bear"
-    buy_considered = False
 
     # 1. Open alerts first (alert sells ignore cooldowns, but FORTRESS never
     #    sells: a structural break on a long-term holding is a signal, not a
@@ -311,7 +309,6 @@ def build_advice(
                         SPARPLAN_BUY_FEE_EUR, tier, "drift"))
         elif (target - current) > REBALANCE_DRIFT_THRESHOLD:
             if conviction >= ALPHA_CONVICTION_HIGH:
-                buy_considered = True
                 if is_bear:
                     # R9: the regime overrides micro signals. No ALPHA buy in
                     # bear; a HIGH-conviction candidate becomes a rejected note.
@@ -363,11 +360,7 @@ def build_advice(
                 "keep", symbol, name, None, None,
                 "within its target band.", None, tier, "monitor"))
 
-    # 5. Cash line when the regime is bear and a buy was considered.
-    if is_bear and buy_considered:
-        advice.append(_advice(
-            "to_cash", None, "cash", None, ui_copy.ADVICE_FROM_CASH,
-            ui_copy.CASH_REGIME_LINE.format(apy=f"{current_cash_apy()*100:g}"),
-            0.0, "ALPHA", "monitor"))
+    # v10.8.2: the bear-regime "move new money to cash" line was removed with the
+    # cash concept. A suppressed buy is still recorded in ``rejected``.
 
     return advice, rejected

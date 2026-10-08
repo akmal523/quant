@@ -3,6 +3,44 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.2 — One workflow (rulings)
+
+The product is one workflow: enter what you own, Review changes, Confirm and
+save, act in the broker, repeat. Everything else is deleted.
+
+- **User state never lives in the repository** (v10.8.1). The writable root is the
+  per-user data dir on every platform; `CODE_ROOT` is the checkout. A one-time,
+  copy-only migration brings legacy repo state forward.
+- **The table is the only input.** Schema `Symbol, Avg_Entry_Price,
+  Current_Value_EUR, Broker_PnL_EUR` (+ optional `Plan_EUR_month`). Derived, never
+  typed: invested = Value − Profit; shares = invested / Einstandskurs.
+- **Review diff** ([`quant/engine/diff.py`](quant/engine/diff.py)): Bought / Sold
+  (estimated realized gain) / Market move; tolerance 0.5 percent or 1 EUR.
+- **Confirm and save** ([`quant/engine/confirm.py`](quant/engine/confirm.py)): one
+  action — backup, table, snapshot, ledger.
+- **One list** ([`quant/engine/decisions.py`](quant/engine/decisions.py)): every
+  item is "Verb Name (TICKER) amount" + one reason; no "no action" items.
+- **Telegram only** ([`quant/engine/notify.py`](quant/engine/notify.py)): one
+  `send`, ≤2 messages per local day, only when the list changed.
+- **Five pages** ([`quant/ui/pages.py`](quant/ui/pages.py)): Portfolio home,
+  Update holdings, History, Full analysis, Settings. `render.py` holds only the
+  helpers they share (330 lines).
+- **Six CLI commands**: `dash`, `refresh`, `daily`, `upgrade`, `backup`, `doctor`.
+- **The invest block** ([`quant/engine/savings_plan.py`](quant/engine/savings_plan.py)):
+  one amount, Every month / Once; a suggestion only, never stored for "Once".
+- **Plan EUR/month** is the optional 6th editor column; a buy matching it is
+  labeled "Bought (savings plan)" in the diff, and Portfolio reminds after the
+  plan day.
+- **No cash** in the product (the five pages render none; a test enforces it).
+  The `to_cash` advice kind and the bear-regime cash line are removed; a
+  suppressed buy is still a rejected note.
+- **The backtest is a dev tool** ([`scripts/backtest.py`](scripts/backtest.py)),
+  not shipped in the wheel.
+- **Decisions taken** (owner may reverse): the Monthly decision page and the
+  Approve step are removed; dividends and interest are not tracked; instrument
+  type is automatic with one override; realized gains are estimated from confirmed
+  table changes (Trade Republic's tax report is authoritative).
+
 ## Domain Vocabulary
 
 | Term | Canonical Meaning |

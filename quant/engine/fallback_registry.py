@@ -80,6 +80,8 @@ FALLBACKS: dict[str, dict] = {
     "account.load_account": _e("missing or invalid account.yaml",
                                "AccountState(EUR, None, balanced, loaded=False)",
                                "fallback", "test_fallback_account_load_account"),
+    "account.write_account_fields": _e("unwritable account.yaml", False, "none",
+                                       "test_fallback_account_write_fields"),
     # ── cash_rate ─────────────────────────────────────────────────────────────
     "cash_rate.fetch_live_cash_apy": _e("live fetch failed", None, "fallback",
                                         "test_fallback_cash_rate_fetch"),
@@ -108,6 +110,15 @@ FALLBACKS: dict[str, dict] = {
     # ── tier_manager ──────────────────────────────────────────────────────────
     "tier_manager.load_tiers": _e("tiers.csv unreadable", "empty frame", "empty",
                                   "test_fallback_tier_manager_load_tiers"),
+    # ── persistence (v10.8.1) ─────────────────────────────────────────────────
+    "user_data._copy_if_missing": _e("missing or unreadable source file", False,
+                                     "none", "test_fallback_user_data_copy_if_missing"),
+    "recovery._meta_rows": _e("unreadable holdings_meta", [], "empty",
+                              "test_fallback_recovery_meta_rows"),
+    "render._rows_differ": _e("uncomparable table frames", False, "none",
+                              "test_fallback_render_rows_differ"),
+    "notify._load_state": _e("missing or invalid notify state", {}, "empty",
+                             "test_fallback_notify_load_state"),
 }
 
 

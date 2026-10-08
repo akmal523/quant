@@ -69,6 +69,13 @@ def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
         df["Broker_PnL_EUR"] = pd.to_numeric(
             df["Broker_PnL_EUR"].astype(str).str.strip(), errors="coerce")
 
+        # v10.8.2 (B3): optional savings-plan rate per holding (may be absent).
+        if "Plan_EUR_month" in df.columns:
+            df["Plan_EUR_month"] = pd.to_numeric(
+                df["Plan_EUR_month"].astype(str).str.strip(), errors="coerce")
+        else:
+            df["Plan_EUR_month"] = pd.NA
+
         # Derived invested amount (broker truth, not price-guessed).
         df["Invested_EUR"] = df["Current_Value_EUR"] - df["Broker_PnL_EUR"]
 

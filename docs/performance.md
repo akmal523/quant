@@ -80,12 +80,9 @@ def expensive_calculation(x: int) -> int:
     return x * x
 ```
 
-Cache management:
-
-```bash
-quant cache-stats   # entry count, total size, location
-quant clear-cache   # delete all entries
-```
+Cache management is internal; `quant doctor` reports the cache location and
+freshness. The hidden `quant cache-stats` / `quant clear-cache` commands remain
+for maintenance.
 
 ## Reliability
 
@@ -98,10 +95,10 @@ quant clear-cache   # delete all entries
 
 ## Monitoring
 
-Use the health check to spot performance issues:
+Use the read-only diagnosis to spot performance issues:
 
 ```bash
-quant health-check
+quant doctor
 ```
 
 Look for WARNING on "Data freshness" (slow updates) or "Signal cache" (slow

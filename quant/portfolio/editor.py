@@ -21,6 +21,9 @@ import tempfile
 import pandas as pd
 
 REQUIRED_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
+# v10.8.2 (B3): an optional savings-plan rate per holding, saved by the same
+# Confirm. Never required; it does not affect validation or the derived shares.
+OPTIONAL_COLS = ["Plan_EUR_month"]
 
 
 def validate_positions(
@@ -45,6 +48,8 @@ def validate_positions(
     out["Symbol"] = out["Symbol"].astype(str).str.strip()
     for col in ["Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]:
         out[col] = pd.to_numeric(out[col], errors="coerce")
+    if "Plan_EUR_month" in out.columns:
+        out["Plan_EUR_month"] = pd.to_numeric(out["Plan_EUR_month"], errors="coerce")
 
     # Drop fully empty rows.
     out = out[out["Symbol"].ne("") | out["Current_Value_EUR"].notna()]
@@ -71,7 +76,8 @@ def save_portfolio(df: pd.DataFrame, path: str) -> None:
     """Atomically write portfolio.csv (temp file + rename). No temp left behind."""
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    cols = REQUIRED_COLS
+    # v10.8.2 (B3): keep the optional savings-plan rate when present.
+    cols = REQUIRED_COLS + [c for c in OPTIONAL_COLS if c in df.columns]
     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

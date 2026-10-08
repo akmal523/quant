@@ -85,7 +85,7 @@ def test_get_fundamentals_as_of_no_lookahead():
 
 def test_cost_aware_backtest_t1_execution():
     """Signal at T executes at T+1 open; costs reduce net PnL."""
-    from quant.strategy.backtest import run_cost_aware_backtest
+    from scripts.backtest import run_cost_aware_backtest
 
     dates = pd.date_range("2020-01-01", periods=10, freq="B")
     hist = pd.DataFrame({
@@ -103,7 +103,7 @@ def test_cost_aware_backtest_t1_execution():
 
 def test_cost_aware_backtest_empty():
     """No BUY/SELL signals -> empty result."""
-    from quant.strategy.backtest import run_cost_aware_backtest
+    from scripts.backtest import run_cost_aware_backtest
 
     hist = pd.DataFrame({
         "Open": [100.0] * 5,

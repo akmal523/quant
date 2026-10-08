@@ -14,10 +14,9 @@ from datetime import date
 from quant import config
 from quant.data.database import get_connection
 from quant.engine import advice as advice_mod
-from quant.engine import allocator, plans, valuation
+from quant.engine import allocator, valuation
 from quant.engine.advice import build_advice
 from quant.ui.copy import BROKER_STATEMENT_AS_OF
-from quant.ui.render import _verdict_word
 
 AS_OF = date(2026, 10, 2)
 
@@ -74,7 +73,7 @@ def test_verdict_renders_from_build_advice():
                "target_weight": 0.10, "conviction": 0.0}
     advice, _ = build_advice([holding], tiers={"5J50.DE": "FORTRESS"}, as_of=AS_OF)
     record = next(a for a in advice if a.get("symbol") == "5J50.DE")
-    assert "Sell part" not in _verdict_word(record)
+    assert record["kind"] != "sell_part"
 
 
 def test_tier_change_flips_advice_within_one_run():
@@ -107,17 +106,3 @@ def test_broker_statement_label():
     assert "broker statement" in BROKER_STATEMENT_AS_OF.format(date="1 Oct 2026")
 
 
-def test_enter_actuals_updates_estimated_value():
-    conn = get_connection()
-    conn.execute("DELETE FROM holdings_meta")
-    conn.execute("DELETE FROM flows")
-    conn.execute(
-        "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-        "VALUES ('EUNL.DE', 10.0, ?, 1000.0)", [AS_OF])
-    before = valuation.revalue_holdings(conn, {"EUNL.DE": 100.0})["EUNL.DE"]
-    plans.enter_actuals(
-        conn, "2026-12",
-        [{"symbol": "EUNL.DE", "amount_eur": 100.0, "date": AS_OF}],
-        price_lookup={"EUNL.DE": 100.0})
-    after = valuation.revalue_holdings(conn, {"EUNL.DE": 100.0})["EUNL.DE"]
-    assert after > before

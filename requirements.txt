@@ -2,6 +2,7 @@
 #
 # Install options:
 #   pip install -e ".[dashboard]"   # runtime + Streamlit dashboard
+#   pip install -e ".[news]"        # + torch/transformers (news sentiment)
 #   pip install -e ".[dev]"         # + ruff, pytest, mkdocs, pre-commit
 #   pip install -e ".[test]"        # minimal CI surface
 #

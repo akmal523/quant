@@ -32,14 +32,12 @@ _ACTION_WORD = {
     "buy": ui_copy.ADVICE_BUY,
     "change_savings_plan": ui_copy.ADVICE_TOP_UP,
     "keep": ui_copy.ADVICE_KEEP,
-    "to_cash": ui_copy.ADVICE_TO_CASH,
 }
 _STATUS_WORD = {
     "sell_part": ui_copy.STATUS_TRIM,
     "buy": ui_copy.STATUS_ADD,
     "change_savings_plan": ui_copy.STATUS_ADD,
     "keep": ui_copy.STATUS_ON_TRACK,
-    "to_cash": ui_copy.STATUS_ON_TRACK,
 }
 
 

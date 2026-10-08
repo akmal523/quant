@@ -44,13 +44,6 @@ owner = "core"
 
 # Per-line exceptions (blocking kinds only).
 [[exceptions]]
-file = "quant/strategy/strategies/base.py"
-line = 22
-kind = "not_implemented"
-reason = "abstract strategy interface"
-owner = "core"
-
-[[exceptions]]
 file = "quant/engine/fallback_registry.py"
 line = 1
 kind = "todo_marker"

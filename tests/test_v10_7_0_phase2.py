@@ -12,12 +12,12 @@ Invariants:
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 
 from quant.data.database import get_connection
-from quant.engine import daily, flows, retention, valuation
+from quant.engine import daily, flows, valuation
 
 # ── Valuation ─────────────────────────────────────────────────────────────────
 
@@ -158,67 +158,7 @@ def test_performance_line_mentions_deposits_and_market():
     assert "Return" in line
 
 
-def test_sparplan_planned_then_actuals_reconciliation():
-    conn = get_connection()
-    conn.execute("DELETE FROM flows")
-    flows.write_planned_sparplan_flows(
-        conn, "2026-11",
-        [{"symbol": "EUNL.DE", "amount_eur": 140.0}],
-        date(2026, 11, 1))
-    planned = flows.load_flows(conn)
-    assert len(planned) == 1 and planned[0]["type"] == "buy"
-    recon = flows.replace_auto_flows_with_actuals(
-        conn, "2026-11",
-        [{"symbol": "EUNL.DE", "amount_eur": 140.0, "date": date(2026, 11, 1)}])
-    assert recon[0]["planned"] == 140.0
-    assert recon[0]["actual"] == 140.0
-    assert recon[0]["deviation"] == 0.0
-    remaining = flows.load_flows(conn)
-    assert len(remaining) == 1
-    assert remaining[0]["note"] == "actual sparplan 2026-11"
-
-
 # ── Retention ─────────────────────────────────────────────────────────────────
-
-def test_downsample_daily_bars_is_idempotent():
-    conn = get_connection()
-    conn.execute("DELETE FROM market_history WHERE Symbol = 'TEST.DE'")
-    old = date(2015, 1, 5)  # a Monday, well over 5 years ago
-    rows = []
-    for i in range(10):
-        d = old + timedelta(days=i)
-        rows.append((d.isoformat(), 10.0 + i, 20.0 + i, 5.0 + i, 15.0 + i, 100.0, "TEST.DE"))
-    for d, o, h, low, c, v, sym in rows:
-        conn.execute(
-            "INSERT OR REPLACE INTO market_history "
-            "(Date, Open, High, Low, Close, Volume, Symbol) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [d, o, h, low, c, v, sym])
-    removed = retention.downsample_daily_bars(conn, date(2026, 10, 1))
-    assert removed > 0
-    after = conn.execute(
-        "SELECT COUNT(*) FROM market_history WHERE Symbol = 'TEST.DE'").fetchone()[0]
-    assert after < len(rows)
-    # Idempotent: a second pass removes nothing.
-    assert retention.downsample_daily_bars(conn, date(2026, 10, 1)) == 0
-
-
-def test_prune_news_cache_removes_old_entries(tmp_path, monkeypatch):
-    from quant import paths
-
-    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    import json
-    import time
-
-    now = time.time()
-    cache = {
-        "OLD": {"retrieved_at": now - 200 * 86400, "items": []},
-        "NEW": {"retrieved_at": now - 1 * 86400, "items": []},
-    }
-    (tmp_path / "news_cache.json").write_text(json.dumps(cache), encoding="utf-8")
-    removed = retention.prune_news_cache()
-    assert removed == 1
-    kept = json.loads((tmp_path / "news_cache.json").read_text(encoding="utf-8"))
-    assert set(kept) == {"NEW"}
 
 
 # ── Daily-run marker ──────────────────────────────────────────────────────────

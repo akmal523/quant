@@ -25,7 +25,6 @@ def run_health_check() -> dict:
     checks = [
         _check_data_freshness(),
         _check_tiers_validation(),
-        _check_tier_allocations(),
         _check_database_integrity(),
         _check_signal_cache(),
         _check_external_apis(),
@@ -81,26 +80,6 @@ def _check_tiers_validation() -> dict:
                 "message": f"Failed to validate tiers.csv: {e}"}
 
 
-def _check_tier_allocations() -> dict:
-    """Check that tier allocations respect their limits."""
-    try:
-        from quant.portfolio.autobalance import analyze_tier_allocations
-        from quant.portfolio.portfolio import load_portfolio
-        from quant.portfolio.tier_manager import load_tiers
-
-        portfolio_df = load_portfolio()
-        tiers_df = load_tiers()
-        analysis = analyze_tier_allocations(portfolio_df, tiers_df)
-        if analysis["violations"]:
-            return {"name": "Tier allocations", "status": "WARNING",
-                    "message": f"Tier allocation violations: "
-                               f"{', '.join(analysis['violations'])}. "
-                               f"Run 'quant suggest-rebalance'."}
-        return {"name": "Tier allocations", "status": "OK",
-                "message": "All tier allocations within limits."}
-    except Exception as e:  # noqa: BLE001
-        return {"name": "Tier allocations", "status": "CRITICAL",
-                "message": f"Failed to check tier allocations: {e}"}
 
 
 def _check_database_integrity() -> dict:

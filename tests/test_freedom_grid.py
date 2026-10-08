@@ -18,7 +18,7 @@ from datetime import date
 import pandas as pd
 
 from quant.data.database import get_connection
-from quant.engine import alerts, flows, plans, valuation
+from quant.engine import alerts, plans, valuation
 from quant.engine.advice import build_advice
 from quant.portfolio.risk import emergency_sell_plan
 from tests.fixtures.live_portfolio import (
@@ -135,69 +135,6 @@ def test_emergency_never_refuses_returns_shortfall():
     plan = emergency_sell_plan(100_000.0, _emergency_df())
     assert plan["shortfall"] > 0
     assert plan["fortress_warning"] is not None
-
-
-# ── Part 3.3: monthly decision rights ─────────────────────────────────────────
-
-def test_approve_any_split_including_all_cash():
-    conn = get_connection()
-    conn.execute("DELETE FROM monthly_plans")
-    legs = [{"symbol": None, "name": "cash", "amount_eur": 200.0, "kind": "cash",
-             "reason": "all to cash", "fee_eur": 0.0}]
-    plans.save_plan(conn, "2026-12", 200.0, legs, approved_date=AS_OF)
-    loaded = plans.load_plan(conn, "2026-12")
-    assert loaded["legs"][0]["kind"] == "cash"
-    assert sum(leg["amount_eur"] for leg in loaded["legs"]) == 200.0
-
-
-def test_record_actuals_before_approval_is_adhoc():
-    conn = get_connection()
-    conn.execute("DELETE FROM flows")
-    conn.execute("DELETE FROM holdings_meta")
-    recon = plans.enter_actuals(
-        conn, "2026-12",
-        [{"symbol": "AMZN", "amount_eur": 100.0, "date": AS_OF}],
-        price_lookup={"AMZN": 100.0})
-    assert recon[0]["planned"] == 0.0
-    assert recon[0]["deviation"] == 100.0
-
-
-def test_actuals_differ_from_plan_reconciliation():
-    conn = get_connection()
-    conn.execute("DELETE FROM flows")
-    conn.execute("DELETE FROM holdings_meta")
-    flows.write_planned_sparplan_flows(
-        conn, "2026-12", [{"symbol": "AMZN", "amount_eur": 140.0}], AS_OF)
-    recon = plans.enter_actuals(
-        conn, "2026-12",
-        [{"symbol": "AMZN", "amount_eur": 100.0, "date": AS_OF}],
-        price_lookup={"AMZN": 100.0})
-    assert recon[0]["planned"] == 140.0
-    assert recon[0]["actual"] == 100.0
-    assert recon[0]["deviation"] == -40.0
-
-
-def test_actuals_can_add_symbol_not_in_plan():
-    conn = get_connection()
-    conn.execute("DELETE FROM flows")
-    conn.execute("DELETE FROM holdings_meta")
-    flows.write_planned_sparplan_flows(
-        conn, "2026-12", [{"symbol": "AMZN", "amount_eur": 140.0}], AS_OF)
-    recon = plans.enter_actuals(
-        conn, "2026-12",
-        [{"symbol": "AMZN", "amount_eur": 140.0, "date": AS_OF},
-         {"symbol": "NEW", "amount_eur": 50.0, "date": AS_OF}],
-        price_lookup={"AMZN": 100.0, "NEW": 50.0})
-    assert "NEW" in {r["symbol"] for r in recon}
-
-
-def test_delete_approved_plan_before_execution():
-    conn = get_connection()
-    conn.execute("DELETE FROM monthly_plans")
-    plans.save_plan(conn, "2026-12", 200.0, [], approved_date=AS_OF)
-    assert plans.is_approved(conn, "2026-12")
-    assert plans.delete_plan(conn, "2026-12")
-    assert not plans.is_approved(conn, "2026-12")
 
 
 # ── Part 3.4: sync reminder respect ───────────────────────────────────────────

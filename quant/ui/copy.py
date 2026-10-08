@@ -238,6 +238,7 @@ COLUMN_HEADERS = {
     "Avg_Entry_Price": "Entry price per share",
     "Current_Value_EUR": "Value (EUR)",
     "Broker_PnL_EUR": "Profit (EUR)",
+    "Plan_EUR_month": "Plan (EUR/month)",
     "Current_Weight": "Now / should be (of invested)",
     "Target_Weight": "Target",
     "Drift": "Difference from target",
@@ -649,6 +650,26 @@ DECISION_EMPTY = "Nothing needs your input right now."
 SEC_YOUR_ASSETS = "Your assets"
 SEC_SAVINGS_PLAN = "Savings plan"
 SEC_MARKET = "Market"
+
+# v10.8.2 (B2): the invest block on Portfolio. One amount, one cadence, a
+# suggestion only; the app never controls the broker's plans.
+SEC_INVEST = "How much do you want to invest?"
+INVEST_AMOUNT_LABEL = "Amount (EUR)"
+INVEST_CADENCE_MONTHLY = "Every month"
+INVEST_CADENCE_ONCE = "Once"
+INVEST_PLAN_NOW = "Plan now"
+INVEST_SUGGESTED = "Suggested"
+INVEST_CHANGE = "Change"
+INVEST_ALREADY_FIT = "Your plans already fit this amount."
+INVEST_ONCE_NOTE = "One-off orders. Nothing is stored; place them in your broker."
+INVEST_ONCE_EMPTY = "No order is large enough to be worth the fee."
+# v10.8.2 (B6): a buy that matches the saved plan is labeled a savings-plan buy.
+DIFF_BOUGHT_SAVINGS = "Bought (savings plan)"
+PLAN_DAY_REMINDER = ("Your savings plan ran on day {day}. Check the broker and "
+                     "update your holdings.")
+# v10.8.2: the news-sentiment stack is an optional extra.
+MARKET_NEWS_OFF = ("News sentiment is off. Install the 'news' extra to enable it; "
+                   "everything else works without it.")
 SEC_MONTHLY = "Monthly decision"
 SEC_AUTOMATION = "Automation"
 SEC_REPORT_HISTORY = "Report history"
@@ -771,7 +792,6 @@ ADVICE_SELL_PART = "Sell part"
 ADVICE_BUY = "Buy"
 ADVICE_TOP_UP = "Top up savings plan"
 ADVICE_KEEP = "Keep, do nothing"
-ADVICE_TO_CASH = "Move new active money to cash"
 ADVICE_FROM_CASH = "cash"
 ADVICE_FROM_SAVINGS = "savings plan"
 ADVICE_FROM_POSITION = "position"
@@ -789,8 +809,6 @@ FORTRESS_LEG_SUGGESTION = ("Consider raising the savings-plan leg for {name} fro
 # {label} is the "Name (TICKER)" form (label_for), so the ticker is never doubled.
 STEP_TOP_UP = ("Top up the savings plan for {label}: it is {pct} percent "
                "of invested vs {target} percent target.")
-CASH_REGIME_LINE = ("New active money goes to cash at {apy} percent until the market "
-                    "regime recovers.")
 # v10.7.4 (R2-R5): classification-grid copy.
 # R2: a FORTRESS holding far OVER target gets a plan-change note, never a sell.
 FORTRESS_OVER_LEG = ("Consider lowering or pausing the savings-plan leg for {label}; "

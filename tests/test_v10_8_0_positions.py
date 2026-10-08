@@ -46,11 +46,14 @@ def test_positions_now_from_csv(tmp_path, monkeypatch):
 def test_consumers_agree(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
     import quant.ui.render as render
+    from quant.engine.positions import positions_now
 
-    disp = render._holding_display_values(render.load_portfolio())
-    monthly = {h["symbol"]: h for h in render._monthly_holdings()}
-    for sym, d in disp.items():
-        assert monthly[sym]["value_eur"] == pytest.approx(d["value"])
+    positions = {p["symbol"]: p["value_eur"] for p in positions_now()}
+    portfolio = render.load_portfolio()
+    csv_values = {str(r["Symbol"]): float(r["Current_Value_EUR"])
+                  for _, r in portfolio.iterrows()}
+    for sym, value in positions.items():
+        assert csv_values[sym] == pytest.approx(value)
 
 
 def test_positions_now_empty_without_csv(tmp_path, monkeypatch):

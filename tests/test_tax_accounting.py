@@ -9,7 +9,6 @@ between tests; the ``mock_trades`` helper also removes its rows.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date
 
 import pandas as pd
 import pytest
@@ -17,8 +16,6 @@ import pytest
 from quant.portfolio.tax_accounting import (
     ABGELTUNGSSTEUER_RATE,
     calculate_yearly_tax_summary,
-    realized_gains_ytd,
-    realized_losses_ytd,
     record_trade,
     suggest_tax_loss_harvesting,
 )
@@ -166,17 +163,3 @@ def test_record_trade_persists():
             conn.execute("DELETE FROM trades WHERE symbol = ?", [_MARKER])
 
 
-def test_tax_optimizer_reads_ledger():
-    """The TaxOptimizer placeholders now read the trades ledger."""
-    from quant.portfolio.tax_optimizer import TaxOptimizer
-
-    year = date.today().year
-    with mock_trades([
-        {"date": f"{year}-05-01", "action": "sell", "realized_pnl_eur": 300.0},
-        {"date": f"{year}-06-01", "action": "sell", "realized_pnl_eur": -100.0},
-    ]):
-        optimizer = TaxOptimizer(pd.DataFrame())
-        assert optimizer._get_realized_gains_ytd() == 300.0
-        assert optimizer._get_realized_losses_ytd() == 100.0
-        assert realized_gains_ytd(year) == 300.0
-        assert realized_losses_ytd(year) == 100.0

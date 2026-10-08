@@ -10,7 +10,7 @@ Invariants:
   - compute_snapshot() returns a JSON-serializable dict of backtest metrics.
   - Pure computation (no I/O).
 
-Dependencies: numpy, pandas, quant.strategy.backtest.
+Dependencies: numpy, pandas, scripts.backtest.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def compute_snapshot() -> dict:
     Intent: the single source of truth for the golden file. Both the test and the
     regeneration script call this. Invariants: returns a JSON-serializable dict.
     """
-    from quant.strategy.backtest import (
+    from scripts.backtest import (
         run_cost_aware_backtest,
         run_macro_backtest,
         walk_forward_optimization,

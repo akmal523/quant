@@ -38,8 +38,19 @@ def _raise(*_a, **_k):
 def _triggers() -> dict[str, tuple]:
     """Map each registry key to (trigger callable, expected default)."""
     from quant.analytics.scoring import calculate_conviction
-    from quant.engine import advice, alerts, flows, news_pillar, sizing, valuation
+    from quant.data import user_data
+    from quant.engine import (
+        advice,
+        alerts,
+        flows,
+        news_pillar,
+        notify,
+        recovery,
+        sizing,
+        valuation,
+    )
     from quant.portfolio import account, cash_rate, optimizer, portfolio, risk, tier_manager
+    from quant.ui import render
 
     def _read_cache_broken():
         with mock.patch.object(news_pillar, "_cache_path", return_value="/nonexistent/x.json"):
@@ -60,6 +71,11 @@ def _triggers() -> dict[str, tuple]:
     def _last_rebalance_broken():
         with mock.patch("quant.data.database.get_connection", side_effect=RuntimeError("boom")):
             return portfolio.get_last_rebalance("X")
+
+    def _load_state_missing():
+        with mock.patch.object(notify, "_state_path",
+                               return_value="/nonexistent/notify_state.json"):
+            return notify._load_state()
 
     return {
         "scoring._clamp": (lambda: calculate_conviction(None, None, None), "LOW"),
@@ -109,6 +125,16 @@ def _triggers() -> dict[str, tuple]:
             lambda: risk.calculate_liquidity_score("X", None), 0.0),
         "tier_manager.load_tiers": (
             lambda: tier_manager.load_tiers("/nonexistent/tiers.csv").empty, True),
+        "account.write_account_fields": (
+            lambda: account.write_account_fields(
+                {}, "/nonexistent_dir/x/account.yaml"), False),
+        "user_data._copy_if_missing": (
+            lambda: user_data._copy_if_missing(
+                "/nonexistent/src", "/nonexistent/dst"), False),
+        "recovery._meta_rows": (lambda: recovery._meta_rows(_BrokenConn()), []),
+        "render._rows_differ": (lambda: render._rows_differ(None, None), False),
+        "notify._load_state": (
+            lambda: _load_state_missing(), {}),
     }
 
 

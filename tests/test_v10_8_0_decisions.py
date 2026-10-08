@@ -47,13 +47,13 @@ def test_read_actions_overlays_live_value(tmp_path, monkeypatch):
 
 def test_overview_and_holdings_same_value(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
-    import quant.ui.render as render
+    from quant.engine.positions import positions_now
     from quant.reporting import artifacts
 
     actions = {a["symbol"]: a["value_eur"] for a in artifacts.read_actions()}
-    monthly = {h["symbol"]: h["value_eur"] for h in render._monthly_holdings()}
+    positions = {p["symbol"]: p["value_eur"] for p in positions_now()}
     for sym, value in actions.items():
-        assert monthly[sym] == pytest.approx(value)
+        assert positions[sym] == pytest.approx(value)
 
 
 # ── The ONE decision list, three groups (redesign 3.2) ────────────────────────

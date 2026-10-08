@@ -188,26 +188,6 @@ def test_4_3_news_source_failure_penalizes_tactical():
     assert without < with_data
 
 
-# ── Category 5: Behavioral Biases ─────────────────────────────────────────────
-
-def test_5_1_overtrading_penalty():
-    """Alpha is capped at 2 trades per week."""
-    from quant.portfolio.alpha import alpha_trade_allowed
-    from quant.portfolio.behavioral_guardrails import BehavioralGuardrails
-
-    assert alpha_trade_allowed(0)[0] is True
-    assert alpha_trade_allowed(1)[0] is True
-    assert alpha_trade_allowed(2)[0] is False
-
-    g = BehavioralGuardrails()
-    g.register_alpha_trade("NVDA")
-    g.register_alpha_trade("TSM")
-    result = g.check_alpha_weekly_limit()
-    assert result["allowed"] is False
-    assert "limit" in result["warning"].lower()
-    assert result["override_required"] is True
-
-
 def test_5_2_recency_bias_not_exclusive():
     """The regime model uses a long window, not only the last 3 months."""
     from quant.analytics.scoring import fit_market_regime
@@ -257,24 +237,6 @@ def test_6_2_liquidity_constraint():
     assert ok is False and "ADV" in reason
 
 
-def test_6_3_freistellungsauftrag_considered():
-    """The 1000 EUR tax-free allowance is applied before tax is estimated."""
-    from quant.portfolio.tax_optimizer import TaxOptimizer
-
-    portfolio = pd.DataFrame({
-        "Symbol": ["A", "B"],
-        "PnL_EUR": [800.0, 500.0],
-        "Tier": ["ALPHA", "ALPHA"],
-    })
-    opt = TaxOptimizer(portfolio, tax_free_allowance=1000.0)
-    # Taxable income is driven by REALIZED gains (the accessor is a placeholder
-    # in the offline build); inject 1300 EUR to exercise the allowance arithmetic.
-    opt._get_realized_gains_ytd = lambda: 1300.0  # type: ignore[method-assign]
-    pos = opt.compute_tax_position()
-    # 1300 EUR realized gains - 1000 EUR allowance = 300 EUR taxable.
-    assert abs(pos["net_taxable"] - 300.0) < 1e-6
-    assert pos["estimated_tax"] > 0
-
 
 # ── Category 7: System Robustness ─────────────────────────────────────────────
 
@@ -292,14 +254,6 @@ def test_7_1_empty_universe_goes_to_cash():
     audit = tier_audit(portfolio, scan)
     assert not audit["Signal"].isin(["BUY", "BUY_SPECULATIVE"]).any()
 
-
-def test_7_2_market_crash_lockdown():
-    """A -30 percent week triggers LOCKDOWN."""
-    from quant.portfolio.risk_monitor import RiskMonitor
-
-    values = pd.Series([100.0, 100.0, 100.0, 100.0, 100.0, 70.0])
-    status = RiskMonitor(values).check_circuit_breakers()
-    assert status["status"] == "LOCKDOWN"
 
 
 def test_7_3_api_rate_limit_counter():

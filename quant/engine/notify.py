@@ -1,28 +1,32 @@
 """
-notify.py — Telegram/email dispatch and the in-app banner flag (v10.7.0, Section 4).
+notify.py — Telegram dispatch and the notify rule (v10.7.0; rule v10.8.2, section 7).
 
-Intent: the user is often away from the laptop in the evening; the phone is
-where Trade Republic lives. A short push closes the loop. Telegram is sent with
-the standard library (urllib); email reuses the existing SMTP configuration.
-A failed send never crashes the daily job: the alert stays unnotified and
-retries on the next run. The token is never logged.
+Intent: the user is often away from the laptop; the phone is where Trade Republic
+lives. Telegram is the only channel, sent with the standard library (urllib). A
+short message is sent after a confirmed save or the daily check when there is
+something to do AND the list changed since the last message, never more than two
+per local calendar day. A failed send never crashes the job and never reports
+success.
 
 Invariants:
-  - send_text/send_alert never raise; return True on success.
-  - Message content carries no portfolio totals, no tier names, no jargon.
+  - ``send`` never raises; returns True only on a real 2xx response.
+  - At most two messages per local calendar day; identical content is not resent.
   - The bot token never appears in any log or exception message.
 """
 from __future__ import annotations
 
+import json
 import os
-import smtplib
 import urllib.parse
 import urllib.request
-from email.message import EmailMessage
 
 from quant import paths
 
 NOTIFY_FILE = os.path.join(str(paths.DATA_DIR), "notify.toml")
+STATE_NAME = "notify_state.json"
+MAX_PER_DAY = 2
+FINGERPRINT_ROUND = 10
+MAX_MESSAGE_LINES = 8
 
 
 def load_config(path: str | None = None) -> dict:
@@ -65,14 +69,43 @@ def status_line(config: dict | None = None) -> str:
     cfg = config if config is not None else load_config()
     channel = str(cfg.get("channel", "none")).lower()
     if channel == "telegram":
-        return "Telegram on, last test ok" if cfg.get("tested") else "Telegram on, not tested yet"
-    if channel == "email":
-        return "email on, last test ok" if cfg.get("tested") else "email on, not tested yet"
-    return "off; run quant notify-setup"
+        return ("Telegram on, last test ok" if cfg.get("tested")
+                else "Telegram on, not tested yet")
+    return "Telegram off"
+
+
+def _send_telegram(cfg: dict, text: str) -> bool:
+    token = cfg.get("telegram_bot_token")
+    chat_id = cfg.get("telegram_chat_id")
+    if not token or not chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+    try:
+        request = urllib.request.Request(url, data=data)
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return 200 <= int(getattr(response, "status", 0)) < 300
+    except Exception:  # noqa: BLE001
+        # Never include the token in the message.
+        return False
+
+
+def send(text: str, config: dict | None = None) -> bool:
+    """The single dispatch function (Telegram). Never raises."""
+    cfg = config if config is not None else load_config()
+    if str(cfg.get("channel", "none")).lower() != "telegram":
+        return False
+    return _send_telegram(cfg, text)
+
+
+def send_text(text: str, config: dict | None = None) -> bool:
+    """Backward-compatible alias for :func:`send`."""
+    return send(text, config)
 
 
 def format_alert(alert: dict) -> str:
-    """The exact alert phrasing template (Section 2)."""
+    """The legacy alert phrasing (kept until the alert system is folded into
+    the decision list, v10.8.2). Never raises."""
     from quant.ui import copy as ui_copy
 
     name = alert.get("name") or alert.get("symbol") or "Holding"
@@ -95,61 +128,96 @@ def format_alert(alert: dict) -> str:
     return "\n".join(lines)
 
 
-def _send_telegram(cfg: dict, text: str) -> bool:
-    token = cfg.get("telegram_bot_token")
-    chat_id = cfg.get("telegram_chat_id")
-    if not token or not chat_id:
-        return False
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
-    try:
-        request = urllib.request.Request(url, data=data)
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return 200 <= int(getattr(response, "status", 0)) < 300
-    except Exception:  # noqa: BLE001
-        # Never include the token in the message.
-        return False
-
-
-def _send_email(cfg: dict, text: str) -> bool:
-    from quant.config import REPORT_TO, SMTP_PASSWORD, SMTP_USER
-
-    sender = cfg.get("email_from") or SMTP_USER
-    password = cfg.get("email_password") or SMTP_PASSWORD
-    recipient = cfg.get("email_to") or REPORT_TO
-    if not sender or not password or not recipient:
-        return False
-    message = EmailMessage()
-    message["Subject"] = "Quant-AI alert"
-    message["From"] = sender
-    message["To"] = recipient
-    message.set_content(text)
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender, password)
-            server.send_message(message)
-        return True
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def send_text(text: str, config: dict | None = None) -> bool:
-    """Dispatch a short text to the configured channel. Never raises."""
-    cfg = config if config is not None else load_config()
-    channel = str(cfg.get("channel", "none")).lower()
-    if channel == "telegram":
-        return _send_telegram(cfg, text)
-    if channel == "email":
-        return _send_email(cfg, text)
-    return False
-
-
 def send_alert(alert: dict, config: dict | None = None) -> bool:
-    """Format and dispatch an alert. Returns True on success."""
-    return send_text(format_alert(alert), config)
+    """Legacy: format and dispatch an alert. Never raises."""
+    return send(format_alert(alert), config)
 
 
 def send_test(config: dict | None = None) -> bool:
-    """Send a test message (used by quant notify-setup)."""
-    return send_text("Quant-AI test message. Notifications are working.", config)
+    """Send a test message (used by the inline Settings setup)."""
+    return send("Quant-AI test message. Notifications are working.", config)
+
+
+# ── The notify rule (v10.8.2, section 7) ──────────────────────────────────────
+
+def _state_path() -> str:
+    return os.path.join(str(paths.OUTPUTS_DIR), STATE_NAME)
+
+
+def _load_state() -> dict:
+    try:
+        with open(_state_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
+        with open(_state_path(), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _round10(amount) -> int:
+    if isinstance(amount, bool) or not isinstance(amount, int | float):
+        return 0
+    return int(round(float(amount) / FINGERPRINT_ROUND) * FINGERPRINT_ROUND)
+
+
+def message_fingerprint(items: list[dict]) -> str:
+    """A stable identity of an item list (symbol + verb + amount to the 10 EUR)."""
+    parts = []
+    for it in items or []:
+        sym = str(it.get("symbol") or it.get("label") or "")
+        verb = str(it.get("verb") or it.get("kind") or "")
+        parts.append(f"{verb}:{sym}:{_round10(it.get('amount_eur'))}")
+    return "|".join(sorted(parts))
+
+
+def build_message(items: list[dict]) -> str:
+    """The plain-text message: at most 8 lines, one item per line."""
+    from quant.engine.decisions import format_item_line
+
+    lines = [f"Quant-AI: {len(items)} things to do"]
+    for it in items:
+        lines.append(format_item_line(it))
+        if len(lines) >= MAX_MESSAGE_LINES:
+            break
+    return "\n".join(lines)
+
+
+def notify_decisions(items: list[dict], today=None, config: dict | None = None,
+                     sender=None) -> bool:
+    """Send one message if the actionable list is non-empty, new, and under cap.
+
+    Returns True only when a message was actually sent (v10.8.2, section 7).
+    """
+    from datetime import date as _date
+
+    from quant.engine.decisions import actionable_items
+
+    actionable = actionable_items(items)
+    if not actionable:
+        return False
+    today = today or _date.today()
+    day = today.isoformat()
+    state = _load_state()
+    if state.get("day") != day:
+        state = {"day": day, "count": 0, "fingerprint": state.get("fingerprint")}
+    if int(state.get("count", 0)) >= MAX_PER_DAY:
+        return False
+    fingerprint = message_fingerprint(actionable)
+    if fingerprint == state.get("fingerprint"):
+        return False  # nothing changed since the last message
+    text = build_message(actionable)
+    fn = sender or send
+    ok = fn(text, config) if config is not None else fn(text)
+    if ok:
+        state["count"] = int(state.get("count", 0)) + 1
+        state["fingerprint"] = fingerprint
+        _save_state(state)
+    return bool(ok)

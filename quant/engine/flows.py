@@ -1,5 +1,5 @@
 """
-flows.py — Money flows and honest performance math (v10.7.0, Section 7).
+flows.py — honest performance math (v10.7.0, Section 7; trimmed v10.8.2).
 
 Intent: the old "+2.5 percent since 13 Sep" is a naive value change and lies
 whenever money enters. Modified Dietz excludes deposits:
@@ -11,10 +11,12 @@ Deposits do not count as profit. Flow signs: buy = +amount (money entered
 invested), sell = -amount (money left invested), dividend = -amount (left
 invested, landed in cash).
 
+v10.8.2: the manual Sparplan flow writers were removed with the Monthly decision
+page. The ledger is written by quant.engine.confirm and quant.engine.ledger.
+
 Invariants:
   - modified_dietz is pure (no I/O).
-  - I/O helpers take an explicit connection; they never open their own.
-  - Sparplan auto-flows are tagged with a note so actuals can replace them.
+  - load_flows takes an explicit connection; it never opens its own.
 """
 from __future__ import annotations
 
@@ -34,21 +36,6 @@ def _as_date(value: Any) -> date:
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value)[:10])
-
-
-def record_flow(
-    conn: Any,
-    flow_date: date,
-    flow_type: str,
-    amount_eur: float,
-    symbol: str | None = None,
-    note: str | None = None,
-) -> None:
-    """Insert one flow row. amount_eur is stored positive; type carries the sign."""
-    conn.execute(
-        "INSERT INTO flows (date, type, amount_eur, symbol, note) VALUES (?, ?, ?, ?, ?)",
-        [flow_date, str(flow_type), float(amount_eur), symbol, note],
-    )
 
 
 def load_flows(conn: Any, start: date | None = None, end: date | None = None) -> list[dict]:
@@ -144,72 +131,3 @@ def performance_line(
         market=f"{market:+.2f}",
         ret=ret_str,
     )
-
-
-def _planned_note(month: str) -> str:
-    return f"planned sparplan {month}"
-
-
-def _actual_note(month: str) -> str:
-    return f"actual sparplan {month}"
-
-
-def write_planned_sparplan_flows(
-    conn: Any,
-    month: str,
-    legs: list[dict],
-    execution_date: date,
-) -> int:
-    """Write planned buy flows for an approved monthly plan. Returns rows written."""
-    written = 0
-    for leg in legs:
-        record_flow(
-            conn,
-            execution_date,
-            "buy",
-            leg.get("amount_eur", 0),
-            leg.get("symbol"),
-            note=_planned_note(month),
-        )
-        written += 1
-    return written
-
-
-def replace_auto_flows_with_actuals(
-    conn: Any,
-    month: str,
-    actuals: list[dict],
-) -> list[dict]:
-    """Replace planned Sparplan flows with actuals. Returns reconciliation rows.
-
-    Each reconciliation row: {symbol, planned, actual, deviation}. Conscious
-    deviations are recorded, not judged.
-    """
-    planned = {
-        f["symbol"]: float(f["amount_eur"] or 0)
-        for f in load_flows(conn)
-        if f.get("note") == _planned_note(month)
-    }
-    conn.execute("DELETE FROM flows WHERE note = ?", [_planned_note(month)])
-    out: list[dict] = []
-    for actual in actuals:
-        symbol = actual.get("symbol")
-        amount = float(actual.get("amount_eur", 0) or 0)
-        record_flow(
-            conn,
-            actual.get("date"),
-            "buy",
-            amount,
-            symbol,
-            note=_actual_note(month),
-        )
-        planned_amount = planned.get(symbol, 0.0)
-        out.append(
-            {
-                "symbol": symbol,
-                "planned": planned_amount,
-                "actual": amount,
-                "deviation": amount - planned_amount,
-            }
-        )
-    return out

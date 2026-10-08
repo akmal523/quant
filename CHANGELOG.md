@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.2] - 2026-10-08
+
+"One workflow." The product is reset around a single workflow: enter what you own,
+review the changes, confirm and save, act in the broker, repeat. Everything that
+does not serve that workflow is deleted.
+
+### Added
+
+- **Review diff** ([`quant/engine/diff.py`](quant/engine/diff.py)): Bought / Sold
+  (with an estimated realized gain) / Market move per ticker, with a rounding
+  tolerance; shares are derived from invested / Einstandskurs, never a price lookup.
+- **Confirm and save** ([`quant/engine/confirm.py`](quant/engine/confirm.py)): one
+  action that backs up, writes the table, appends a position snapshot and records
+  the diff in the ledger.
+- **Savings-plan allocation** ([`quant/engine/savings_plan.py`](quant/engine/savings_plan.py)):
+  proposed monthly rates (Plan now / Suggested / Change) and one-off whole orders.
+- **The invest block** on Portfolio: one amount, Every month / Once, a suggestion
+  only; the app never controls the broker's plans and never stores the "Once" amount.
+- **Optional `Plan_EUR_month` column** in the holdings table (the 6th editor column).
+- **Plan-day reminder** on Portfolio after the plan day, and a "Bought (savings
+  plan)" label in the Review diff when a buy matches the saved plan.
+- **The five pages** ([`quant/ui/pages.py`](quant/ui/pages.py)): Portfolio home,
+  Update holdings, History, Full analysis, Settings.
+- **Root install/start/update scripts** (shell + Windows).
+
+### Changed
+
+- **Chart fixed** ([`quant/engine/value_series.py`](quant/engine/value_series.py)):
+  the series runs to the latest price date, skips days with no price (never a zero
+  point) and carries the last close forward.
+- **One list** ([`quant/engine/decisions.py`](quant/engine/decisions.py)): every
+  item is "Verb Name (TICKER) amount" plus one reason; a position that needs
+  nothing is not an item.
+- **Telegram only** ([`quant/engine/notify.py`](quant/engine/notify.py)): one
+  `send`, at most two messages per local day, only when the list changed; email
+  removed.
+- **CLI**: six user commands (`dash`, `refresh`, `daily`, `upgrade`, `backup`,
+  `doctor`); the rest are hidden internals.
+- **`render.py` rewritten lean** (2470 -> 330 lines): only the helpers the five
+  pages share remain; the old page renderers and their helpers are gone.
+- **Cash removed from the decision engine**: the `to_cash` advice kind and the
+  bear-regime cash line are gone; a suppressed buy is still recorded as a rejected
+  note. The five pages render no "cash" string (guarded by a test).
+- **News stack is optional**: `torch`/`transformers` moved to the `news` extra;
+  without it the Market tab says so in one line and everything else works.
+- **README** rewritten to 30 lines.
+
+### Removed
+
+- Development-only modules unreachable from the five pages: `scenario_simulator`,
+  `mailer`, `health_score`, `attribution`, `feature_cache`, `incremental`,
+  `validation_engine`, `portfolio_context`, `cash_manager`, `reporting_advanced`,
+  `strategy_engine` + `strategies/`, `risk_monitor`, `tax_optimizer`,
+  `reporting/web` + `quant publish`, `weekly_report`, `briefing`, `setup`,
+  `retention`, `autobalance`, `behavioral_guardrails`, and the legacy
+  advanced-briefing pipeline in `main.py`, with their tests.
+- **Monthly-plan approval/actuals** (`plans.save_plan`/`load_plan`/`enter_actuals`
+  and the Sparplan flow writers in `flows.py`) and the old page renderers, with
+  their tests. `plans.py` keeps only the pending-sync marker.
+- **Backtest moved** from `quant/strategy/backtest.py` to `scripts/backtest.py`
+  (a dev tool, not shipped in the wheel).
+
+## [10.8.1] - 2026-10-08
+
+"Your data never resets." The owner reported that changes made in the web app
+were lost after quitting or updating ("I update the amount I invested, reopen the
+site, and it is back to the default"). The root cause was that user state lived
+inside the repository folder and was untracked in 10.8.0, so a `git pull` that
+removed it (or a `git clean -fdx`, or a re-clone) deleted it, and the app then
+re-seeded empty templates. This release moves user state out of the repository
+for every launch and brings the old state forward, once, without deleting it.
+
+### Fixed
+
+- **User state no longer lives in the repository.** The writable root is always
+  the OS per-user data dir (`platformdirs.user_data_dir("quant-ai")`), also in a
+  source checkout; `QUANT_DATA_DIR` stays as the test/CI override
+  ([`quant/paths.py`](quant/paths.py)). A new `CODE_ROOT` is the code checkout
+  used for git operations and the scheduler working directory. This removes the
+  A1 root cause where `data/portfolio.csv`, `data/account.yaml`, `data/tiers.csv`,
+  `data/backups/` and `quant_cache.duckdb` sat next to the source.
+- **One-time migration, copy only.** On first start the app copies any legacy
+  in-repo user state (and the shipped curated inputs) into the user data dir,
+  never moving, never deleting, never overwriting; a marker makes it idempotent
+  ([`quant/data/user_data.py`](quant/data/user_data.py)). Settings shows where the
+  data lives and the last backup time.
+- **Update safety.** `quant upgrade` backs up, brings legacy state forward, and
+  then pulls, so an update can no longer delete or fork the data.
+- **Settings autosave.** Risk profile, operational cash, and the savings-plan day
+  persist the moment they change (an `on_change` callback), so leaving the page no
+  longer loses a value; the "Save account" button is gone
+  ([`quant/portfolio/account.py`](quant/portfolio/account.py)).
+- **Visible, specific write failures.** A failed table save names the cause
+  ("the daily check or another tab is writing") and never reports success; an
+  unsaved table is marked "Not saved yet".
+- **Automatic backups.** A lightweight archive of the user files is written before
+  every confirmed table save and before every update, pruned to five
+  ([`quant/engine/backup.py`](quant/engine/backup.py)).
+- **Recovery.** When the table file is empty but the database still holds a
+  snapshot, Update holdings offers "Restore last saved holdings" to rebuild the
+  five columns from `holdings_meta` + the latest EUR price, then the normal
+  Review and Confirm ([`quant/engine/recovery.py`](quant/engine/recovery.py)).
+
+### Data recovered from git history
+
+The last committed copies are `git show 0097715:data/portfolio.csv` (EUNL.DE,
+SXRV.DE, AMZN, 5J50.DE) and `:data/account.yaml` (EUR, balanced); they match the
+current working tree, so nothing was lost in this checkout.
+
+### Tests
+
+- New `tests/test_v10_8_1_user_data.py` (path contract, migration idempotence and
+  never-overwrite, simulated update) and `tests/test_v10_8_1_persistence.py`
+  (autosave, restart, recovery, backup pruning, specific failure messages).
+- Full suite **845 passed**; ruff clean on changed files; the stub auditor passes.
+
 ## [10.8.0] - 2026-10-07
 
 "Privacy, one source of truth, and honest install."

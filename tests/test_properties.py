@@ -27,7 +27,7 @@ FAR_FUTURE = date(2099, 1, 1)
 
 ALLOWED_KINDS = {
     "FORTRESS": {"keep", "change_savings_plan"},
-    "ALPHA": {"buy", "top_up", "sell_part", "keep", "to_cash"},
+    "ALPHA": {"buy", "top_up", "sell_part", "keep"},
     "SPECULATIVE": {"keep"},
 }
 

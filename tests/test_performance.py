@@ -54,24 +54,6 @@ def test_batch_scoring_100_assets():
     assert elapsed < 60.0
 
 
-def test_memory_usage_large_portfolio():
-    """Peak memory for a 100-asset allocation analysis stays under 500 MB."""
-    from quant.portfolio.autobalance import analyze_tier_allocations
-
-    tracemalloc.start()
-    rng = np.random.default_rng(2)
-    symbols = [f"ASSET_{i:03d}" for i in range(100)]
-    portfolio_df = pd.DataFrame({
-        "Symbol": symbols,
-        "Current_Value_EUR": rng.uniform(1000, 10000, 100),
-    })
-    tiers_df = pd.DataFrame({"symbol": symbols, "tier": ["ALPHA"] * 100})
-    analyze_tier_allocations(portfolio_df, tiers_df)
-    _, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-
-    assert peak < 500 * 1024 * 1024
-
 
 def test_no_memory_leak_batch_scoring():
     """Repeated batch scoring does not grow memory unboundedly."""

@@ -106,13 +106,6 @@ def _cmd_run(_args: argparse.Namespace) -> int:
         lock_mod.release()
 
 
-def _cmd_publish(_args: argparse.Namespace) -> int:
-    """Render the static Published Briefing from the latest run artifacts."""
-    from quant.reporting.web import publish
-
-    return publish()
-
-
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     """Read-only diagnosis. No writes, no secrets; safe to paste publicly."""
     import json
@@ -434,17 +427,6 @@ def _cmd_backup(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_setup(args: argparse.Namespace) -> int:
-    """First-week setup: interactive, or ``--check`` for a status print."""
-    from quant.engine import setup as setup_mod
-
-    if getattr(args, "check", False):
-        for line in setup_mod.check_lines():
-            print(line)
-        return 0
-    return setup_mod.run_interactive()
-
-
 def _cmd_dash(args: argparse.Namespace) -> int:
     """Launch the local interactive workspace (Streamlit).
 
@@ -577,127 +559,6 @@ def _cmd_repair_tiers(_args: argparse.Namespace) -> int:
     return 1
 
 
-def _cmd_suggest_rebalance(_args: argparse.Namespace) -> int:
-    """Suggest tier reassignments to fix allocation violations (v10.6.4)."""
-    from quant.portfolio.autobalance import analyze_tier_allocations, suggest_rebalance
-    from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import load_tiers
-
-    portfolio_df = load_portfolio()
-    tiers_df = load_tiers()
-    analysis = analyze_tier_allocations(portfolio_df, tiers_df)
-
-    print("Current tier allocations:")
-    print(f"Total portfolio value: {analysis['total_value_eur']:.2f} EUR")
-    for tier, alloc in analysis["allocations"].items():
-        status = "VIOLATED" if alloc["violated"] else "OK"
-        limit_str = f"{alloc['limit']:.1%}" if alloc["limit"] else "no limit"
-        print(f"  {tier:<12} {alloc['value_eur']:>10.2f} EUR  "
-              f"{alloc['pct']:>6.1%}  limit {limit_str:<10} {status}")
-
-    if not analysis["violations"]:
-        print("All tier allocations are within limits. No rebalancing needed.")
-        return 0
-
-    suggestions = suggest_rebalance(portfolio_df, tiers_df)
-    if not suggestions:
-        print("Violations detected but no suitable reassignments found. "
-              "Manual review required.")
-        return 0
-
-    print(f"Suggested reassignments ({len(suggestions)}):")
-    for i, s in enumerate(suggestions, 1):
-        print(f"  {i}. {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']} "
-              f"({s['value_eur']:.2f} EUR)")
-        print(f"     {s['reason']}")
-    print("These are suggestions only. No changes have been made.")
-    print("Use 'quant apply-rebalance --symbols SYM1,SYM2' to apply specific suggestions.")
-    return 0
-
-
-def _cmd_apply_rebalance(args: argparse.Namespace) -> int:
-    """Apply approved tier reassignments (v10.6.4)."""
-    from quant.portfolio.autobalance import apply_rebalance_suggestions, suggest_rebalance
-    from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import load_tiers, save_tiers
-
-    portfolio_df = load_portfolio()
-    tiers_df = load_tiers()
-    approved = [s.strip() for s in str(args.symbols).split(",") if s.strip()]
-    suggestions = suggest_rebalance(portfolio_df, tiers_df)
-    approved_suggestions = [s for s in suggestions if s["symbol"] in approved]
-
-    if not approved_suggestions:
-        print("No suggestions found for the specified symbols.")
-        return 0
-
-    if getattr(args, "dry_run", False):
-        print("Dry run - changes that would be applied:")
-        for s in approved_suggestions:
-            print(f"  {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']}")
-        print("No changes made (dry-run mode).")
-        return 0
-
-    updated = apply_rebalance_suggestions(tiers_df, suggestions, approved)
-    save_tiers(updated)
-    print(f"Applied {len(approved_suggestions)} reassignment(s):")
-    for s in approved_suggestions:
-        print(f"  {s['symbol']}: {s['current_tier']} -> {s['suggested_tier']}")
-    print("Tier changes do not execute trades. Buy or sell manually in Trade Republic.")
-    return 0
-
-
-def _cmd_autobalance_wizard(_args: argparse.Namespace) -> int:
-    """Interactively review and apply rebalancing suggestions (v10.6.4)."""
-    from quant.portfolio.autobalance import (
-        analyze_tier_allocations,
-        apply_rebalance_suggestions,
-        suggest_rebalance,
-    )
-    from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import load_tiers, save_tiers
-
-    portfolio_df = load_portfolio()
-    tiers_df = load_tiers()
-    analysis = analyze_tier_allocations(portfolio_df, tiers_df)
-    if not analysis["violations"]:
-        print("All tier allocations are within limits. No rebalancing needed.")
-        return 0
-
-    suggestions = suggest_rebalance(portfolio_df, tiers_df)
-    if not suggestions:
-        print("Violations detected but no suitable reassignments found.")
-        return 0
-
-    print(f"Found {len(suggestions)} rebalancing suggestion(s).")
-    approved: list[str] = []
-    for i, s in enumerate(suggestions, 1):
-        print(f"--- Suggestion {i}/{len(suggestions)} ---")
-        print(f"Symbol: {s['symbol']}")
-        print(f"Move: {s['current_tier']} -> {s['suggested_tier']}")
-        print(f"Value: {s['value_eur']:.2f} EUR")
-        print(f"Reason: {s['reason']}")
-        try:
-            response = input("Apply this suggestion? [y/N]: ").strip().lower()
-        except EOFError:
-            response = "n"
-        if response in ("y", "yes"):
-            approved.append(s["symbol"])
-            print("Approved.")
-        else:
-            print("Skipped.")
-
-    if not approved:
-        print("No suggestions approved. No changes made.")
-        return 0
-
-    updated = apply_rebalance_suggestions(tiers_df, suggestions, approved)
-    save_tiers(updated)
-    print(f"Applied {len(approved)} reassignment(s).")
-    print("Tier changes do not execute trades. Buy or sell manually in Trade Republic.")
-    return 0
-
-
 def _cmd_clear_cache(_args: argparse.Namespace) -> int:
     """Clear all cached calculations (v10.6.5)."""
     from quant.analytics.cache import clear_cache, get_cache_stats
@@ -729,23 +590,6 @@ def _cmd_health_check(_args: argparse.Namespace) -> int:
     for check in result["checks"]:
         print(f"  {check['name']:<20} {check['status']:<9} {check['message']}")
     return 1 if result["status"] == "CRITICAL" else 0
-
-
-def _cmd_weekly_report(args: argparse.Namespace) -> int:
-    """Generate the Weekly Friday Report (Markdown + self-contained HTML).
-
-    v10.6.2 (R-PDF-1): the HTML carries print CSS; the user prints to PDF from
-    the browser. No PDF library is used.
-    """
-    from quant.reporting.weekly_report import save_weekly_report
-
-    as_of = getattr(args, "as_of", None) or dt.date.today().isoformat()
-    emergency = getattr(args, "emergency", None)
-    md_path, html_path = save_weekly_report(as_of, emergency_amount=emergency)
-    print(f"weekly report: {md_path}")
-    print(f"weekly report: {html_path}")
-    print("Open the HTML file in a browser and print to PDF.")
-    return 0
 
 
 def _cmd_schedule(args: argparse.Namespace) -> int:
@@ -830,70 +674,50 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show per-symbol and per-step detail on stdout",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    # v10.8.2 (section 9): six user commands; the rest are hidden internals (still
+    # dispatchable, used by the scheduler and tests) and never appear in --help.
+    sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
+    hidden = argparse.SUPPRESS
 
-    sub.add_parser("refresh", help="fetch market data + run the funnel")
-    sub.add_parser("run", help="score, audit, and report")
-    reconcile = sub.add_parser("reconcile", help="diff portfolio vs the broker export")
-    reconcile.add_argument(
-        "--broker",
-        default=None,
-        help="Broker CSV export (Symbol, Value_EUR). Defaults to data/portfolio.csv.",
-    )
-    sub.add_parser("all", help="run update then run (full daily cycle)")
-    sub.add_parser("publish", help="render the static Published Briefing")
-    sub.add_parser("doctor", help="read-only diagnosis (no writes, safe to paste)")
-    news_doc = sub.add_parser("news-doctor",
-                              help="read-only news-pillar diagnostic (never loads torch)")
-    news_doc.add_argument("--enable", action="store_true",
-                          help="force the news pillar active (model loads again)")
-    backup_p = sub.add_parser("backup", help="archive the user-owned state (tar.gz)")
-    backup_p.add_argument("--dir", default=None,
-                          help="output directory (default data/backups)")
-    backup_p.add_argument("--include-secrets", action="store_true",
-                          help="also include data/notify.toml (bot token)")
-    setup_p = sub.add_parser("setup", help="first-week setup (interactive) or --check")
-    setup_p.add_argument("--check", action="store_true",
-                         help="print setup statuses without prompting")
-    sub.add_parser("validate-tiers", help="validate data/tiers.csv and report issues")
-    sub.add_parser("repair-tiers", help="repair common issues in data/tiers.csv")
-    sub.add_parser("suggest-rebalance",
-                   help="suggest tier reassignments to fix allocation violations")
-    apply_reb = sub.add_parser("apply-rebalance", help="apply approved tier reassignments")
-    apply_reb.add_argument("--symbols", required=True,
-                           help="comma-separated symbols to rebalance")
-    apply_reb.add_argument("--dry-run", action="store_true",
-                           help="preview changes without applying")
-    sub.add_parser("autobalance-wizard",
-                   help="interactively review and apply rebalancing suggestions")
-    sub.add_parser("health-check", help="run the system health check")
-    sub.add_parser("clear-cache", help="clear all cached calculations")
-    sub.add_parser("cache-stats", help="show cache statistics")
-    weekly = sub.add_parser(
-        "weekly-report", help="generate the Weekly Friday Report (Markdown + HTML)"
-    )
-    weekly.add_argument(
-        "--as-of", default=None, help="report date (YYYY-MM-DD); defaults to today"
-    )
-    weekly.add_argument(
-        "--emergency", type=float, default=None,
-        help="cash amount (EUR) for the emergency sell order",
-    )
-    sched = sub.add_parser("schedule", help="install/remove the local daily timer")
-    sched.add_argument("--off", action="store_true", help="uninstall the timer")
-    sched.add_argument("--status", action="store_true", help="print timer status")
-    sub.add_parser("notify-setup", help="configure Telegram/email notifications")
-    sub.add_parser("daily", help="run the daily job (used by the timer)")
-    ack = sub.add_parser("ack", help="resolve an alert")
-    ack.add_argument("id", help="alert id")
-    ack.add_argument("--status", choices=["done", "declined"], required=True)
-    ack.add_argument("--reason", default=None, help="why (for declined)")
-    sub.add_parser("upgrade", help="update the software to the latest version")
+    # ── The six user commands ─────────────────────────────────────────────────
     dash = sub.add_parser("dash", help="launch the local interactive workspace")
-    dash.add_argument(
-        "--lan", action="store_true",
-        help="also serve on the local network (phone on the same Wi-Fi)",
-    )
+    dash.add_argument("--lan", action="store_true",
+                      help="also serve on the local network (phone on the same Wi-Fi)")
+    sub.add_parser("refresh", help="fetch market data and analyse your holdings")
+    sub.add_parser("daily", help="run the daily check (used by the timer)")
+    sub.add_parser("upgrade", help="update the software to the latest version")
+    backup_p = sub.add_parser("backup", help="archive your data (tar.gz)")
+    backup_p.add_argument("--dir", default=None, help="output directory")
+    backup_p.add_argument("--include-secrets", action="store_true",
+                          help="also include the notification token file")
+    sub.add_parser("doctor", help="read-only diagnosis (safe to paste)")
+
+    # ── Hidden internal commands ──────────────────────────────────────────────
+    sub.add_parser("run", help=hidden)
+    reconcile = sub.add_parser("reconcile", help=hidden)
+    reconcile.add_argument("--broker", default=None)
+    sub.add_parser("all", help=hidden)
+    news_doc = sub.add_parser("news-doctor", help=hidden)
+    news_doc.add_argument("--enable", action="store_true")
+    sub.add_parser("validate-tiers", help=hidden)
+    sub.add_parser("repair-tiers", help=hidden)
+    sub.add_parser("health-check", help=hidden)
+    sub.add_parser("clear-cache", help=hidden)
+    sub.add_parser("cache-stats", help=hidden)
+    sched = sub.add_parser("schedule", help=hidden)
+    sched.add_argument("--off", action="store_true")
+    sched.add_argument("--status", action="store_true")
+    sub.add_parser("notify-setup", help=hidden)
+    ack = sub.add_parser("ack", help=hidden)
+    ack.add_argument("id")
+    ack.add_argument("--status", choices=["done", "declined"], required=True)
+    ack.add_argument("--reason", default=None)
+
+    # argparse lists every subparser in --help; keep only the six user commands
+    # (hidden subparsers remain dispatachable, used by the scheduler and tests).
+    _user = {"dash", "refresh", "daily", "upgrade", "backup", "doctor"}
+    actions = getattr(sub, "_choices_actions", [])
+    sub._choices_actions = [a for a in actions if getattr(a, "dest", None) in _user]
     return parser
 
 
@@ -907,10 +731,25 @@ def _cmd_upgrade(args) -> int:
 
     from quant import __version__, paths
 
-    repo = paths.PROJECT_ROOT
+    # v10.8.1: the git checkout is CODE_ROOT, not the (now per-user) data root.
+    repo = paths.CODE_ROOT
     if not (repo / ".git").exists():
         output.reporter.line("Not a git checkout; update manually.")
         return 2
+    # v10.8.1 (A2): back up the per-user data dir before touching the software.
+    try:
+        from quant.engine import backup as _backup
+
+        _backup.create_backup()
+    except Exception:  # noqa: BLE001
+        pass
+    # v10.8.1 (A2): copy any tracked legacy user-state files forward before pull.
+    try:
+        from quant.data.user_data import migrate_legacy_user_data
+
+        migrate_legacy_user_data()
+    except Exception:  # noqa: BLE001
+        pass
     status = subprocess.run(["git", "status", "--porcelain"], cwd=str(repo),
                             capture_output=True, text=True)
     if status.stdout.strip():
@@ -968,18 +807,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "run": _cmd_run,
         "reconcile": _cmd_reconcile,
         "all": _cmd_all,
-        "publish": _cmd_publish,
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,
         "news-doctor": _cmd_news_doctor,
         "backup": _cmd_backup,
-        "setup": _cmd_setup,
-        "weekly-report": _cmd_weekly_report,
         "validate-tiers": _cmd_validate_tiers,
         "repair-tiers": _cmd_repair_tiers,
-        "suggest-rebalance": _cmd_suggest_rebalance,
-        "apply-rebalance": _cmd_apply_rebalance,
-        "autobalance-wizard": _cmd_autobalance_wizard,
         "health-check": _cmd_health_check,
         "clear-cache": _cmd_clear_cache,
         "cache-stats": _cmd_cache_stats,

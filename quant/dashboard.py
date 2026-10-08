@@ -1,14 +1,14 @@
 """
-dashboard.py — Multipage navigation entry (v10.5.3, R2).
+dashboard.py — Multipage navigation entry (v10.8.2).
 
 Intent: st.Page must reference FILE-based pages so tests can drive navigation
-via AppTest.switch_page, so the renderers live in quant/ui/render.py and the thin
-scripts under quant/pages/ call them. This module is the entry: it draws the
-sidebar contract (name, tagline, version) then st.navigation over four pages.
+via AppTest.switch_page, so the renderers live in quant/ui/pages.py and the thin
+scripts under quant/pages/ call them. This module is the entry: it runs the
+startup hooks then st.navigation over the five pages.
 
-Invariants: sidebar shows only name, tagline, version, then page nav; page order
-is Overview, Monthly decision, My holdings, Find investments, Settings;
-navigation labels equal quant.ui.copy.
+Invariants: the sidebar shows the page names only (no name/tagline/version
+repeat); page order is Portfolio, Update holdings, History, Full analysis,
+Settings.
 """
 from __future__ import annotations
 
@@ -18,9 +18,6 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 
 import streamlit as st
-
-from quant import __version__
-from quant.ui import copy as C
 
 st.set_page_config(page_title="Quant-AI", layout="centered")
 
@@ -41,14 +38,30 @@ st.markdown(
 )
 
 # (script path, title, default) in the fixed order.
+# v10.8.2 (section 4): the final five pages, in order.
 _NAV = [
-    ("pages/today.py", C.PAGE_TODAY, True),
-    ("pages/monthly.py", C.PAGE_MONTHLY, False),
-    ("pages/portfolio.py", C.PAGE_PORTFOLIO, False),
-    ("pages/explore.py", C.PAGE_EXPLORE, False),
-    ("pages/tax.py", C.PAGE_TAX, False),
-    ("pages/settings.py", C.PAGE_SETTINGS, False),
+    ("pages/portfolio.py", "Portfolio", True),
+    ("pages/update.py", "Update holdings", False),
+    ("pages/history.py", "History", False),
+    ("pages/analysis.py", "Full analysis", False),
+    ("pages/settings.py", "Settings", False),
 ]
+
+
+def _startup_user_data() -> None:
+    """v10.8.1 (A2): migrate legacy repo state and seed the per-user data dir.
+
+    Copy-only and idempotent; never raises. Runs once per session.
+    """
+    if st.session_state.get("_user_data_ready"):
+        return
+    try:
+        from quant.data.bootstrap import seed_user_data
+
+        seed_user_data()
+    except Exception:  # noqa: BLE001
+        pass
+    st.session_state["_user_data_ready"] = True
 
 
 def _startup_backfill() -> None:
@@ -98,12 +111,10 @@ def _startup_staleness() -> None:
 
 
 def main() -> None:
-    """Draw the sidebar contract and run the multipage navigation."""
+    """Run the startup hooks and the multipage navigation (page names only)."""
+    _startup_user_data()
     _startup_backfill()
     _startup_staleness()
-    st.sidebar.title("Quant-AI")
-    st.sidebar.caption("Daily portfolio management")
-    st.sidebar.caption(f"Version {__version__}")
     pages = [st.Page(path, title=title, default=default)
              for path, title, default in _NAV]
     st.navigation(pages).run()

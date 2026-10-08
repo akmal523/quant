@@ -6,7 +6,7 @@ golden file; fail CI if a refactor changes it by more than 0.01%. This catches
 accidental logic bugs that unit tests miss.
 
 Invariants: deterministic (seeded synthetic data); no network.
-Dependencies: tests.golden_util, quant.strategy.backtest.
+Dependencies: tests.golden_util, scripts.backtest.
 """
 from __future__ import annotations
 

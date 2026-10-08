@@ -75,7 +75,8 @@ def install() -> str:
     try:
         os.makedirs(unit_dir, exist_ok=True)
         with open(os.path.join(unit_dir, SERVICE_NAME), "w", encoding="utf-8") as f:
-            f.write(build_service_unit(sys.executable, str(paths.PROJECT_ROOT)))
+            # v10.8.1: the service runs from the code checkout, not the data dir.
+            f.write(build_service_unit(sys.executable, str(paths.CODE_ROOT)))
         with open(os.path.join(unit_dir, TIMER_NAME), "w", encoding="utf-8") as f:
             f.write(build_timer_unit())
     except Exception as e:  # noqa: BLE001

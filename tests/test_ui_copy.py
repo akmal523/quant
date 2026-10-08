@@ -47,24 +47,24 @@ def _all_text(at: AppTest) -> str:
     return " ".join(chunks)
 
 
-_PAGE_FILE = {
-    C.PAGE_TODAY: "pages/today.py",
-    C.PAGE_PORTFOLIO: "pages/portfolio.py",
-    C.PAGE_EXPLORE: "pages/explore.py",
-    C.PAGE_TAX: "pages/tax.py",
-    C.PAGE_SETTINGS: "pages/settings.py",
+# v10.8.2 (section 4): the final five pages.
+_PAGES = {
+    "Portfolio": "pages/portfolio.py",
+    "Update holdings": "pages/update.py",
+    "History": "pages/history.py",
+    "Full analysis": "pages/analysis.py",
+    "Settings": "pages/settings.py",
 }
 
 
 def _run_page(page: str) -> AppTest:
     at = AppTest.from_file(DASHBOARD, default_timeout=60)
     at.run()
-    at.switch_page(_PAGE_FILE[page]).run()
+    at.switch_page(_PAGES[page]).run()
     return at
 
 
-@pytest.mark.parametrize("page", [C.PAGE_TODAY, C.PAGE_PORTFOLIO,
-                                  C.PAGE_EXPLORE, C.PAGE_TAX, C.PAGE_SETTINGS])
+@pytest.mark.parametrize("page", list(_PAGES))
 def test_no_banned_tokens_on_any_page(page):
     at = _run_page(page)
     assert not at.exception, f"{page} raised: {at.exception}"
@@ -74,37 +74,28 @@ def test_no_banned_tokens_on_any_page(page):
             f"banned token {pat!r} rendered on {page}"
 
 
-def test_today_shows_portfolio_value_section():
-    at = _run_page(C.PAGE_TODAY)
+def test_home_shows_value_and_what_to_do():
+    at = _run_page("Portfolio")
     text = _all_text(at)
-    # The Today page always renders the Portfolio value section (chart or the
-    # catalog empty state / first-run guide, depending on history).
-    assert (C.SEC_PORTFOLIO_VALUE in text) or (C.FIRST_RUN_STEPS[0] in text)
+    assert C.SEC_WHAT_TO_DO in text
+    assert "Nothing to do" in text or "Buy" in text or "Sell" in text
 
 
-def test_settings_shows_data_status():
-    at = _run_page(C.PAGE_SETTINGS)
+def test_settings_shows_data_folder():
+    at = _run_page("Settings")
     text = _all_text(at)
-    assert C.SEC_DATA_STATUS in text
-    # v10.5.2 A2: an empty fixture DB shows the missing-data empty state; a
-    # populated DB shows the full sentence. A placeholder sentence is never shown.
-    assert (C.EMPTY_NO_MARKET_DATA in text) or ("instruments, prices through" in text)
+    assert "Your data folder" in text
 
 
 def test_navigation_order_and_labels():
-    # R2 sidebar contract: page order Today, Portfolio, Explore, Settings.
     dash = (Path(__file__).resolve().parents[1] / "quant" / "dashboard.py").read_text()
-    order = [dash.index(f'"{path}"') for path in
-             ("pages/today.py", "pages/portfolio.py", "pages/explore.py", "pages/settings.py")]
+    order = [dash.index(f'"{path}"') for path in _PAGES.values()]
     assert order == sorted(order)
-    for title in (C.PAGE_TODAY, C.PAGE_PORTFOLIO, C.PAGE_EXPLORE, C.PAGE_SETTINGS):
-        assert f"title={title}" in dash or title in dash
+    for title in _PAGES:
+        assert title in dash
 
 
-def test_open_today_is_gated_and_switches_page():
-    # AppTest cannot follow a programmatic st.switch_page triggered by a button,
-    # so assert the wiring structurally (target page + success gate) here; the
-    # four-page reachability is covered by test_no_banned_tokens_on_any_page.
-    render = (Path(__file__).resolve().parents[1] / "quant" / "ui" / "render.py").read_text()
-    assert 'st.switch_page("pages/today.py")' in render
-    assert "_review_ok" in render
+def test_update_page_links_to_portfolio():
+    pages = (Path(__file__).resolve().parents[1] / "quant" / "ui" / "pages.py").read_text()
+    assert 'st.switch_page("pages/portfolio.py")' in pages
+    assert 'st.switch_page("pages/update.py")' in pages

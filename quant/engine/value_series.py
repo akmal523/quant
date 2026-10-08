@@ -1,18 +1,21 @@
-"""value_series.py — the daily invested-value series (v10.8.0, Phase 1).
+"""value_series.py — the daily invested-value series (v10.8.0, fixed v10.8.2).
 
-Intent: the Overview chart must show the invested value over time without
-requiring a completed review. The series is built from append-only position
-snapshots, recorded flows, and daily closes in ``market_history`` (converted to
-EUR). Cash is never part of the series.
+Intent: the Portfolio chart must show the invested value over time without
+requiring a completed review, and must never draw a flat zero line. The series
+runs from the first saved table to the LATEST available price date, one point per
+calendar day. A day on which any held symbol has never yet had a price is
+skipped, not zeroed; once a symbol has a first price, its last close is carried
+forward. Cash is never part of the series.
 
 Invariants:
   - Pure: no I/O, no database writes.
-  - A later snapshot is truth from its date forward; the difference from the
-    flow-derived shares is a neutral correction (never profit or loss).
-  - A missing close on a day carries the previous close.
+  - The series ends at the latest price date, so new prices extend it.
+  - A missing close carries the previous close forward.
+  - All values are EUR (native close * the symbol's EUR rate).
 """
 from __future__ import annotations
 
+import bisect
 from datetime import date, timedelta
 from typing import Any
 
@@ -30,18 +33,35 @@ def _days(start: date, end: date) -> Any:
         d += timedelta(days=1)
 
 
-def _close_eur(symbol: str, day: date, closes: dict, fx: dict,
-               last_close: dict) -> float | None:
-    """The EUR close on a day, carrying the previous close when missing."""
-    native = closes.get((symbol, day.isoformat()))
-    if native is None:
-        native = last_close.get(symbol)
-    else:
-        last_close[symbol] = native
-    if native is None:
+def _close_series(closes: dict, symbols: set[str]) -> dict[str, list[tuple[date, float]]]:
+    """{symbol: [(date, native_close), ...] sorted} for held symbols only."""
+    out: dict[str, list[tuple[date, float]]] = {}
+    for (sym, day), value in (closes or {}).items():
+        if sym not in symbols or value is None:
+            continue
+        try:
+            d = _as_date(day)
+        except ValueError:
+            continue
+        out.setdefault(str(sym), []).append((d, float(value)))
+    for sym in out:
+        out[sym].sort(key=lambda t: t[0])
+    return out
+
+
+def _price_on_or_before(series: list[tuple[date, float]], day: date) -> float | None:
+    """The close on ``day`` or the most recent close before it (None if none yet)."""
+    if not series:
         return None
-    rate = fx.get(symbol, 1.0) if isinstance(fx, dict) else 1.0
-    return float(native) * float(rate)
+    idx = bisect.bisect_right(series, (day, float("inf"))) - 1
+    return series[idx][1] if idx >= 0 else None
+
+
+def _rate(fx: dict, symbol: str) -> float:
+    if not isinstance(fx, dict):
+        return 1.0
+    value = fx.get(symbol, 1.0)
+    return float(value) if isinstance(value, int | float) else 1.0
 
 
 def build_value_series(snapshots: list[dict], flows: list[dict],
@@ -68,17 +88,25 @@ def build_value_series(snapshots: list[dict], flows: list[dict],
     if not snaps and not flws:
         return []
 
-    dates = [s["date"] for s in snaps] + [f["date"] for f in flws]
-    start, end = min(dates), max(dates)
-
+    symbols = {s["symbol"] for s in snaps}
     by_sym: dict[str, list] = {}
     for s in snaps:
         by_sym.setdefault(s["symbol"], []).append(s)
 
+    close_by_sym = _close_series(closes, symbols)
+
+    # Start at the first saved table; end at the latest price date (so new
+    # prices extend the series). With no prices, there is no series.
+    start = min(s["date"] for s in snaps) if snaps else min(f["date"] for f in flws)
+    latest = [s[-1][0] for s in close_by_sym.values() if s]
+    if not latest:
+        return []
+    end = max([start] + latest)
+
     out: list[dict] = []
-    last_close: dict[str, float] = {}
     for day in _days(start, end):
         total = 0.0
+        day_ok = True
         for sym, rows in by_sym.items():
             base = None
             for s in rows:
@@ -87,20 +115,24 @@ def build_value_series(snapshots: list[dict], flows: list[dict],
                 else:
                     break
             if base is None:
-                continue
+                continue  # not held yet
             shares = base["shares"]
             for f in flws:
                 if (f["symbol"] != sym or f["date"] <= base["date"]
                         or f["date"] > day):
                     continue
-                price = _close_eur(sym, f["date"], closes, fx, last_close)
+                price = _price_on_or_before(close_by_sym.get(sym, []), f["date"])
                 if price and price > 0:
                     if f["type"] == "buy":
                         shares += f["amount_eur"] / price
                     elif f["type"] == "sell":
                         shares -= f["amount_eur"] / price
-            price = _close_eur(sym, day, closes, fx, last_close)
-            if price is not None:
-                total += shares * price
+            native = _price_on_or_before(close_by_sym.get(sym, []), day)
+            if native is None:
+                day_ok = False  # a held symbol has never had a price yet
+                break
+            total += shares * native * _rate(fx, sym)
+        if not day_ok:
+            continue
         out.append({"date": day, "value_eur": round(total, 2)})
     return out

@@ -1,6 +1,4 @@
-"""
-settings.py — thin page script (v10.5.3, R2). Calls the shared renderer.
-"""
+"""settings.py — Settings (v10.8.2). Calls the shared renderer."""
 from __future__ import annotations
 
 import sys as _sys
@@ -8,6 +6,6 @@ from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
-from quant.ui.render import page_settings
+from quant.ui.pages import page_settings
 
 page_settings()

@@ -88,6 +88,29 @@ def load_account(path: str | None = None) -> AccountState:
                         cash_updated=cash_updated)
 
 
+def write_account_fields(changed: dict, path: str | None = None) -> bool:
+    """Autosave: merge ``changed`` into the stored account and write it.
+
+    v10.8.1 (A2): Settings persists risk profile / cash / savings day / cash date
+    the moment they change, so a value is never lost by leaving the page. Returns
+    True on success, False on failure (never raises).
+    """
+    state = load_account(path)
+    try:
+        merged = AccountState(
+            base_currency=state.base_currency,
+            cash_eur=changed.get("cash_eur", state.cash_eur),
+            risk_profile=str(changed.get("risk_profile", state.risk_profile)),
+            loaded=True,
+            savings_plan_day=changed.get("savings_plan_day", state.savings_plan_day),
+            cash_updated=changed.get("cash_updated", state.cash_updated),
+        )
+        save_account(merged, path)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def save_account(state: AccountState, path: str | None = None) -> None:
     """Atomically write account.yaml (temp file + rename). No temp left behind."""
     path = path or paths.DATA_ACCOUNT

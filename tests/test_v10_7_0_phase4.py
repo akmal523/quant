@@ -9,10 +9,7 @@ Invariants: allocator is pure; I/O tests use the isolated test DB.
 """
 from __future__ import annotations
 
-from datetime import date
-
-from quant.data.database import get_connection
-from quant.engine import allocator, flows, plans
+from quant.engine import allocator
 
 # ── Allocator ─────────────────────────────────────────────────────────────────
 
@@ -62,47 +59,3 @@ def test_fortress_gap_distribution():
     assert long_legs == {"EUNL.DE": 140.0}
 
 
-# ── Plan storage and actuals ──────────────────────────────────────────────────
-
-def test_plan_roundtrip():
-    conn = get_connection()
-    conn.execute("DELETE FROM monthly_plans")
-    legs = [{"symbol": "EUNL.DE", "name": "MSCI World", "amount_eur": 140.0,
-             "kind": "long_term", "reason": "r", "fee_eur": 0.0}]
-    plans.save_plan(conn, "2026-11", 200.0, legs,
-                    approved_date=date(2026, 11, 1), execution_date=date(2026, 11, 1))
-    loaded = plans.load_plan(conn, "2026-11")
-    assert loaded["budget_eur"] == 200.0
-    assert loaded["legs"][0]["symbol"] == "EUNL.DE"
-    assert plans.is_approved(conn, "2026-11")
-
-
-def test_enter_actuals_replaces_flows_and_updates_meta():
-    conn = get_connection()
-    conn.execute("DELETE FROM flows")
-    conn.execute("DELETE FROM holdings_meta")
-    flows.write_planned_sparplan_flows(
-        conn, "2026-11", [{"symbol": "EUNL.DE", "amount_eur": 140.0}],
-        date(2026, 11, 1))
-    recon = plans.enter_actuals(
-        conn, "2026-11",
-        [{"symbol": "EUNL.DE", "amount_eur": 140.0, "date": date(2026, 11, 1)}],
-        price_lookup={"EUNL.DE": 100.0})
-    assert recon[0]["planned"] == 140.0
-    assert recon[0]["actual"] == 140.0
-    # Auto-flow replaced by the actual.
-    remaining = flows.load_flows(conn)
-    assert len(remaining) == 1
-    assert remaining[0]["note"] == "actual sparplan 2026-11"
-    # holdings_meta updated: 140 / 100 = 1.4 shares.
-    row = conn.execute(
-        "SELECT shares FROM holdings_meta WHERE symbol = 'EUNL.DE'").fetchone()
-    assert abs(row[0] - 1.4) < 1e-9
-
-
-def test_reconciliation_line_plain():
-    line = plans.reconciliation_line(
-        {"symbol": "EUNL.DE", "planned": 140.0, "actual": 140.0, "deviation": 0.0})
-    assert "Planned 140 EUNL.DE" in line
-    assert "bought 140 EUNL.DE" in line
-    assert "Deviation +0" in line
