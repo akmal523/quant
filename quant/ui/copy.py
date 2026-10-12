@@ -1085,6 +1085,8 @@ DAY_CHANGE = "vs previous close: {sign}{eur} EUR ({sign}{pct}%)"
 SINCE_FIRST = "since first purchase: {sign}{pct}%"
 # T3: the cash row in the holdings table (class Cash, target from strategy).
 CLASS_CASH = "Cash"
+# v10.8.5 (D15): the row name is distinct from the class cell (no "Cash  Cash").
+CASH_ROW = "Cash (uninvested)"
 CASH_TARGET_HEADER = "target {pct}%"
 # T7/T6: pipeline health.
 SEC_PIPELINE_HEALTH = "Pipeline health"
@@ -1095,9 +1097,10 @@ RUN_ANALYSIS_DONE = "Analysis finished: {n} stages recorded."
 TAB_RESEARCH = "Research"
 RESEARCH_SEARCH_LABEL = "Search"
 RESEARCH_STAGE_FILTER = "Stage"
-RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Confidence", "News",
+RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Components", "News",
                     "Weight now / target", "Reason")
 RESEARCH_EMPTY = "No instruments in the research funnel yet."
+RESEARCH_NO_NEWS = "No recent headlines."
 # T8: the invest-amount flow.
 BTN_ADD_TO_LIST = "Add to today's list"
 INVEST_PRESET_HINT = "Preset amounts"

@@ -1,3 +1,3 @@
 """Quant-AI: institutional-grade systematic equity pipeline."""
 
-__version__ = "10.8.4"
+__version__ = "10.8.5"

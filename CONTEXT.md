@@ -3,6 +3,30 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.5 — Close the gaps: continuous MTM, five verbs, screen-fit tables (rulings)
+
+- **Continuous mark-to-market.** The valuation store is written for EVERY trading day
+  the portfolio was held, not only on job/confirm/refresh days
+  ([`mtm.backfill`](quant/engine/mtm.py)). One point per trading day, no forward-filled
+  total; `day_delta(D) = total(D) − total(D−1)`; the chart tail equals the latest close
+  and the home "as of" reads the store date.
+- **Chart.** Growth view = normalized-100 portfolio + one line per held asset; Value
+  view = the absolute total with cash and a per-asset hover; the benchmark overlay is a
+  Growth-only option; the in-plot range annotation is removed (the header carries the
+  one "since first purchase" line).
+- **Five decision verb classes** ([`quant/engine/action_taxonomy.py`](quant/engine/action_taxonomy.py)):
+  rebalance / threat / swap / plan_change / cash_deploy. Swap and cash-deploy pair a
+  target; each item carries one reason and an evidence pointer. Rebalance stays with
+  `build_advice`; the new classes append to the ONE list (Today before This month).
+- **Research is safe to expand.** A per-row drawer chart carries a unique key, so
+  expanding many rows never collides on Streamlit's element id (the v10.8.4 crash).
+  The funnel columns are Symbol/Class/Stage/Score/Components/News/Weight/Reason.
+- **Screen-fit tables.** Update holdings hides the index, uses a column-priority set
+  with widths, and shows derived Shares + a live-vs-typed Check badge; the always-
+  visible Name column is dropped (it lives in Research/Holdings).
+- **Copy.** One verb, one ticker; "Telegram: on, last test ok"; a duplicate-ticker/
+  duplicate-word lint guards the rendered pages.
+
 ## v10.8.4 — Unified daily workflow, mark-to-market, stateful advice (rulings)
 
 - **Cash is back (supersedes v10.8.2).** Cash is a first-class row on Portfolio

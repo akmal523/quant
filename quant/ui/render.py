@@ -50,26 +50,21 @@ logger = logging.getLogger(__name__)
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 # v10.8.2 (B3): the optional savings-plan rate, saved by the same Confirm.
 _PLAN_COL = "Plan_EUR_month"
+# v10.8.5 (T4/D10/D11): a column-priority layout that fits the default container.
+# Always visible: Symbol | Avg cost per share (EUR) | Value (EUR) | Profit (EUR) |
+# Shares | Plan (EUR/month). The live-vs-typed check is the final narrow badge.
 _COLUMN_CONFIG = {
-    # v10.7.3 (Part 2.2): the broker statement shows the company name (read-only).
-    "Name": st.column_config.TextColumn("Name"),
-    "Symbol": st.column_config.TextColumn(C.COLUMN_HEADERS["Symbol"]),
+    "Symbol": st.column_config.TextColumn(C.COLUMN_HEADERS["Symbol"], width="small"),
     "Avg_Entry_Price": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Avg_Entry_Price"], format="%.2f"),
+        C.COLUMN_HEADERS["Avg_Entry_Price"], format="%.2f", width="small"),
     "Current_Value_EUR": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Current_Value_EUR"], format="%.2f"),
+        C.COLUMN_HEADERS["Current_Value_EUR"], format="%.2f", width="small"),
     "Broker_PnL_EUR": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Broker_PnL_EUR"], format="%.2f"),
+        C.COLUMN_HEADERS["Broker_PnL_EUR"], format="%.2f", width="small"),
     _PLAN_COL: st.column_config.NumberColumn(
-        C.COLUMN_HEADERS[_PLAN_COL], format="%.2f"),
-    # v10.8.4 (T2): the live read-only columns (from the valuation store).
-    "Live value (EUR)": st.column_config.NumberColumn(
-        "Live value (EUR)", format="%.2f"),
-    "Live profit (EUR)": st.column_config.NumberColumn(
-        "Live profit (EUR)", format="%.2f"),
-    "Shares (derived)": st.column_config.NumberColumn(
-        "Shares (derived)", format="%.6f"),
-    "Check": st.column_config.TextColumn("Check"),
+        C.COLUMN_HEADERS[_PLAN_COL], format="%.0f", width="small"),
+    "Shares": st.column_config.NumberColumn("Shares", format="%.4f", width="small"),
+    "Check": st.column_config.TextColumn("Check", width="small"),
 }
 
 
@@ -138,26 +133,18 @@ def _portfolio_signature(portfolio) -> str:
 
 
 def _live_columns(base, live) -> None:
-    """Append the read-only live Value / Profit / Shares and a mismatch check (T2).
+    """Append the read-only derived Shares and the live-vs-typed check (T4).
 
-    Broker-typed Value/Profit stay editable until the first confirm; the live
-    columns come from the valuation store so an entry error is visible.
+    Broker-typed Value/Profit stay editable until the first confirm; Shares is
+    derived from the valuation store so an entry error is visible, and the Check
+    badge flags a >1% disagreement with the last live value.
     """
     live = live or {}
-    values, profits, shares, checks = [], [], [], []
+    shares, checks = [], []
     for sym in base["Symbol"].astype(str):
         h = live.get(sym)
-        if not h:
-            values.append(None)
-            profits.append(None)
-            shares.append(None)
-            checks.append("")
-            continue
-        values.append(round(float(h.get("value_eur") or 0), 2))
-        profits.append(round(float(h.get("profit_eur") or 0), 2))
-        shares.append(round(float(h.get("shares") or 0), 6))
+        shares.append(round(float(h.get("shares") or 0), 4) if h else None)
         checks.append("")
-    # Mismatch >1% between the typed value and the live value (input sanity).
     for i, sym in enumerate(base["Symbol"].astype(str)):
         h = live.get(sym)
         if not h:
@@ -169,9 +156,7 @@ def _live_columns(base, live) -> None:
                 checks[i] = f"differs by {abs(typed - live_v) / typed * 100:.0f}%"
         except Exception:  # noqa: BLE001
             pass
-    base["Live value (EUR)"] = values
-    base["Live profit (EUR)"] = profits
-    base["Shares (derived)"] = shares
+    base["Shares"] = shares
     base["Check"] = checks
 
 
@@ -236,15 +221,16 @@ def _render_broker_editor(portfolio, live=None) -> pd.DataFrame:
     extra = st.session_state.get("_extra", [])
     if extra:
         base = pd.concat([base, pd.DataFrame(extra)], ignore_index=True)
-    # v10.7.3 (Part 2.2): show the company name next to the symbol (read-only).
-    base.insert(0, "Name", [_display_name(s) for s in base["Symbol"].astype(str)])
-    # v10.8.4 (T2): append the live read-only Value/Profit/Shares + mismatch check.
+    # v10.8.5 (T4/D10/D11): no Name column (shown in the Research/Holdings views),
+    # an explicit column order that fits the default width, derived Shares and the
+    # live-vs-typed Check badge as the final narrow columns.
     _live_columns(base, live)
     return st.data_editor(
         base, num_rows="dynamic", column_config=_COLUMN_CONFIG,
-        width="stretch", key="holdings",
-        disabled=["Name", "Live value (EUR)", "Live profit (EUR)",
-                  "Shares (derived)", "Check"],
+        width="stretch", key="holdings", hide_index=True,
+        column_order=["Symbol", "Avg_Entry_Price", "Current_Value_EUR",
+                      "Broker_PnL_EUR", "Shares", _PLAN_COL, "Check"],
+        disabled=["Shares", "Check"],
     )
 
 
@@ -439,7 +425,8 @@ def _render_value_chart(history, holdings) -> None:
             x=df["review_ts"], y=port, mode="lines", name="Portfolio",
             line=dict(width=2, color=P.ACCENT), fill=None))
 
-    if st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
+    # v10.8.5 (D17): the benchmark overlay is a Growth-view-only option.
+    if growth and st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
         bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
                   "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
         if not bench.empty:
@@ -460,9 +447,8 @@ def _render_value_chart(history, holdings) -> None:
 
     base = 100.0 if growth else float(df["value_eur"].iloc[0])
     fig.add_hline(y=base, line_dash="dot", line_color=P.BASELINE)
-    ann = _range_annotation(df, growth)
-    if ann:
-        fig.add_annotation(**_annotation_kwargs(ann))
+    # v10.8.5 (D6): the in-plot "+X% since <date>" annotation duplicated the
+    # header's "since first purchase" line; it is removed.
     vals = [float(v) for v in port if v is not None]
     yaxis = {}
     if vals:

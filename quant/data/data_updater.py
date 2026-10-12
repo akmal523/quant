@@ -384,7 +384,8 @@ def main() -> int:
         _run = _manifest.new_run_id()
         _manifest.record_stage(conn, _run, "prices", _manifest.STATUS_OK,
                                coverage=_manifest.coverage_text((len(all_data), total)))
-        _written = _mtm.write_valuation(conn, source=_mtm.SOURCE_REFRESH)
+        _res = _mtm.backfill(conn, source=_mtm.SOURCE_REFRESH)
+        _written = _res.get("rows", 0)
         _manifest.record_stage(conn, _run, "valuation", _manifest.STATUS_OK,
                                coverage=_manifest.coverage_text((_written, _written)))
     except Exception as _e:  # noqa: BLE001

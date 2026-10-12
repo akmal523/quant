@@ -21,11 +21,21 @@ _ACTIONABLE = {"buy", "top_up", "sell_part", "change_savings_plan"}
 
 
 def _label(item: dict) -> str:
-    """The "Human name (TICKER)" label for an advice or holding dict."""
+    """The "Human name (TICKER)" label for an advice or holding dict.
+
+    v10.8.5 (D8): routed through :func:`quant.ui.search.label_for`, which never
+    doubles a ticker already present in the name ("Nasdaq 100 (SXRV)" stays
+    "Nasdaq 100 (SXRV)", not "... (SXRV) (SXRV.DE)").
+    """
     name = str(item.get("company_name") or item.get("name") or "").strip()
     symbol = str(item.get("symbol") or "").strip()
     if name and symbol and name != symbol:
-        return f"{name} ({symbol})"
+        try:
+            from quant.ui.search import label_for
+
+            return label_for(name, symbol)
+        except Exception:  # noqa: BLE001
+            return f"{name} ({symbol})"
     return name or symbol
 
 
@@ -98,6 +108,12 @@ _VERB_TEMPLATES = {
     "top_up": "Buy {amount} EUR of {label}",
     "sell_part": "Sell ~{amount} EUR of {label}",
     "change_savings_plan": "Change the savings plan for {label}",
+    # v10.8.5 (T3): the widened verb classes (one item each in the ONE list).
+    "rebalance": "Rebalance {label}",
+    "threat": "Review {label}",
+    "plan_change": "Raise the savings plan for {label}",
+    "cash_deploy": "Deploy cash into {label}",
+    "swap": "Swap {label}",
 }
 
 

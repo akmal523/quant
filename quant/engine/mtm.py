@@ -25,6 +25,7 @@ Invariants:
 """
 from __future__ import annotations
 
+import bisect
 from datetime import date
 from typing import Any
 
@@ -32,6 +33,7 @@ DEFAULT_OPENING_CASH = 0.0
 SOURCE_DAILY = "daily"
 SOURCE_CONFIRM = "confirm"
 SOURCE_REFRESH = "refresh"
+SOURCE_BACKFILL = "backfill"
 
 
 def _as_date(value: Any) -> date | None:
@@ -285,17 +287,127 @@ def write_valuation(conn: Any, as_of: date | None = None,
     return written
 
 
+# ── Per-trading-day backfill (v10.8.5, T2/D3/D7) ──────────────────────────────
+
+def _price_history(conn: Any, symbols: set) -> dict:
+    """{symbol: [(date, native_close), ...] sorted} for the given symbols."""
+    if not symbols:
+        return {}
+    try:
+        placeholders = ",".join("?" for _ in symbols)
+        rows = conn.execute(
+            f"SELECT Symbol, Date, Close FROM market_history "
+            f"WHERE Symbol IN ({placeholders}) AND Close IS NOT NULL",
+            list(symbols)).fetchall()
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict = {}
+    for sym, day, close in rows:
+        d = _as_date(day)
+        if d is None or close is None:
+            continue
+        out.setdefault(str(sym), []).append((d, float(close)))
+    for sym in out:
+        out[sym].sort(key=lambda t: t[0])
+    return out
+
+
+def _close_on_or_before(series: list, day: date) -> float | None:
+    """The close on ``day`` or the most recent before it (None when none yet)."""
+    if not series:
+        return None
+    idx = bisect.bisect_right(series, (day, float("inf"))) - 1
+    return series[idx][1] if idx >= 0 else None
+
+
+def _first_held_day(opening: dict, trades: list) -> date | None:
+    """The earliest day the portfolio held anything."""
+    days = [_as_date(b[0]) for b in opening.values() if b and b[0] is not None]
+    days += [_as_date(t[0]) for t in trades if t and t[0] is not None]
+    days = [d for d in days if d is not None]
+    return min(days) if days else None
+
+
+def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
+             source: str = SOURCE_BACKFILL, start: date | None = None,
+             end: date | None = None) -> dict:
+    """Write a valuation row for EVERY trading day the portfolio was held (T2).
+
+    Shares are reconstructed from the ledger as of each day; value = shares *
+    close * fx; cash is tracked from the flows. The series is continuous (one
+    point per trading day, no forward-filled total) and its tail equals the latest
+    close. Idempotent per (date, symbol). Returns ``{days, rows}``. Never raises.
+    """
+    opening = _opening_lots(conn)
+    trades = _trade_rows(conn)
+    splits = _split_rows(conn)
+    flows = _flow_rows(conn)
+    symbols = set(opening) | {str(t[1]) for t in trades if len(t) > 1 and t[1]}
+    if not symbols:
+        return {"days": 0, "rows": 0}
+
+    hist = _price_history(conn, symbols)
+    days = sorted({d for s in hist.values() for d, _c in s})
+    if not days and callable(price_lookup):
+        base = _first_held_day(opening, trades) or date.today()
+        days = [base]
+    if not days:
+        return {"days": 0, "rows": 0}
+
+    start = _as_date(start) or _first_held_day(opening, trades)
+    end = _as_date(end) or days[-1]
+    rows = 0
+    day_count = 0
+    for d in days:
+        if start and d < start:
+            continue
+        if end and d > end:
+            continue
+        shares = reconstruct_from_rows(opening, trades, splits, d)
+        total = 0.0
+        for sym, sh in shares.items():
+            if callable(price_lookup):
+                price = price_lookup(sym)
+            else:
+                price = _close_on_or_before(hist.get(sym, []), d)
+            if price is None:
+                continue
+            fx = float(fx_lookup(sym)) if callable(fx_lookup) else _fx_rate(sym)
+            fx = fx or 1.0
+            value = round(sh * float(price) * fx, 2)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO valuation "
+                    "(date, symbol, shares, price_eur, fx, value_eur, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [d, sym, sh, float(price), fx, value, str(source)])
+                rows += 1
+                total += value
+            except Exception:  # noqa: BLE001
+                continue
+        cash = round(cash_from_flows(_account_cash(), flows, d), 2)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
+                "VALUES (?, ?, ?)", [d, round(total, 2), cash])
+            day_count += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return {"days": day_count, "rows": rows}
+
+
 def refresh(as_of: date | None = None, source: str = SOURCE_REFRESH) -> dict:
-    """Open a write connection and write today's valuation. Returns a summary."""
+    """Open a write connection and backfill the valuation store. Summary."""
     from quant.data.database import write_connection
 
     as_of = as_of or date.today()
     try:
         with write_connection() as conn:
-            written = write_valuation(conn, as_of, source=source)
-        return {"ok": True, "date": as_of, "rows": written}
+            res = backfill(conn, source=source)
+        return {"ok": True, "date": as_of, "rows": res["rows"],
+                "days": res["days"]}
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "date": as_of, "rows": 0, "error": str(e)}
+        return {"ok": False, "date": as_of, "rows": 0, "days": 0, "error": str(e)}
 
 
 # ── Readers ───────────────────────────────────────────────────────────────────

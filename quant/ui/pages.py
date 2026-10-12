@@ -19,6 +19,8 @@ from quant.ui import render as R
 
 # The instrument classes the user may pick, in plain words (no "cash").
 _TYPE_OPTIONS = {"Stock": "EQUITY", "Fund (ETF)": "ETF", "Commodity": "COMMODITY"}
+# v10.8.5 (T4): derived, read-only editor columns never enter the diff/validation.
+_DERIVED_COLS = ["Name", "Shares", "Check"]
 
 
 def _holdings() -> list[dict]:
@@ -102,8 +104,45 @@ def _invest_session_items() -> list[dict]:
     return list(st.session_state.get("_invest_items", []))
 
 
+def _idea_rows() -> list[dict]:
+    """Idea candidates from the funnel (T3): symbol, name, score."""
+    df = R.q("SELECT symbol, score FROM funnel_survivors ORDER BY score DESC LIMIT 50")
+    if df.empty:
+        return []
+    return [{"symbol": str(r["symbol"]), "name": _display(str(r["symbol"])),
+             "score": float(r["score"] or 0)} for _, r in df.iterrows()]
+
+
+def _taxonomy_ui_items(holdings: list[dict], regime) -> list[dict]:
+    """The widened verb classes as ONE-list items (T3).
+
+    Rebalance stays with build_advice (which already yields the drift buy/sell);
+    the new classes are appended here.
+    """
+    from quant.engine import action_taxonomy as T
+
+    cash = _totals()[1]
+    taxo = T.build(holdings, scores={}, ideas=_idea_rows(), regime=regime, cash=cash)
+    directions = {T.VERB_SWAP: C.DIRECTION_SELL, T.VERB_THREAT: "Review",
+                  T.VERB_PLAN: C.DIRECTION_BUY, T.VERB_CASH: C.DIRECTION_BUY}
+    out: list[dict] = []
+    for t in taxo:
+        if t["verb"] == T.VERB_REBALANCE:
+            continue
+        out.append({
+            "horizon": t["horizon"], "class": t["class"],
+            "direction": directions.get(t["verb"], C.DIRECTION_BUY),
+            "verb": t["verb"], "label": t["label"], "amount_eur": t["amount_eur"],
+            "reason": t["reason"], "symbol": t["symbol"],
+            "evidence": t.get("evidence"),
+            "target_symbol": t.get("target_symbol"),
+            "target_name": t.get("target_name"),
+        })
+    return out
+
+
 def _render_what_to_do(holdings: list[dict]) -> None:
-    """The ONE list: Today / This month, Buy and Sell, stateful and paired."""
+    """The ONE list: Today / This month, five verb classes, stateful and paired."""
     st.subheader(C.SEC_WHAT_TO_DO)
     from quant.data.database import write_connection
     from quant.engine import advice_state
@@ -111,7 +150,8 @@ def _render_what_to_do(holdings: list[dict]) -> None:
 
     regime = R.read_regime()
     advice, _rejected = build_advice(holdings=holdings, regime=regime)
-    items = timed_items(holdings, advice) + _invest_session_items()
+    items = (timed_items(holdings, advice) + _invest_session_items()
+             + _taxonomy_ui_items(holdings, regime))
     # T5: persist state (open_since / status) so a repeated item shows its age
     # and a finished one stops repeating.
     try:
@@ -128,12 +168,7 @@ def _render_what_to_do(holdings: list[dict]) -> None:
             continue
         st.markdown(f"**{horizon}**")
         for it in group:
-            line = format_item_line(it)
-            if str(it.get("verb")) == "sell_part" or it.get("direction") == C.DIRECTION_SELL:
-                from quant.engine.pairing import paired_line
-
-                line = paired_line({**it, "label": it.get("label") or it.get("symbol")},
-                                   holdings=holdings)
+            line = _item_line(it, holdings)
             st.write(line)
             cls = C.CLASS_LABELS.get(it["class"], it["class"])
             caption = f"{cls} — {it['reason']}"
@@ -151,6 +186,21 @@ def _render_what_to_do(holdings: list[dict]) -> None:
                         st.error("Could not save. Nothing was written.")
 
 
+def _item_line(it: dict, holdings: list[dict]) -> str:
+    """The single line for one item (T3/T5/D8): swap pairs, sells pair, else verb."""
+    verb = str(it.get("verb") or "")
+    if verb == "swap":
+        tgt = it.get("target_name") or it.get("target_symbol") or "an idea"
+        amount = float(it.get("amount_eur") or 0)
+        return f"Sell ~{amount:.0f} EUR of {it.get('label')} -> buy {tgt}"
+    if verb == "sell_part" or it.get("direction") == C.DIRECTION_SELL:
+        from quant.engine.pairing import paired_line
+
+        return paired_line({**it, "label": it.get("label") or it.get("symbol")},
+                           holdings=holdings)
+    return format_item_line(it)
+
+
 def page_home() -> None:
     """Portfolio home: value header, chart, tasks, what to do, holdings, invest."""
     st.title("Portfolio")
@@ -165,7 +215,9 @@ def page_home() -> None:
 
     st.metric("Total value", C.fmt_eur_whole(total),
               delta=f"vs previous close: {day_eur:+,.0f} EUR ({day_pct:+.1f}%)")
-    when = R.latest_bar_date()
+    # v10.8.5 (D7): the "as of" date is the valuation store's latest date, so the
+    # caption and the chart tail can never disagree.
+    when = _as_of_date()
     st.caption(f"Prices {C.AS_OF_DATE.format(date=C.fmt_date(when))}.")
     if first_pct is not None:
         st.caption(f"since first purchase: {first_pct:+.1f}%")
@@ -186,12 +238,13 @@ def page_home() -> None:
                             f"{float(h.get('target_weight') or 0) * 100:.0f}%",
         })
     # T3: cash is a first-class row (class Cash, target from strategy).
+    # v10.8.5 (D15): the "Now / target" cell matches the other rows' "X% / Y%" form.
     cash_target = _cash_target()
     rows.append({
-        "Holding": C.CLASS_CASH,
+        "Holding": C.CASH_ROW,
         "Class": C.CLASS_CASH,
         "Value (EUR)": C.fmt_eur(cash),
-        "Now / target": C.CASH_TARGET_HEADER.format(pct=f"{cash_target * 100:.0f}"),
+        "Now / target": f"0% / {cash_target * 100:.0f}%",
     })
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     if not holdings:
@@ -204,6 +257,13 @@ def _day_delta() -> tuple[float, float, object]:
     from quant.engine import mtm
 
     return mtm.day_delta()
+
+
+def _as_of_date():
+    """The valuation store's latest date, else the latest market bar (D7)."""
+    from quant.engine import mtm
+
+    return mtm.latest_price_date() or R.latest_bar_date()
 
 
 def _cash_target() -> float:
@@ -312,7 +372,7 @@ def page_update() -> None:
         from quant.engine.diff import diff_tables
 
         old = portfolio.to_dict("records") if not portfolio.empty else []
-        new = edited.drop(columns=["Name"], errors="ignore").to_dict("records")
+        new = edited.drop(columns=_DERIVED_COLS, errors="ignore").to_dict("records")
         result = diff_tables(old, new)
         st.session_state["_diff"] = result
 
@@ -335,7 +395,7 @@ def page_update() -> None:
             from quant.portfolio.editor import validate_positions
 
             cleaned, _w, errors = validate_positions(
-                edited.drop(columns=["Name"], errors="ignore"))
+                edited.drop(columns=_DERIVED_COLS, errors="ignore"))
             if errors:
                 for e in errors:
                     st.error(e)
@@ -484,8 +544,26 @@ def _safe_score(value) -> str:
         return "-"
 
 
+def _short_score(value) -> str:
+    """A one-token score for the Components cell ('72' or '-')."""
+    return _safe_score(value).split(" ")[0]
+
+
+def _news_tone(score) -> str:
+    """The plain tone word for a sentiment score (neutral on a missing value)."""
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return "neutral"
+    if s > 0.15:
+        return "positive"
+    if s < -0.15:
+        return "negative"
+    return "neutral"
+
+
 def _research_rows(holdings: list[dict]) -> list[dict]:
-    """The merged Research funnel rows (T6): held + watchlist + idea + rejected."""
+    """The merged Research funnel rows (T6/T1 v10.8.5): held + watchlist + idea."""
     from quant.engine import manifest as M
     from quant.reporting.artifacts import read_scores
 
@@ -498,10 +576,14 @@ def _research_rows(holdings: list[dict]) -> list[dict]:
 
     def _row(sym, instrument_class, universe_status, tier_word=""):
         s = read_scores(sym) or {}
+        fund = s.get("structural_grade")
+        tech = s.get("tactical_grade")
         comp = s.get("active_score")
         if comp is None:
-            comp = s.get("structural_grade")
+            comp = fund
         conf = "high" if (nlp_ok and comp is not None) else "low"
+        components = (f"F {_short_score(fund)} / T {_short_score(tech)} / "
+                      f"conf {conf}")
         if sym in held:
             stage = "Held"
             h = held[sym]
@@ -520,15 +602,18 @@ def _research_rows(holdings: list[dict]) -> list[dict]:
             stage = "Rejected"
             wt = "-"
             reason = "in the universe; not shortlisted this run."
-        news = R.q("SELECT COUNT(*) AS n FROM nlp_evidence WHERE symbol = ?", [sym])
-        n = int(news["n"].iloc[0]) if not news.empty else 0
+        news_rows = R.q("SELECT score FROM nlp_evidence WHERE symbol = ? "
+                        "ORDER BY published_at DESC LIMIT 5", [sym])
+        n = 0 if news_rows.empty else len(news_rows)
+        tone = "no news" if n == 0 else _news_tone(news_rows["score"].iloc[0])
+        news = f"{n} ({tone})"
         if comp is None:
             reason = M.empty_state_reason("scoring") or "not scored yet."
         return {"Symbol": R.label_for(_display(sym), sym),
                 "Class": C.class_word(instrument_class or "EQUITY"),
-                "Stage": stage, "Score": _safe_score(comp), "Confidence": conf,
-                "News": str(n), "Weight now / target": wt, "Reason": reason,
-                "_sym": sym}
+                "Stage": stage, "Score": _safe_score(comp),
+                "Components": components, "News": news,
+                "Weight now / target": wt, "Reason": reason, "_sym": sym}
 
     out = []
     seen = set()
@@ -577,25 +662,62 @@ def _pipeline_table() -> None:
     st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
 
 
+def _open_alert_count(sym: str) -> int:
+    """Open alerts for a symbol (T5). Never raises."""
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine import alerts as alerts_mod
+
+        with read_only_connection() as conn:
+            return sum(1 for a in alerts_mod.open_alerts(conn)
+                       if str(a.get("symbol")) == sym)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _render_holdings_analysis() -> None:
+    """Per-holding drill-down (v10.8.5, T5): table + row drawer."""
+    from quant.reporting.artifacts import read_scores
+
+    holdings = _holdings()
+    if not holdings:
+        st.info("No holdings yet.")
+        return
+    rows = []
+    for h in holdings:
+        s = read_scores(h["symbol"]) or {}
+        score = s.get("active_score")
+        if score is None:
+            score = s.get("structural_grade")
+        cur = float(h.get("current_weight") or 0)
+        tgt = float(h.get("target_weight") or 0)
+        rows.append({
+            "Symbol": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
+            "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
+            "Now / Target": f"{cur * 100:.0f}% / {tgt * 100:.0f}%",
+            "Drift (pp)": f"{(cur - tgt) * 100:+.1f}",
+            "Score": _safe_score(score),
+            "Alerts": str(_open_alert_count(h["symbol"])),
+            "Reason": "held",
+            "_sym": h["symbol"],
+        })
+    df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")}
+                       for r in rows])
+    st.dataframe(df, width="stretch", hide_index=True)
+    st.caption(f"coverage {_manifest_coverage()}")
+    for r in rows:
+        with st.expander(r["Symbol"], expanded=False):
+            _render_instrument_detail(r["_sym"],
+                                      {"Score": r["Score"], "Components": ""})
+
+
 def page_analysis() -> None:
     """Full analysis: the Research funnel, Market, Pipeline health (T6)."""
     st.title("Full analysis")
     tabs = st.tabs(["Holdings analysis", C.TAB_RESEARCH, C.SEC_MARKET,
                     C.SEC_PIPELINE_HEALTH])
     with tabs[0]:
-        holdings = _holdings()
-        if holdings:
-            rows = [{
-                "Holding": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
-                "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
-                "Value (EUR)": C.fmt_eur(h.get("value_eur") or 0),
-                "Profit (EUR)": C.fmt_eur(h.get("profit_eur") or 0),
-                "Now / target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
-                                f"{float(h.get('target_weight') or 0) * 100:.0f}%",
-            } for h in holdings]
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        else:
-            st.info("No holdings yet.")
+        _render_holdings_analysis()
     with tabs[1]:
         _render_research()
     with tabs[2]:
@@ -608,13 +730,13 @@ def page_analysis() -> None:
 
 
 def _render_research() -> None:
-    """The merged Research funnel (T6): sortable table + row detail."""
+    """The merged Research funnel (T6; v10.8.5, D1/D2): table + lazy drawers."""
     from quant.engine import manifest as M
 
     rows = _research_rows(_holdings())
     if not rows:
         reason = M.empty_state_reason("scoring") or "no instruments yet"
-        st.info(C.NOT_AVAILABLE.format(reason=reason))
+        st.info(C.NOT_AVAILABLE.format(reason=reason) + f" [{C.BTN_RUN_ANALYSIS}]")
         if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_research",
                      width="stretch"):
             _run_cli("run")
@@ -622,8 +744,9 @@ def _render_research() -> None:
     df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")}
                        for r in rows])
     if len(df) > 10:
-        query = st.text_input(C.RESEARCH_SEARCH_LABEL, key="research_search")
-        stages = st.multiselect(C.RESEARCH_STAGE_FILTER,
+        c1, c2 = st.columns(2)
+        query = c1.text_input(C.RESEARCH_SEARCH_LABEL, key="research_search")
+        stages = c2.multiselect(C.RESEARCH_STAGE_FILTER,
                                 sorted(df["Stage"].unique()), key="research_stage")
         if query:
             df = df[df["Symbol"].str.contains(query, case=False, na=False)]
@@ -631,10 +754,12 @@ def _render_research() -> None:
             df = df[df["Stage"].isin(stages)]
     st.dataframe(df, width="stretch", hide_index=True)
     st.caption(f"coverage {_manifest_coverage()}")
+    # v10.8.5 (D1): the funnel table above is the content; the per-row drawer
+    # below is optional. Its chart carries a unique key so identical figures can
+    # never collide on Streamlit's auto-generated element id.
     for r in rows:
-        sym = r["_sym"]
-        with st.expander(f"{r['Symbol']} - {r['Stage']}"):
-            _render_instrument_detail(sym, r)
+        with st.expander(f"{r['Symbol']} - {r['Stage']}", expanded=False):
+            _render_instrument_detail(r["_sym"], r)
 
 
 def _manifest_coverage() -> str:
@@ -646,7 +771,11 @@ def _manifest_coverage() -> str:
 
 
 def _render_instrument_detail(sym: str, row: dict) -> None:
-    """Row drawer: price chart, component bars, news, SEC mentions (T6)."""
+    """Row drawer: price chart, score components, headlines, SEC (T6/T5).
+
+    Safe to render for many rows at once: the chart and each element carry a
+    symbol-unique key (v10.8.5, D1).
+    """
     hist = R.q("SELECT Date, Close FROM market_history WHERE Symbol = ? "
                "ORDER BY Date", [sym])
     if not hist.empty:
@@ -658,19 +787,23 @@ def _render_instrument_detail(sym: str, row: dict) -> None:
             fig = go.Figure(go.Scatter(x=hist["d"], y=hist["Close"], mode="lines"))
             fig.update_layout(height=180, margin=dict(l=8, r=8, t=8, b=8),
                               showlegend=False)
-            st.plotly_chart(fig, width="stretch")
-    st.write(f"Score: {row['Score']} ({row['Confidence']} confidence)")
+            st.plotly_chart(fig, width="stretch", key=f"detail_chart_{sym}")
+    st.write(f"Score {row['Score']} | {row['Components']}")
     comps = R.q("SELECT structural_grade, tactical_grade, active_score "
                 "FROM asset_registry WHERE symbol = ?", [sym])
     if not comps.empty:
         c = comps.iloc[0]
-        st.write(f"Fundamental {_safe_score(c.get('structural_grade'))} | "
-                 f"Technical {_safe_score(c.get('tactical_grade'))}")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Fundamental", _short_score(c.get("structural_grade")))
+        m2.metric("Technical", _short_score(c.get("tactical_grade")))
+        m3.metric("Overall", _short_score(c.get("active_score")))
     news = R.q("SELECT title, score FROM nlp_evidence WHERE symbol = ? "
                "ORDER BY published_at DESC LIMIT 5", [sym])
-    if not news.empty:
+    if news.empty:
+        st.caption(C.RESEARCH_NO_NEWS)
+    else:
         for _, n in news.iterrows():
-            st.caption(f"{n.get('title') or '-'}")
+            st.caption(f"{n.get('title') or '-'} ({_news_tone(n.get('score'))})")
     sec = R.q("SELECT COUNT(*) AS n FROM nlp_evidence WHERE symbol = ? "
               "AND lower(coalesce(source,'')) = 'sec'", [sym])
     n = int(sec["n"].iloc[0]) if not sec.empty else 0

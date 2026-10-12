@@ -65,13 +65,17 @@ def save_config(config: dict, path: str | None = None) -> None:
 
 
 def status_line(config: dict | None = None) -> str:
-    """One plain line for the doctor and Settings."""
+    """The plain Telegram state, without the "Telegram" prefix (v10.8.5, D14).
+
+    Callers prepend the label, so the rendered line is "Telegram: on, last test
+    ok" — never "Telegram: Telegram on, ...".
+    """
     cfg = config if config is not None else load_config()
     channel = str(cfg.get("channel", "none")).lower()
     if channel == "telegram":
-        return ("Telegram on, last test ok" if cfg.get("tested")
-                else "Telegram on, not tested yet")
-    return "Telegram off"
+        return ("on, last test ok" if cfg.get("tested")
+                else "on, not tested yet")
+    return "off"
 
 
 def _send_telegram(cfg: dict, text: str) -> bool:

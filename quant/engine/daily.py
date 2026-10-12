@@ -282,7 +282,8 @@ def run_daily(
             (manifest_mod.STATUS_OK if update_fn is not None
              else manifest_mod.STATUS_MISSING),
             coverage=manifest_mod.coverage_text((1, 1)))
-        written = mtm.write_valuation(conn, today, source=mtm.SOURCE_DAILY)
+        res = mtm.backfill(conn, source=mtm.SOURCE_DAILY)
+        written = res.get("rows", 0)
         manifest_mod.record_stage(
             conn, run_id, "valuation", manifest_mod.STATUS_OK,
             coverage=manifest_mod.coverage_text((written, written)))

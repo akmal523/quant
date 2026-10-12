@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.5] - 2026-10-12
+
+"Close the gaps." The Research tab no longer crashes, the chart is continuous with
+per-asset lines, the ONE list carries five verb classes, and the Update holdings table
+fits the screen. No new pages, navigation, chart libraries or dependencies.
+
+### Fixed
+
+- **Research crash (D1/D2)**: `StreamlitDuplicateElementId` from eagerly rendering an
+  identical `plotly_chart` for every expanded row
+  ([`quant/ui/pages.py`](quant/ui/pages.py)). Every drawer chart now carries a
+  symbol-unique key; the funnel table renders.
+- **Flat chart / wrong delta / lagging tail (D3/D4/D5/D7)**: the valuation writer now
+  **backfills every trading day** the portfolio was held
+  ([`mtm.backfill`](quant/engine/mtm.py)); the daily job, confirm and refresh all call
+  it. The series has one point per trading day, the day delta is exactly
+  `total(D) − total(D−1)`, and the chart tail equals the latest close. The home "as of"
+  reads the store date.
+- **Duplicated caption (D6)**: the in-plot "+X% since <date>" annotation (which
+  duplicated the header) was removed.
+- **Duplicated ticker (D8)**: advice labels route through
+  [`label_for`](quant/ui/search.py), so "Sell ~65 EUR of Nasdaq 100 (SXRV)" never
+  doubles the ticker.
+- **Telegram duplication (D14)**: the status line is now "Telegram: on, last test ok".
+- **Cash row (D15)**: "Now 0% / target 10%", and the row name is distinct from its
+  class (no "Cash  Cash").
+- **Update holdings (D10/D11/D13)**: no unnamed index column (`hide_index=True`), a
+  smaller column-priority set with widths, derived Shares and a live-vs-typed Check
+  badge; the Plan column stays editable.
+
+### Added
+
+- **Wider decision taxonomy (D9)** ([`quant/engine/action_taxonomy.py`](quant/engine/action_taxonomy.py)):
+  five verb classes — **Rebalance**, **Threat** (stop/take, drawdown, score floor,
+  bear regime), **Swap** (a paired sell→buy after the fee/tax/confidence hurdle),
+  **Plan change** (Long-term under target for K months), **Cash deploy** (cash over
+  target into the top idea). Each is one item in the ONE list with a reason and an
+  evidence link; Today items rank before This-month.
+- **Holdings Analysis drill-down (D12)** ([`_render_holdings_analysis`](quant/ui/pages.py)):
+  Symbol | Class | Now / Target | Drift (pp) | Score | Alerts | Reason, with the same
+  per-row drawer used in Research.
+
+### Changed
+
+- **Benchmark overlay is Growth-view only (D17)**.
+- **Update holdings** drops the always-visible Name column (shown in the Research and
+  Holdings views) and the redundant live columns.
+
+### Tests
+
+- [`tests/test_v10_8_5.py`](tests/test_v10_8_5.py): Research crash/content/interaction,
+  per-trading-day MTM + day delta, the five taxonomy classes, the Holdings drill-down,
+  and a UI duplicate-ticker/duplicate-word lint.
+
+### Notes
+
+- The Tier W warn baseline grew 91 -> 94 for the new module's non-blocking guards.
+
 ## [10.8.4] - 2026-10-12
 
 "Repair and unify the daily workflow." The product is anchored on one loop again:
