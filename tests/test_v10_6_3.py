@@ -165,12 +165,16 @@ def test_prioritize_sells_with_tax():
 
 def test_signal_cache_stale_detection(tmp_path, monkeypatch):
     """A cache older than max_age_days is invalidated."""
+    from datetime import date
+
     import quant.portfolio.signal_cache as sc
 
     cache_file = tmp_path / "signal_cache.json"
     monkeypatch.setattr(sc, "cache_path", lambda: str(cache_file))
 
-    sc.save_signal_cache([{"symbol": "AAPL"}], "2026-10-01")
+    # A fresh as_of (today): the first assert is clock-relative, never a fixed
+    # calendar date that silently goes stale.
+    sc.save_signal_cache([{"symbol": "AAPL"}], date.today().isoformat())
     assert sc.load_signal_cache(max_age_days=7) is not None
 
     old = time.time() - 10 * 86400

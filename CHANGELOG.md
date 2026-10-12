@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.4] - 2026-10-12
+
+"Repair and unify the daily workflow." The product is anchored on one loop again:
+update the table, the system recomputes everything and shows freshness, Home shows
+ONE action list with sells paired to where the money goes, you act in the broker,
+confirm, optionally invest, repeat. Computed outputs no longer render as None, the
+chart tail tracks the latest stored price, and advice is a stateful object.
+
+### Owner rulings (superseding doctrine)
+
+- **Cash is reintroduced** as a first-class row on Portfolio (class "Cash", target
+  from strategy), included in Total value, and a routing target for sell proceeds.
+  The v10.8.2 "no cash" doctrine is superseded; the enforcing test became the UI
+  smoke test (no literal None/NaN on any page).
+- **New single-source stores**: `valuation`, `portfolio_total`, `splits`,
+  `run_manifest`, `advice_log`.
+- **Version bumped to 10.8.4.**
+
+### Added
+
+- **Daily mark-to-market store** ([`quant/engine/mtm.py`](quant/engine/mtm.py)):
+  `valuation(date, symbol, shares, price_eur, fx, value_eur, source)` +
+  `portfolio_total(date, value_eur, cash_eur)`. Written by the daily job, confirm &
+  save, and the on-demand refresh; idempotent per (date, symbol). Shares are
+  reconstructed from the ledger (buys/sells + corporate-action splits); cash is
+  tracked from the flows. Every chart, delta, holdings value and class weight reads
+  this store.
+- **Analysis pipeline validity contract**
+  ([`quant/engine/manifest.py`](quant/engine/manifest.py)): `run_manifest` records
+  every stage (prices, fundamentals, nlp, regime, scoring, optimization, valuation)
+  with status/coverage/error, so a UI empty state names the failed stage instead of
+  guessing. Scoring penalises missing NLP but still scores (low confidence flag).
+- **Stateful advice log** ([`quant/engine/advice_state.py`](quant/engine/advice_state.py)):
+  advice carries id / created_at / open_since / status; a repeated item shows
+  "open since <date>"; a finished item stops repeating and lands in the History
+  advice log.
+- **Sell pairing** ([`quant/engine/pairing.py`](quant/engine/pairing.py)): every
+  sell proposes its proceeds routing in the same item — largest underweight holding,
+  else the highest-score idea, else "hold as cash (cash target X%)".
+- **Savings-plan reminder lifecycle**
+  ([`quant/engine/reminders.py`](quant/engine/reminders.py)): a stateful task that
+  triggers after the plan date when the flow is missing, auto-clears on confirm, and
+  persists an explicit dismissal. Rendered as a task item in the action area.
+
+### Changed
+
+- **Update holdings** (T2): live Value/Profit/derived Shares as read-only columns
+  from the valuation store, a >1% mismatch check against the typed value, currency
+  labels, an "as of" timestamp, and a data-editor cache fix so a refresh re-syncs
+  the widget. The expander is renamed "Instrument type (Stock / Fund / Commodity)".
+- **Portfolio home** (T3): a labeled day change ("vs previous close: ±X EUR (±Y%)")
+  and a "since first purchase" line, both from the store; the chart's Value view
+  shows the total with cash and a per-asset hover, the Growth view shows one
+  normalized-100 line per held asset plus the portfolio; at most ~6 unique x ticks;
+  cash is a row in the Holdings table and part of Total value.
+- **Invest block** (T8): presets 50/100/500, an inline strategy confirm, a class plan
+  whose rows sum to the amount, and "Add to today's list" pushing This-month items.
+- **Full analysis** (T6): Universe scan + Ideas merge into ONE "Research" funnel
+  table (stage Held/Watchlist/Idea/Rejected, score, confidence, news, weight,
+  reason) with row drawers (price chart, components, news, SEC mentions); a Market
+  tab with a reason + Run analysis; a Pipeline health table; an on-demand,
+  idempotent Run analysis button.
+- **Copy** (T9): "Sell about 65 EUR of Nasdaq 100 (SXRV) (SXRV.DE)" became
+  "Sell ~65 EUR of Nasdaq 100 (SXRV.DE)" (one verb, one ticker); the home bottom
+  navigation buttons were removed (navigation already exists).
+
+### Removed
+
+- The home bottom "Update holdings" / "Full analysis" navigation buttons (T9).
+- The floating savings-plan banner (replaced by a task item, T4).
+
+### Tests
+
+- [`tests/test_v10_8_4_phase1.py`](tests/test_v10_8_4_phase1.py) (14),
+  [`tests/test_v10_8_4_phase2.py`](tests/test_v10_8_4_phase2.py) (12),
+  [`tests/test_v10_8_4_phase3.py`](tests/test_v10_8_4_phase3.py) (6),
+  [`tests/test_v10_8_4_phase4.py`](tests/test_v10_8_4_phase4.py) (4). The former
+  no-cash test became the UI smoke test (no literal None/NaN on any page; cash row
+  present on Portfolio).
+
+### Notes
+
+- The Tier W warn baseline grew 87 -> 91 for the new modules' non-blocking loader/UI
+  guards ([`tests/warn_baseline.txt`](tests/warn_baseline.txt)).
+
 ## [10.8.3] - 2026-10-08
 
 "Live pages, editable history, class-based investing." The five pages now read the

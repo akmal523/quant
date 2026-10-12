@@ -25,6 +25,7 @@ from quant.data.database import read_only_connection
 from quant.reporting.artifacts import (
     read_actions,
     read_history,
+    read_portfolio_total,
     read_regime,
     read_value_series,
 )
@@ -61,6 +62,14 @@ _COLUMN_CONFIG = {
         C.COLUMN_HEADERS["Broker_PnL_EUR"], format="%.2f"),
     _PLAN_COL: st.column_config.NumberColumn(
         C.COLUMN_HEADERS[_PLAN_COL], format="%.2f"),
+    # v10.8.4 (T2): the live read-only columns (from the valuation store).
+    "Live value (EUR)": st.column_config.NumberColumn(
+        "Live value (EUR)", format="%.2f"),
+    "Live profit (EUR)": st.column_config.NumberColumn(
+        "Live profit (EUR)", format="%.2f"),
+    "Shares (derived)": st.column_config.NumberColumn(
+        "Shares (derived)", format="%.6f"),
+    "Check": st.column_config.TextColumn("Check"),
 }
 
 
@@ -114,12 +123,70 @@ def _last_sync_date():
 
 # ── The editable broker table (Update holdings) ───────────────────────────────
 
-def _render_broker_editor(portfolio) -> pd.DataFrame:
-    """The editable broker statement table + the add-row (v10.7.3, Part 1.6).
+def _portfolio_signature(portfolio) -> str:
+    """A stable signature of the saved table, to detect a DB update (T2)."""
+    try:
+        if portfolio is None or getattr(portfolio, "empty", True):
+            return "empty"
+        cols = [c for c in _EDIT_COLS if c in portfolio.columns]
+        return "|".join(
+            f"{r.get('Symbol','')}:{r.get('Current_Value_EUR','')}:"
+            f"{r.get('Broker_PnL_EUR','')}:{r.get('Avg_Entry_Price','')}"
+            for _, r in portfolio[cols].iterrows())
+    except Exception:  # noqa: BLE001
+        return "empty"
+
+
+def _live_columns(base, live) -> None:
+    """Append the read-only live Value / Profit / Shares and a mismatch check (T2).
+
+    Broker-typed Value/Profit stay editable until the first confirm; the live
+    columns come from the valuation store so an entry error is visible.
+    """
+    live = live or {}
+    values, profits, shares, checks = [], [], [], []
+    for sym in base["Symbol"].astype(str):
+        h = live.get(sym)
+        if not h:
+            values.append(None)
+            profits.append(None)
+            shares.append(None)
+            checks.append("")
+            continue
+        values.append(round(float(h.get("value_eur") or 0), 2))
+        profits.append(round(float(h.get("profit_eur") or 0), 2))
+        shares.append(round(float(h.get("shares") or 0), 6))
+        checks.append("")
+    # Mismatch >1% between the typed value and the live value (input sanity).
+    for i, sym in enumerate(base["Symbol"].astype(str)):
+        h = live.get(sym)
+        if not h:
+            continue
+        try:
+            typed = float(base["Current_Value_EUR"].iloc[i] or 0)
+            live_v = float(h.get("value_eur") or 0)
+            if typed > 0 and abs(typed - live_v) / typed > 0.01:
+                checks[i] = f"differs by {abs(typed - live_v) / typed * 100:.0f}%"
+        except Exception:  # noqa: BLE001
+            pass
+    base["Live value (EUR)"] = values
+    base["Live profit (EUR)"] = profits
+    base["Shares (derived)"] = shares
+    base["Check"] = checks
+
+
+def _render_broker_editor(portfolio, live=None) -> pd.DataFrame:
+    """The editable broker statement table + the live read-only columns (T2).
 
     The autocomplete input says what it does; selecting a match appends an
-    empty-value row and shows one helper line. No silent add.
+    empty-value row and shows one helper line. No silent add. After a DB update
+    (a refresh or a confirm) the widget key is invalidated so the editor
+    re-syncs from the database instead of showing stale session state.
     """
+    sig = _portfolio_signature(portfolio)
+    if st.session_state.get("_editor_sig") != sig:
+        st.session_state["_editor_sig"] = sig
+        st.session_state.pop("holdings", None)
     st.caption(C.COST_BASIS_HINT)
     query = st.text_input(
         C.PLACEHOLDER_ADD_HOLDING, key="add_q",
@@ -171,9 +238,13 @@ def _render_broker_editor(portfolio) -> pd.DataFrame:
         base = pd.concat([base, pd.DataFrame(extra)], ignore_index=True)
     # v10.7.3 (Part 2.2): show the company name next to the symbol (read-only).
     base.insert(0, "Name", [_display_name(s) for s in base["Symbol"].astype(str)])
+    # v10.8.4 (T2): append the live read-only Value/Profit/Shares + mismatch check.
+    _live_columns(base, live)
     return st.data_editor(
         base, num_rows="dynamic", column_config=_COLUMN_CONFIG,
-        width="stretch", key="holdings", disabled=["Name"],
+        width="stretch", key="holdings",
+        disabled=["Name", "Live value (EUR)", "Live profit (EUR)",
+                  "Shares (derived)", "Check"],
     )
 
 
@@ -261,25 +332,72 @@ def _annotation_kwargs(text: str) -> dict:
                 bgcolor=P.ANNOTATION_BG)
 
 
-def _render_value_chart(history, holdings) -> None:
-    """Portfolio value chart: range selector, baseline, annotation, Value|Growth.
+def _per_asset_series(since) -> dict:
+    """{symbol: DataFrame(date, value_eur)} from the valuation store (T3)."""
+    try:
+        from quant.engine import mtm
 
-    v10.8.2 (section 5): the chart reads the append-only value series, which runs
-    to the latest price date and never draws a zero for an unpriced day. It falls
-    back to the review history only when the series has fewer than two points.
+        raw = mtm.read_symbol_series()
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict = {}
+    for sym, rows in (raw or {}).items():
+        s = pd.DataFrame(rows)
+        if s.empty:
+            continue
+        s["t"] = pd.to_datetime(s["date"], errors="coerce")
+        s = s.dropna(subset=["t"]).sort_values("t")
+        if since is not None:
+            s = s[s["t"] >= since]
+        if len(s) >= 2:
+            out[str(sym)] = s
+    return out
+
+
+def _cash_frame(since) -> pd.DataFrame:
+    try:
+        from quant.engine import mtm
+
+        rows = mtm.cash_series()
+    except Exception:  # noqa: BLE001
+        return pd.DataFrame()
+    s = pd.DataFrame(rows)
+    if s.empty:
+        return s
+    s["t"] = pd.to_datetime(s["date"], errors="coerce")
+    s = s.dropna(subset=["t"]).sort_values("t")
+    if since is not None:
+        s = s[s["t"] >= since]
+    return s
+
+
+def _render_value_chart(history, holdings) -> None:
+    """Portfolio value chart: Value | Growth (T3, v10.8.4).
+
+    Value  = the absolute portfolio total from the valuation store, with cash and
+             a per-asset hover.
+    Growth = normalized-to-100: a bold portfolio line plus one line per held
+             asset from its first held day. The benchmark stays an optional
+             overlay. The x-axis shows at most six unique readable dates.
     """
     import plotly.graph_objects as go
 
-    series = read_value_series()
-    if series is not None and len(series) >= 2:
-        df = series.copy()
+    total = read_portfolio_total()
+    using_store = total is not None and not total.empty and len(total) >= 2
+    if using_store:
+        df = total.copy()
         df["review_ts"] = pd.to_datetime(df["date"], errors="coerce")
     else:
-        if history is None or len(history) < 3:
+        series = read_value_series()
+        if series is not None and len(series) >= 2:
+            df = series.copy()
+            df["review_ts"] = pd.to_datetime(df["date"], errors="coerce")
+        elif history is not None and len(history) >= 3:
+            df = history.copy()
+            df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
+        else:
             st.info(C.CHART_BUILDING)
             return
-        df = history.copy()
-        df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
     df = df.dropna(subset=["review_ts"]).sort_values("review_ts")
     rng = st.segmented_control(C.LABEL_RANGE, list(_RANGE_DAYS),
                                default="Max", key="val_range") or "Max"
@@ -290,23 +408,44 @@ def _render_value_chart(history, holdings) -> None:
     mode = st.segmented_control(C.LABEL_VIEW, [C.VALUE, C.GROWTH_VIEW],
                                 default=C.VALUE, key="val_mode") or C.VALUE
     growth = mode == C.GROWTH_VIEW
+    since = df["review_ts"].min()
 
     fig = go.Figure()
-    port = _rebase(df["value_eur"]) if growth else df["value_eur"]
-    # v10.7.0 (B8): one clean line, no area fill.
-    fig.add_trace(go.Scatter(
-        x=df["review_ts"], y=port, mode="lines", name="Portfolio",
-        line=dict(width=2, color=P.ACCENT), fill=None))
+    if growth:
+        port = _rebase(df["value_eur"])
+        # v10.8.4 (T3): bold portfolio line + one line per held asset.
+        for sym, s in _per_asset_series(since).items():
+            fig.add_trace(go.Scatter(
+                x=s["t"], y=_rebase(s["value_eur"]), mode="lines",
+                name=_display_name(sym), line=dict(width=1), opacity=0.7))
+        fig.add_trace(go.Scatter(
+            x=df["review_ts"], y=port, mode="lines", name="Portfolio",
+            line=dict(width=3, color=P.ACCENT), fill=None))
+    else:
+        port = df["value_eur"]
+        # Per-asset hover helpers (thin, no legend) so hovering a date lists them.
+        for sym, s in _per_asset_series(since).items():
+            fig.add_trace(go.Scatter(
+                x=s["t"], y=s["value_eur"], mode="lines",
+                name=_display_name(sym), showlegend=False,
+                line=dict(width=0.5), opacity=0.35))
+        if using_store:
+            cash = _cash_frame(since)
+            if len(cash) >= 2:
+                fig.add_trace(go.Scatter(
+                    x=cash["t"], y=cash["cash_eur"], mode="lines", name=C.CLASS_CASH,
+                    line=dict(width=1, dash="dot", color=P.BASELINE)))
+        fig.add_trace(go.Scatter(
+            x=df["review_ts"], y=port, mode="lines", name="Portfolio",
+            line=dict(width=2, color=P.ACCENT), fill=None))
 
-    # v10.7.3 (Part 7.2): exactly one benchmark line, in either view. In Value
-    # view it is scaled to the portfolio's start value so it overlays in EUR.
     if st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
         bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
                   "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
         if not bench.empty:
             bench["d"] = pd.to_datetime(bench["d"], errors="coerce")
             bench = bench.dropna(subset=["d"])
-            bench = bench[bench["d"] >= df["review_ts"].min()]
+            bench = bench[bench["d"] >= since]
             if len(bench) >= 2:
                 close = bench["Close"]
                 if growth:
@@ -323,17 +462,19 @@ def _render_value_chart(history, holdings) -> None:
     fig.add_hline(y=base, line_dash="dot", line_color=P.BASELINE)
     ann = _range_annotation(df, growth)
     if ann:
-        fig.add_annotation(**_annotation_kwargs(ann))     # H3.7 (L5)
-    # v10.7.0 (B8): the axis never starts at zero; pad the visible range.
+        fig.add_annotation(**_annotation_kwargs(ann))
     vals = [float(v) for v in port if v is not None]
     yaxis = {}
     if vals:
         lo, hi = min(vals), max(vals)
         pad = (hi - lo) * 0.1 or max(1.0, abs(hi) * 0.01)
         yaxis = dict(range=[lo - pad, hi + pad])
-    # v10.7.3 (Part 7.1): fixed 320 px height, full container width.
+    # v10.8.4 (T3): at most ~6 unique, readable date ticks (no duplicates).
+    span_days = (df["review_ts"].max() - df["review_ts"].min()).days
+    tickfmt = "%H:%M" if span_days < 3 else "%d %b"
     fig.update_layout(height=320, margin=dict(l=8, r=8, t=30, b=8),
-                      xaxis=dict(tickformat=_axis_tickformat(df)), yaxis=yaxis,
+                      hovermode="x unified",
+                      xaxis=dict(tickformat=tickfmt, nticks=6), yaxis=yaxis,
                       showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
                                   xanchor="left", x=0))

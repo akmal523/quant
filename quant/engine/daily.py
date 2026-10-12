@@ -270,6 +270,25 @@ def run_daily(
     except Exception:  # noqa: BLE001
         pass
 
+    # v10.8.4 (T1/T7): write the mark-to-market valuation store and the run
+    # manifest, so every page reads fresh, traceable values (idempotent).
+    try:
+        from quant.engine import manifest as manifest_mod
+        from quant.engine import mtm
+
+        run_id = manifest_mod.new_run_id()
+        manifest_mod.record_stage(
+            conn, run_id, "prices",
+            (manifest_mod.STATUS_OK if update_fn is not None
+             else manifest_mod.STATUS_MISSING),
+            coverage=manifest_mod.coverage_text((1, 1)))
+        written = mtm.write_valuation(conn, today, source=mtm.SOURCE_DAILY)
+        manifest_mod.record_stage(
+            conn, run_id, "valuation", manifest_mod.STATUS_OK,
+            coverage=manifest_mod.coverage_text((written, written)))
+    except Exception:  # noqa: BLE001
+        pass
+
     # Evaluate alerts.
     new_alerts: list[dict] = []
     try:

@@ -91,12 +91,26 @@ def group_order() -> list[str]:
 
 
 # v10.8.2 (section 6): the first line is always "Verb Name (TICKER) amount".
+# v10.8.4 (T9): "Sell about X EUR of Name (TICKER) (TICKER.DE)" became
+# "Sell ~X EUR of Name (TICKER.DE)": one verb, one ticker.
 _VERB_TEMPLATES = {
     "buy": "Buy {amount} EUR of {label}",
     "top_up": "Buy {amount} EUR of {label}",
-    "sell_part": "Sell about {amount} EUR of {label}",
+    "sell_part": "Sell ~{amount} EUR of {label}",
     "change_savings_plan": "Change the savings plan for {label}",
 }
+
+
+def open_since_line(item: dict) -> str:
+    """The 'open since <date>' state line for a repeated advice (T5).
+
+    A repeated item is never byte-identical without showing how long it has been
+    open; an item with no open_since returns an empty string.
+    """
+    value = item.get("open_since")
+    if value is None:
+        return ""
+    return ui_copy.ADVICE_OPEN_SINCE.format(date=ui_copy.fmt_date(value))
 
 
 def _amount_text(amount) -> str:

@@ -1059,3 +1059,47 @@ _MOAT_WORDS = {"wide": BUFFETT_MOAT_WIDE, "narrow": BUFFETT_MOAT_NARROW}
 def moat_word(moat: str | None) -> str:
     """Map a Buffett moat estimate to its plain display word."""
     return _MOAT_WORDS.get(str(moat), BUFFETT_MOAT_NONE)
+
+
+# ── v10.8.4 (T4/T5/T6/T9): workflow repair copy ───────────────────────────────
+# T4: the savings-plan reminder is a task, cleared when the flow lands or dismissed.
+SAVINGS_PLAN_REMINDER = ("Your savings plan took ~{amount} EUR on {date}. Reflect "
+                         "it in Update holdings, or mark as done.")
+BTN_REMINDER_DONE = "Done / Nothing changed"
+SEC_TASKS = "Tasks"
+# T5: advice is a stateful object; a repeated item shows how long it has been open.
+ADVICE_OPEN_SINCE = "open since {date}"
+ADVICE_DEFERRED = "deferred: {reason}"
+SEC_ADVICE_LOG = "Advice log"
+ADVICE_LOG_EMPTY = "No advice recorded yet."
+ADVICE_LOG_HEADERS = ("Date", "Action", "Instrument", "Amount (EUR)", "Status")
+# T5: the buy side empty state when scores are missing (never silence).
+BUY_SIDE_NO_SCORES = ("No buy ideas yet: analysis has not scored your universe. "
+                      "Run analysis in Full analysis.")
+# T2: explicit empty state instead of a literal None (R2).
+NOT_AVAILABLE = "Not available - {reason}."
+# R3: freshness lines.
+AS_OF_DATE = "as of {date}"
+# T3: labeled day change and since-first-purchase lines.
+DAY_CHANGE = "vs previous close: {sign}{eur} EUR ({sign}{pct}%)"
+SINCE_FIRST = "since first purchase: {sign}{pct}%"
+# T3: the cash row in the holdings table (class Cash, target from strategy).
+CLASS_CASH = "Cash"
+CASH_TARGET_HEADER = "target {pct}%"
+# T7/T6: pipeline health.
+SEC_PIPELINE_HEALTH = "Pipeline health"
+PIPELINE_HEADERS = ("Stage", "Status", "Last run", "Coverage", "Error")
+BTN_RUN_ANALYSIS = "Run analysis"
+RUN_ANALYSIS_DONE = "Analysis finished: {n} stages recorded."
+# T6: the merged Research surface.
+TAB_RESEARCH = "Research"
+RESEARCH_SEARCH_LABEL = "Search"
+RESEARCH_STAGE_FILTER = "Stage"
+RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Confidence", "News",
+                    "Weight now / target", "Reason")
+RESEARCH_EMPTY = "No instruments in the research funnel yet."
+# T8: the invest-amount flow.
+BTN_ADD_TO_LIST = "Add to today's list"
+INVEST_PRESET_HINT = "Preset amounts"
+STRATEGY_CONFIRM_LABEL = "This changes your class targets. Apply the new strategy?"
+BTN_STRATEGY_APPLY = "Apply strategy"

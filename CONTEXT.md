@@ -3,6 +3,40 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.4 — Unified daily workflow, mark-to-market, stateful advice (rulings)
+
+- **Cash is back (supersedes v10.8.2).** Cash is a first-class row on Portfolio
+  (class "Cash", target from the strategy), part of Total value, and a routing
+  target for sell proceeds ("hold as cash, cash target X%"). The old "no cash"
+  test became the UI smoke test (no literal None/NaN on any page).
+- **One value per datum (T1).** The valuation store
+  ([`quant/engine/mtm.py`](quant/engine/mtm.py):
+  `valuation(date, symbol, shares, price_eur, fx, value_eur, source)` +
+  `portfolio_total(date, value_eur, cash_eur)` + `splits`) is the SINGLE source for
+  every on-screen value, chart, delta, holdings table and class weight. It is
+  written by the daily job, confirm & save and the on-demand refresh; idempotent per
+  (date, symbol). Shares are reconstructed from the ledger (buys/sells/splits); cash
+  from the flows. Ad-hoc snapshot joins are repointed here.
+- **Validity contract (T7).** `run_manifest(run_id, stage, status, started_at,
+  finished_at, coverage, error)` records every stage
+  ([`quant/engine/manifest.py`](quant/engine/manifest.py)); a UI empty state names
+  the failed stage and error, never a literal None. A missing NLP input yields a
+  score with the documented confidence penalty (low flag), never a silent skip.
+- **Stateful advice (T5).** `advice_log` persists advice with created_at /
+  open_since / status; a repeated item shows "open since <date>", a done item stops
+  repeating and appears in the History advice log. Every sell is paired with where
+  its proceeds go ([`quant/engine/pairing.py`](quant/engine/pairing.py)): largest
+  underweight holding -> highest-score idea -> hold as cash.
+- **Reminder lifecycle (T4).** The savings-plan reminder is a stateful task
+  ([`quant/engine/reminders.py`](quant/engine/reminders.py)): triggers after the plan
+  date when the flow is missing, auto-clears on confirm, persists an explicit
+  dismissal, and renders in the action area (not a banner).
+- **Copy (T9).** One verb, one ticker ("Sell ~65 EUR of Nasdaq 100 (SXRV.DE)");
+  the home bottom navigation buttons are removed. Class words stay
+  Long-term / Active / Small bets via the single `CLASS_LABELS` map (R6).
+- **Five pages, same visual language.** Full analysis merges Universe scan + Ideas
+  into one "Research" tab and adds Pipeline health + Market; no new page.
+
 ## v10.8.3 — Live pages, class investing, editable history (rulings)
 
 - **The live holdings view** ([`quant/engine/holdings_view.py`](quant/engine/holdings_view.py))

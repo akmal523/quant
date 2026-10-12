@@ -55,6 +55,17 @@ def confirm_save(cleaned, diff: dict, when: date | None = None,
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "changes": 0, "error": str(e)}
 
+    # 5. v10.8.4 (T1): write the day's mark-to-market valuation from the ledger,
+    #    so every page reads the confirmed state immediately (idempotent).
+    try:
+        from quant.data.database import write_connection
+        from quant.engine import mtm
+
+        with write_connection() as conn:
+            mtm.write_valuation(conn, when, source=mtm.SOURCE_CONFIRM)
+    except Exception:  # noqa: BLE001
+        pass  # the table + snapshot + ledger are already saved; never fail here
+
     return {"ok": True, "changes": len(diff.get("changes", [])), "error": None}
 
 

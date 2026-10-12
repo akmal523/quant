@@ -589,6 +589,78 @@ def init_db() -> None:
         )
     """)
 
+    # ── v10.8.4 (T1): the daily mark-to-market valuation store ───────────────
+    # The SINGLE source for every on-screen value: value_eur = shares * price_eur
+    # * fx. Written by the daily job, confirm & save, and the on-demand refresh;
+    # idempotent per (date, symbol). All charts, deltas, holdings tables and class
+    # weights read THIS store (no ad-hoc snapshot joins).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS valuation (
+            date DATE,
+            symbol VARCHAR,
+            shares DOUBLE,
+            price_eur DOUBLE,
+            fx DOUBLE,
+            value_eur DOUBLE,
+            source VARCHAR,
+            PRIMARY KEY (date, symbol)
+        )
+    """)
+    # One row per date: the portfolio total (sum of valuation.value_eur) + cash.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_total (
+            date DATE PRIMARY KEY,
+            value_eur DOUBLE,
+            cash_eur DOUBLE
+        )
+    """)
+    # Corporate-action split factors, so share reconstruction is honest across a
+    # split (factor 2.0 for a 2:1). Written by the ingest path when detected.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS splits (
+            symbol VARCHAR,
+            effective_date DATE,
+            factor DOUBLE,
+            PRIMARY KEY (symbol, effective_date)
+        )
+    """)
+
+    # ── v10.8.4 (T7): the analysis-pipeline validity contract ────────────────
+    # Every run (daily or on-demand) writes one row per stage, so a UI empty
+    # state reads the manifest instead of guessing why a value is missing.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS run_manifest (
+            run_id VARCHAR,
+            stage VARCHAR,
+            status VARCHAR,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            coverage VARCHAR,
+            error VARCHAR,
+            PRIMARY KEY (run_id, stage)
+        )
+    """)
+
+    # ── v10.8.4 (T5): the stateful advice log ────────────────────────────────
+    # Advice is a persisted object, not a pure re-computation: it carries
+    # created_at / open_since / status so a repeated item shows how long it has
+    # been open and a done item stops repeating and appears in History.
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS advice_log_id_seq START 1")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS advice_log (
+            id BIGINT DEFAULT nextval('advice_log_id_seq'),
+            verb VARCHAR,
+            symbol VARCHAR,
+            amount_eur DOUBLE,
+            reason VARCHAR,
+            horizon VARCHAR,
+            class VARCHAR,
+            created_at TIMESTAMP DEFAULT now(),
+            open_since DATE,
+            status VARCHAR DEFAULT 'open'
+        )
+    """)
+
     # ── v10.7.0: Alerts (level-triggered, Section 5) ─────────────────────────
     # An alert stays open until the user resolves it. Self-scoring prices a
     # resolved alert 30 days later and records a verdict (the honesty ledger).

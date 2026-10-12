@@ -96,6 +96,8 @@ def test_navigation_order_and_labels():
 
 
 def test_update_page_links_to_portfolio():
+    # v10.8.4 (T9): the home bottom buttons were navigation dressed as actions;
+    # they are removed. The confirmed save still returns to Portfolio.
     pages = (Path(__file__).resolve().parents[1] / "quant" / "ui" / "pages.py").read_text()
     assert 'st.switch_page("pages/portfolio.py")' in pages
-    assert 'st.switch_page("pages/update.py")' in pages
+    assert 'st.switch_page("pages/update.py")' not in pages

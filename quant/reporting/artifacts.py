@@ -365,14 +365,37 @@ def read_history() -> pd.DataFrame:
     return load_history()
 
 
-def read_value_series() -> pd.DataFrame:
-    """The daily invested-value series (v10.8.0, Phase 1).
+def read_portfolio_total() -> pd.DataFrame:
+    """The daily portfolio total from the valuation store (v10.8.4, T1).
 
-    Built from append-only position snapshots, recorded flows, and daily closes
-    converted to EUR. Independent of reviews: it works on a database with zero
-    reviews. Returns a frame with columns ``date`` and ``value_eur`` (empty when
-    there is no data). Never raises.
+    The single source for the home chart and the day delta. Columns ``date``,
+    ``value_eur`` and ``cash_eur``; empty when nothing is stored. Never raises.
     """
+    empty = pd.DataFrame(columns=["date", "value_eur", "cash_eur"])
+    try:
+        from quant.engine import mtm
+
+        series = mtm.read_series()
+    except Exception:  # noqa: BLE001
+        return empty
+    if not series:
+        return empty
+    return pd.DataFrame(series)
+
+
+def read_value_series() -> pd.DataFrame:
+    """The daily invested-value series (v10.8.0; store v10.8.4, T1).
+
+    Reads the mark-to-market ``portfolio_total`` store (the single source) and
+    falls back to the legacy snapshot+flow builder only when the store is empty,
+    so a pre-v10.8.4 database still charts. Independent of reviews. Returns a
+    frame with columns ``date`` and ``value_eur`` (empty when there is no data).
+    Never raises.
+    """
+    store = read_portfolio_total()
+    if not store.empty:
+        return store[["date", "value_eur"]].copy()
+
     from quant.data.currency import get_fx_to_eur
     from quant.data.database import read_only_connection
     from quant.engine.value_series import build_value_series

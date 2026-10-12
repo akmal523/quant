@@ -24,10 +24,11 @@ def test_buy_line_has_verb_name_ticker_amount():
     assert line == "Buy 140 EUR of iShares Core MSCI World (EUNL)"
 
 
-def test_sell_line_has_about_and_amount():
+def test_sell_line_has_amount_and_tilde():
+    # v10.8.4 (T9): one verb, one ticker: "Sell ~75 EUR of ... (not "Sell about").
     line = format_item_line(
         _item("sell_part", "iShares NASDAQ 100 (SXRV)", 75))
-    assert line == "Sell about 75 EUR of iShares NASDAQ 100 (SXRV)"
+    assert line == "Sell ~75 EUR of iShares NASDAQ 100 (SXRV)"
 
 
 def test_amount_uses_thousands_separator():

@@ -375,6 +375,21 @@ def main() -> int:
     except Exception as _e:  # noqa: BLE001
         reporter.detail(f"update state skipped: {_e}")
 
+    # ── v10.8.4 (T1/T7): write the mark-to-market valuation store and the run
+    # manifest so the on-demand refresh extends the chart and the header delta.
+    try:
+        from quant.engine import manifest as _manifest
+        from quant.engine import mtm as _mtm
+
+        _run = _manifest.new_run_id()
+        _manifest.record_stage(conn, _run, "prices", _manifest.STATUS_OK,
+                               coverage=_manifest.coverage_text((len(all_data), total)))
+        _written = _mtm.write_valuation(conn, source=_mtm.SOURCE_REFRESH)
+        _manifest.record_stage(conn, _run, "valuation", _manifest.STATUS_OK,
+                               coverage=_manifest.coverage_text((_written, _written)))
+    except Exception as _e:  # noqa: BLE001
+        reporter.detail(f"valuation store skipped: {_e}")
+
     # ── Terse aggregate summary (spec 3.2, max 20 lines) ────────────────────
     latest_bar = final_df["Date"].max() if "Date" in final_df.columns else "unknown"
     reporter.line(f"  universe {meta['universe']} symbols; funnel survivors {meta['survivors']}")
