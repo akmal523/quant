@@ -1101,6 +1101,10 @@ RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Components", "News",
                     "Weight now / target", "Reason")
 RESEARCH_EMPTY = "No instruments in the research funnel yet."
 RESEARCH_NO_NEWS = "No recent headlines."
+# v10.8.6 (A1): one lazy per-tab drawer; a symbol is inspected only when picked.
+INSPECT_SYMBOL = "Inspect symbol"
+INSPECT_HOLDING = "Inspect holding"
+INSPECT_PLACEHOLDER = "Choose a row..."
 # T8: the invest-amount flow.
 BTN_ADD_TO_LIST = "Add to today's list"
 INVEST_PRESET_HINT = "Preset amounts"

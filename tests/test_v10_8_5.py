@@ -89,15 +89,16 @@ def test_every_page_has_a_content_marker():
         assert has_rows or _text(at).strip(), f"{title} rendered nothing"
 
 
-def test_research_has_expanders_when_rows_exist():
+def test_research_has_an_inspect_control_when_rows_exist():
+    """v10.8.6 (A1): the drawer is one lazy inspect select, not per-row expanders."""
     at = _run("pages/analysis.py")
     assert not at.exception
-    expanders = getattr(at, "expander", [])
     has_stage = any(
         v is not None and hasattr(v, "columns") and "Stage" in v.columns
         for v in _frames(at))
     if has_stage:
-        assert len(expanders) >= 1
+        labels = [str(getattr(sb, "label", "")) for sb in getattr(at, "selectbox", [])]
+        assert any("Inspect" in label for label in labels)
 
 
 # ── Phase B (T2): per-trading-day MTM + day delta ─────────────────────────────

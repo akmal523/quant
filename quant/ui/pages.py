@@ -705,10 +705,9 @@ def _render_holdings_analysis() -> None:
                        for r in rows])
     st.dataframe(df, width="stretch", hide_index=True)
     st.caption(f"coverage {_manifest_coverage()}")
-    for r in rows:
-        with st.expander(r["Symbol"], expanded=False):
-            _render_instrument_detail(r["_sym"],
-                                      {"Score": r["Score"], "Components": ""})
+    by_sym = {r["_sym"]: {"Score": r["Score"], "Components": ""} for r in rows}
+    _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="ha",
+                    key="ha_inspect", label=C.INSPECT_HOLDING)
 
 
 def page_analysis() -> None:
@@ -716,17 +715,32 @@ def page_analysis() -> None:
     st.title("Full analysis")
     tabs = st.tabs(["Holdings analysis", C.TAB_RESEARCH, C.SEC_MARKET,
                     C.SEC_PIPELINE_HEALTH])
+    # v10.8.6 (A2): an error boundary per tab. A failing tab renders its own
+    # error card and the other three still render; one bug never kills the page.
     with tabs[0]:
-        _render_holdings_analysis()
+        _guarded("Holdings analysis", _render_holdings_analysis)
     with tabs[1]:
-        _render_research()
+        _guarded(C.TAB_RESEARCH, _render_research)
     with tabs[2]:
-        _render_market()
+        _guarded(C.SEC_MARKET, _render_market)
     with tabs[3]:
-        _pipeline_table()
-        if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_health",
-                     width="stretch"):
-            _run_cli("run")
+        _guarded(C.SEC_PIPELINE_HEALTH, _render_pipeline)
+
+
+def _guarded(label: str, render: object, *args: object) -> None:
+    """Render a tab body, catching any failure into an in-tab error card (A2)."""
+    try:
+        render(*args)  # type: ignore[operator]
+    except Exception as e:  # noqa: BLE001
+        st.error(f"{label} tab failed: {e}")
+        st.caption("See Pipeline health for details.")
+
+
+def _render_pipeline() -> None:
+    """Pipeline health tab body: the stage table + a Run analysis button."""
+    _pipeline_table()
+    if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_health", width="stretch"):
+        _run_cli("run")
 
 
 def _render_research() -> None:
@@ -757,9 +771,9 @@ def _render_research() -> None:
     # v10.8.5 (D1): the funnel table above is the content; the per-row drawer
     # below is optional. Its chart carries a unique key so identical figures can
     # never collide on Streamlit's auto-generated element id.
-    for r in rows:
-        with st.expander(f"{r['Symbol']} - {r['Stage']}", expanded=False):
-            _render_instrument_detail(r["_sym"], r)
+    by_sym = {r["_sym"]: r for r in rows}
+    _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="rs",
+                    key="rs_inspect", label=C.INSPECT_SYMBOL)
 
 
 def _manifest_coverage() -> str:
@@ -770,11 +784,30 @@ def _manifest_coverage() -> str:
     return scoring.get("coverage") or "-"
 
 
-def _render_instrument_detail(sym: str, row: dict) -> None:
+def _inspect_drawer(symbols: list[str], rows_by_sym: dict, prefix: str,
+                    key: str, label: str) -> None:
+    """One lazy per-tab symbol drawer (v10.8.6, A1).
+
+    Renders the detail for the selected symbol only; the select's keys and the
+    drawer's widget keys are scoped by ``prefix`` ("ha"/"rs"), so the same
+    symbol inspected in two tabs can never collide on a Streamlit key.
+    """
+    if not symbols:
+        return
+    choice = st.selectbox(label, symbols, index=None,
+                          placeholder=C.INSPECT_PLACEHOLDER, key=key,
+                          format_func=_display)
+    if choice is None:
+        return
+    _render_instrument_detail(choice, rows_by_sym[choice], prefix=prefix)
+
+
+def _render_instrument_detail(sym: str, row: dict, prefix: str = "rs") -> None:
     """Row drawer: price chart, score components, headlines, SEC (T6/T5).
 
-    Safe to render for many rows at once: the chart and each element carry a
-    symbol-unique key (v10.8.5, D1).
+    ``prefix`` scopes every widget key to the tab context ("ha"/"rs"), so the
+    same symbol inspected in two tabs can never collide on a page-global key
+    (v10.8.6, A1).
     """
     hist = R.q("SELECT Date, Close FROM market_history WHERE Symbol = ? "
                "ORDER BY Date", [sym])
@@ -787,7 +820,7 @@ def _render_instrument_detail(sym: str, row: dict) -> None:
             fig = go.Figure(go.Scatter(x=hist["d"], y=hist["Close"], mode="lines"))
             fig.update_layout(height=180, margin=dict(l=8, r=8, t=8, b=8),
                               showlegend=False)
-            st.plotly_chart(fig, width="stretch", key=f"detail_chart_{sym}")
+            st.plotly_chart(fig, width="stretch", key=f"{prefix}_chart_{sym}")
     st.write(f"Score {row['Score']} | {row['Components']}")
     comps = R.q("SELECT structural_grade, tactical_grade, active_score "
                 "FROM asset_registry WHERE symbol = ?", [sym])
