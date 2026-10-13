@@ -132,6 +132,32 @@ def coverage_text(line: str | list | tuple | None) -> str:
     return str(line)
 
 
+def _fmt_ts(value: Any) -> str:
+    """A timestamp as '13 Oct 2026, 17:43' (empty when unknown)."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d %b %Y, %H:%M")
+    return str(value)
+
+
+def coverage_line(conn: Any = None) -> str:
+    """The ONE coverage line: ``coverage: <n>/<N> symbols, as of <ts>`` (R-P2).
+
+    Reads the run manifest's scoring stage. A bare "-" is forbidden: when no
+    coverage is recorded the line is a reasoned empty state, never a dash.
+    """
+    rows = {r["stage"]: r for r in read_manifest(conn)}
+    scoring = rows.get("scoring", {})
+    cov = str(scoring.get("coverage") or "").strip()
+    if not cov or cov == "-":
+        return "coverage: not available yet"
+    when = _fmt_ts(scoring.get("finished_at"))
+    if when:
+        return f"coverage: {cov}, as of {when}"
+    return f"coverage: {cov}"
+
+
 def confidence_flag(present: int, total: int) -> str:
     """The data-confidence flag carried on every score (T7).
 

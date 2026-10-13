@@ -706,49 +706,47 @@ def _pipeline_table() -> None:
     st.dataframe(pd.DataFrame(table), width="stretch", hide_index=True)
 
 
-def _open_alert_count(sym: str) -> int:
-    """Open alerts for a symbol (T5). Never raises."""
-    try:
-        from quant.data.database import read_only_connection
-        from quant.engine import alerts as alerts_mod
-
-        with read_only_connection() as conn:
-            return sum(1 for a in alerts_mod.open_alerts(conn)
-                       if str(a.get("symbol")) == sym)
-    except Exception:  # noqa: BLE001
-        return 0
-
-
 def _render_holdings_analysis() -> None:
-    """Per-holding drill-down (v10.8.5, T5): table + row drawer."""
+    """Per-holding drill-down (v10.8.5, T5; v10.8.8, T2/R-P2): derived cells.
+
+    The Reason and Alerts cells are DERIVED from advice state, weights and the
+    run manifest, never placeholders. The coverage line is the ONE helper.
+    """
+    from quant.engine import advice_state
+    from quant.engine import holdings_analysis as HA
+    from quant.engine import manifest as M
     from quant.reporting.artifacts import read_scores
 
     holdings = _holdings()
     if not holdings:
         st.info("No holdings yet.")
         return
+    open_advice = advice_state.open_items()
+    scores = _scores_map()
+    regime = R.read_regime()
     rows = []
     for h in holdings:
-        s = read_scores(h["symbol"]) or {}
+        sym = h["symbol"]
+        s = read_scores(sym) or {}
         score = s.get("active_score")
         if score is None:
             score = s.get("structural_grade")
         cur = float(h.get("current_weight") or 0)
         tgt = float(h.get("target_weight") or 0)
         rows.append({
-            "Symbol": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
+            "Symbol": R.label_for(h.get("name") or sym, sym),
             "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
             "Now / Target": f"{cur * 100:.0f}% / {tgt * 100:.0f}%",
             "Drift (pp)": f"{(cur - tgt) * 100:+.1f}",
             "Score": _safe_score(score),
-            "Alerts": str(_open_alert_count(h["symbol"])),
-            "Reason": "held",
-            "_sym": h["symbol"],
+            C.HOLDINGS_ALERTS_HEADER: str(HA.alert_count(sym, holdings, scores, regime)),
+            C.HOLDINGS_REASON_HEADER: HA.reason_cell(sym, open_advice, cur - tgt, tgt),
+            "_sym": sym,
         })
     df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")}
                        for r in rows])
     st.dataframe(df, width="stretch", hide_index=True)
-    st.caption(f"coverage {_manifest_coverage()}")
+    st.caption(M.coverage_line())
     by_sym = {r["_sym"]: {"Score": r["Score"], "Components": ""} for r in rows}
     _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="ha",
                     key="ha_inspect", label=C.INSPECT_HOLDING)
@@ -812,21 +810,13 @@ def _render_research() -> None:
         if stages:
             df = df[df["Stage"].isin(stages)]
     st.dataframe(df, width="stretch", hide_index=True)
-    st.caption(f"coverage {_manifest_coverage()}")
+    st.caption(M.coverage_line())
     # v10.8.5 (D1): the funnel table above is the content; the per-row drawer
     # below is optional. Its chart carries a unique key so identical figures can
     # never collide on Streamlit's auto-generated element id.
     by_sym = {r["_sym"]: r for r in rows}
     _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="rs",
                     key="rs_inspect", label=C.INSPECT_SYMBOL)
-
-
-def _manifest_coverage() -> str:
-    from quant.engine import manifest as M
-
-    rows = {x["stage"]: x for x in M.read_manifest()}
-    scoring = rows.get("scoring", {})
-    return scoring.get("coverage") or "-"
 
 
 def _inspect_drawer(symbols: list[str], rows_by_sym: dict, prefix: str,
@@ -848,44 +838,119 @@ def _inspect_drawer(symbols: list[str], rows_by_sym: dict, prefix: str,
 
 
 def _render_instrument_detail(sym: str, row: dict, prefix: str = "rs") -> None:
-    """Row drawer: price chart, score components, headlines, SEC (T6/T5).
+    """Row drawer: FIVE sections, fixed order, each with an explicit empty state.
 
-    ``prefix`` scopes every widget key to the tab context ("ha"/"rs"), so the
-    same symbol inspected in two tabs can never collide on a page-global key
-    (v10.8.6, A1).
+    (1) price chart; (2) score + component bars; (3) latest <=5 news headlines
+    with tone, or a reasoned empty state + CTA; (4) SEC mention count, or a
+    reasoned empty state; (5) open advice list, or "no open advice". ``prefix``
+    scopes every widget key to the tab context ("ha"/"rs"), so the same symbol
+    inspected in two tabs can never collide on a page-global key (v10.8.6, A1).
     """
+    _drawer_price(sym, prefix)
+    _drawer_score(sym, row)
+    _drawer_news(sym)
+    _drawer_sec(sym)
+    _drawer_advice(sym)
+
+
+def _drawer_price(sym: str, prefix: str) -> None:
+    """Section 1: the price chart, or a reasoned empty state."""
+    st.markdown(f"**{C.DRAWER_PRICE}**")
     hist = R.q("SELECT Date, Close FROM market_history WHERE Symbol = ? "
                "ORDER BY Date", [sym])
-    if not hist.empty:
-        import plotly.graph_objects as go
+    if hist.empty:
+        st.caption(C.DRAWER_NO_PRICE.format(reason="no market data yet"))
+        return
+    import plotly.graph_objects as go
 
-        hist["d"] = pd.to_datetime(hist["Date"], errors="coerce")
-        hist = hist.dropna(subset=["d"])
-        if len(hist) >= 2:
-            fig = go.Figure(go.Scatter(x=hist["d"], y=hist["Close"], mode="lines"))
-            fig.update_layout(height=180, margin=dict(l=8, r=8, t=8, b=8),
-                              showlegend=False)
-            st.plotly_chart(fig, width="stretch", key=f"{prefix}_chart_{sym}")
-    st.write(f"Score {row['Score']} | {row['Components']}")
+    hist["d"] = pd.to_datetime(hist["Date"], errors="coerce")
+    hist = hist.dropna(subset=["d"])
+    if len(hist) < 2:
+        st.caption(C.DRAWER_NO_PRICE.format(reason="not enough history yet"))
+        return
+    fig = go.Figure(go.Scatter(x=hist["d"], y=hist["Close"], mode="lines"))
+    fig.update_layout(height=180, margin=dict(l=8, r=8, t=8, b=8), showlegend=False)
+    st.plotly_chart(fig, width="stretch", key=f"{prefix}_chart_{sym}")
+
+
+def _score_frac(value) -> float:
+    """A 0..1 fraction for a 0..100 score bar (0.0 when unknown)."""
+    f = pd.to_numeric(value, errors="coerce")
+    if f is None or f != f:
+        return 0.0
+    return max(0.0, min(1.0, float(f) / 100.0))
+
+
+def _drawer_score(sym: str, row: dict) -> None:
+    """Section 2: the score plus one component bar per component."""
+    st.markdown(f"**{C.DRAWER_SCORE}**")
+    st.write(f"{row.get('Score', '-')} | {row.get('Components', '')}")
     comps = R.q("SELECT structural_grade, tactical_grade, active_score "
                 "FROM asset_registry WHERE symbol = ?", [sym])
-    if not comps.empty:
-        c = comps.iloc[0]
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Fundamental", _short_score(c.get("structural_grade")))
-        m2.metric("Technical", _short_score(c.get("tactical_grade")))
-        m3.metric("Overall", _short_score(c.get("active_score")))
+    if comps.empty:
+        st.caption(C.NOT_AVAILABLE.format(reason="no score yet"))
+        return
+    c = comps.iloc[0]
+    for label, val in (("Fundamental", c.get("structural_grade")),
+                       ("Technical", c.get("tactical_grade")),
+                       ("Overall", c.get("active_score"))):
+        st.caption(f"{label}: {_short_score(val)}")
+        st.progress(_score_frac(val))
+
+
+def _drawer_news(sym: str) -> None:
+    """Section 3: the latest <=5 headlines with tone, or a reasoned empty state."""
+    from quant.engine import manifest as M
+
+    st.markdown(f"**{C.DRAWER_NEWS}**")
     news = R.q("SELECT title, score FROM nlp_evidence WHERE symbol = ? "
                "ORDER BY published_at DESC LIMIT 5", [sym])
     if news.empty:
-        st.caption(C.RESEARCH_NO_NEWS)
-    else:
-        for _, n in news.iterrows():
-            st.caption(f"{n.get('title') or '-'} ({_news_tone(n.get('score'))})")
+        reason = M.empty_state_reason("nlp") or "no news source yet"
+        st.caption(C.DRAWER_NO_NEWS.format(reason=reason)
+                   + f" [{C.BTN_RUN_ANALYSIS}]")
+        return
+    for _, n in news.iterrows():
+        st.caption(f"{n.get('title') or '-'} ({_news_tone(n.get('score'))})")
+
+
+def _drawer_sec(sym: str) -> None:
+    """Section 4: the SEC mention count, or a reasoned empty state."""
+    from quant.engine import manifest as M
+
+    st.markdown(f"**{C.DRAWER_SEC}**")
     sec = R.q("SELECT COUNT(*) AS n FROM nlp_evidence WHERE symbol = ? "
               "AND lower(coalesce(source,'')) = 'sec'", [sym])
     n = int(sec["n"].iloc[0]) if not sec.empty else 0
+    if n == 0:
+        reason = M.empty_state_reason("nlp") or "no SEC filings fetched yet"
+        st.caption(C.DRAWER_NO_SEC.format(reason=reason))
+        return
     st.caption(f"SEC filing mentions: {n}.")
+
+
+def _drawer_advice(sym: str) -> None:
+    """Section 5: the numbered threat triggers + open advice, or "no open advice"."""
+    from quant.engine import advice_state
+    from quant.engine import holdings_analysis as HA
+
+    st.markdown(f"**{C.DRAWER_ADVICE}**")
+    holdings = _holdings()
+    triggers = HA.threat_alerts(sym, holdings, _scores_map(), R.read_regime())
+    items = [it for it in advice_state.open_items()
+             if str(it.get("symbol") or "") == str(sym)]
+    if not triggers and not items:
+        st.caption(C.DRAWER_NO_ADVICE)
+        return
+    n = 0
+    for t in triggers:
+        n += 1
+        st.caption(C.DRAWER_ALERT_LINE.format(
+            n=n, reason=t.get("reason") or "trigger"))
+    for it in items:
+        n += 1
+        st.caption(C.DRAWER_ALERT_LINE.format(
+            n=n, reason=it.get("reason") or it.get("verb") or "advice"))
 
 
 def _render_market() -> None:

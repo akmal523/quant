@@ -272,6 +272,22 @@ ENTRY_CHECK_CAPTION = "Live values as of {date}; shares derived from your entrie
 ENTRY_CHECK_AMBER = "differs by {pct}% from the live value"
 ENTRY_CHECK_EMPTY = "No holdings to check yet."
 
+# v10.8.8 (R-P2): the Holdings Analysis drawer content contract. Fixed section
+# order; each section has an explicit empty state (never silence or a dash).
+DRAWER_PRICE = "Price"
+DRAWER_SCORE = "Score"
+DRAWER_NEWS = "News"
+DRAWER_SEC = "SEC filings"
+DRAWER_ADVICE = "Open advice"
+DRAWER_NO_PRICE = "no price history yet - {reason}"
+DRAWER_NO_NEWS = "no news fetched yet - {reason}"
+DRAWER_NO_SEC = "no SEC filings fetched yet - {reason}"
+DRAWER_NO_ADVICE = "no open advice"
+DRAWER_ALERT_LINE = "{n}. {reason}"
+# v10.8.8 (R-P2): the derived Holdings Analysis cells.
+HOLDINGS_REASON_HEADER = "Reason"
+HOLDINGS_ALERTS_HEADER = "Alerts"
+
 # ── First-run guide (spec 8) ──────────────────────────────────────────────────
 FIRST_RUN_STEPS = [
     "Open My holdings and add your positions.",
