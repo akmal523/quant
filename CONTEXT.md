@@ -3,6 +3,28 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.6 — P0 repairs: lazy drawers, one valuation source (rulings)
+
+- **Research is safe to expand, by construction.** Each Full-analysis tab has ONE lazy
+  "Inspect symbol" select; the drawer renders only for the selected symbol and every
+  widget key is scoped by the tab context (`ha_*` / `rs_*`), so the same symbol in two
+  tabs can never collide on a Streamlit page-global key. Each tab body is wrapped in an
+  error boundary ([`quant/ui/pages.py`](quant/ui/pages.py)).
+- **One value per datum, enforced.** The chart and the header delta read ONLY the
+  valuation store through named pure helpers
+  ([`quant/reporting/artifacts.py`](quant/reporting/artifacts.py)):
+  `compute_day_delta`, `compute_growth_view`, `compute_value_view_hover`,
+  `format_chart_ticks` / `chart_tick_dates`. `mtm.day_delta` routes through
+  `compute_day_delta`; the renderer never recomputes shares/values inline.
+- **Continuous store, honest tail.** [`mtm.catch_up`](quant/engine/mtm.py) backfills the
+  store to the latest price once per process start (bounded retry; on failure one log
+  line + `valuation` stage `stale`). The series has one point per trading day, the tail
+  equals the latest close, and the reader never forward-fills.
+- **Six invariants** ([`tests/test_v10_8_6_invariants.py`](tests/test_v10_8_6_invariants.py))
+  enforce tail = latest close, one point per trading day, delta = total(D) − total(D−1),
+  chart tail = portfolio total, Growth = portfolio + per-asset at 100, and Value hover =
+  total + cash + per-asset (sum-checked).
+
 ## v10.8.5 — Close the gaps: continuous MTM, five verbs, screen-fit tables (rulings)
 
 - **Continuous mark-to-market.** The valuation store is written for EVERY trading day

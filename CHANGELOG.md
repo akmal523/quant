@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.6] - 2026-10-13
+
+"Fix the P0 defects permanently." The Research tab can no longer crash on a duplicate
+Streamlit key, and the chart is correct by construction: the valuation store is the
+single source, the day delta and the chart tail are computed by named pure helpers, and
+six invariants enforce it. No new pages, dependencies or visual density.
+
+### Fixed
+
+- **Research crash (Defect A)**: the per-row drawers were rendered eagerly inside
+  `st.expander` (whose body runs every rerun) with a symbol-only chart key, so the same
+  symbol in Holdings Analysis and Research collided on a page-global key
+  (`StreamlitDuplicateElementKey`). Each tab now has ONE lazy "Inspect symbol" select;
+  the drawer renders only for the selected symbol, and every widget key is scoped by the
+  tab context (`ha_*` / `rs_*`). Each of the four Full-analysis tabs is wrapped in an
+  error boundary, so one failing tab renders an in-tab error card and the other three
+  still render ([`quant/ui/pages.py`](quant/ui/pages.py)).
+- **Chart correctness (Defect B)**: the chart and the header delta now read ONLY the
+  valuation store through named pure helpers
+  ([`quant/reporting/artifacts.py`](quant/reporting/artifacts.py)):
+  `compute_day_delta` (the header number), `compute_growth_view` (portfolio + one line
+  per held asset, normalized to 100), `compute_value_view_hover` (total + cash + each
+  held asset), and `format_chart_ticks` / `chart_tick_dates` (unique, readable dates).
+  `mtm.day_delta` routes through `compute_day_delta`, so the header and the invariant can
+  never drift. The Value view carries one composed per-asset hover; the Growth view draws
+  the portfolio plus one line per held asset; the tail equals the latest close.
+- **Startup catch-up**: [`mtm.catch_up`](quant/engine/mtm.py) runs once per process start
+  (before first render, never inside a rerun) and backfills the store to the latest price
+  with bounded retry; on final failure it logs one line and marks the `valuation` stage
+  `stale` in `run_manifest`.
+
+### Added
+
+- **Store accessors** ([`quant/engine/mtm.py`](quant/engine/mtm.py)):
+  `read_series(symbol, start, end)`, `portfolio_total(date)`, `held_symbols(as_of)`,
+  `latest_market_date()`.
+
+### Tests
+
+- [`tests/test_v10_8_6_invariants.py`](tests/test_v10_8_6_invariants.py): all four tabs
+  render; cross-tab inspection of overlapping symbols raises no duplicate key/id; the
+  error boundary isolates a forced failure; the six Defect-B invariants on a synthetic
+  buy/sell/split ledger; catch-up tail-equal and lock-held retry; the header-delta smoke.
+
 ## [10.8.5] - 2026-10-12
 
 "Close the gaps." The Research tab no longer crashes, the chart is continuous with

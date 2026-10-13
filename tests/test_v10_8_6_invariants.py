@@ -189,13 +189,17 @@ def valuation_store():
     from quant.engine import mtm
 
     with write_connection() as conn:
+        # Hermetic: clear the ledger inputs so backfill sees ONLY this fixture's
+        # symbols (a leftover holdings_meta row from another test would otherwise
+        # be valued here too).
         conn.execute("DELETE FROM valuation")
         conn.execute("DELETE FROM portfolio_total")
+        conn.execute("DELETE FROM holdings_meta")
+        conn.execute("DELETE FROM trades")
+        conn.execute("DELETE FROM splits")
+        conn.execute("DELETE FROM flows")
         for sym in _V_SYMBOLS:
-            conn.execute("DELETE FROM holdings_meta WHERE symbol = ?", [sym])
             conn.execute("DELETE FROM market_history WHERE Symbol = ?", [sym])
-        conn.execute("DELETE FROM trades WHERE symbol = ?", ["EUNL.DE"])
-        conn.execute("DELETE FROM splits WHERE symbol = ?", ["EUNL.DE"])
         conn.execute(
             "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
             "VALUES ('EUNL.DE', 10.0, ?, 1000.0)", [date(2026, 10, 1)])
