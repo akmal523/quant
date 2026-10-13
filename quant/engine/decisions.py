@@ -112,7 +112,6 @@ _VERB_TEMPLATES = {
     "rebalance": "Rebalance {label}",
     "threat": "Review {label}",
     "plan_change": "Raise the savings plan for {label}",
-    "cash_deploy": "Deploy cash into {label}",
     "swap": "Swap {label}",
 }
 

@@ -11,7 +11,6 @@ from datetime import date
 
 from quant.engine import manifest
 from quant.engine.mtm import (
-    cash_from_flows,
     reconstruct_from_rows,
     reconstruct_shares,
 )
@@ -50,15 +49,6 @@ def test_reconstruct_excludes_future_trades():
     assert shares["AAA"] == 10.0
 
 
-def test_cash_from_flows_buy_out_sell_and_dividend_in():
-    flows = [
-        (date(2026, 2, 1), "buy", 100.0),
-        (date(2026, 3, 1), "sell", 40.0),
-        (date(2026, 4, 1), "dividend", 5.0),
-    ]
-    assert cash_from_flows(1000.0, flows, date(2026, 6, 1)) == 945.0
-
-
 # ── T1: the store (idempotent writes) ─────────────────────────────────────────
 
 def test_write_valuation_is_idempotent_per_date_symbol():
@@ -78,9 +68,9 @@ def test_write_valuation_is_idempotent_per_date_symbol():
             "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
             "VALUES ('AAA', 10.0, ?, 100.0), ('BBB', 4.0, ?, 80.0)", [d, d])
         n1 = mtm.write_valuation(conn, d, price_lookup=price.get,
-                                 fx_lookup=fx.get, opening_cash=0.0)
+                                 fx_lookup=fx.get)
         n2 = mtm.write_valuation(conn, d, price_lookup=price.get,
-                                 fx_lookup=fx.get, opening_cash=0.0)
+                                 fx_lookup=fx.get)
         rows = conn.execute("SELECT symbol, value_eur FROM valuation WHERE date = ? "
                             "ORDER BY symbol", [d]).fetchall()
     assert n1 == 2 and n2 == 2
@@ -100,9 +90,9 @@ def test_portfolio_total_and_day_delta_from_store():
                      "VALUES (?, ?, ?), (?, ?, ?)",
                      [date(2026, 5, 1), 100.0, 10.0, date(2026, 5, 2), 110.0, 10.0])
     eur, pct, when = mtm.day_delta()
-    # Total = invested + cash: (110 + 10) - (100 + 10) = 10 EUR, 10/110 = 9.09%.
+    # v10.8.7 (R-C1): Total = invested only: 110 - 100 = 10 EUR, 10/100 = 10%.
     assert round(eur, 2) == 10.0
-    assert round(pct, 4) == 9.0909
+    assert round(pct, 4) == 10.0
     assert when == date(2026, 5, 2)
 
 

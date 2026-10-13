@@ -18,6 +18,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+# v10.8.7 (A1): the ONE class-word map lives in quant.ui.terminology. These are
+# re-exported here for the existing `C.CLASS_LABELS` callers.
+from quant.ui import terminology as _term
+
+CLASS_FORTRESS = _term.CLASS_LONG_TERM
+CLASS_ALPHA = _term.CLASS_ACTIVE
+CLASS_SPECULATIVE = _term.CLASS_SPECULATIVE
+CLASS_LABELS = _term.CLASS_LABELS
+
 # ── Page titles (P12) ─────────────────────────────────────────────────────────
 # v10.7.0 nav order: Overview, Monthly decision, My holdings, Find investments,
 # Settings.
@@ -91,7 +100,9 @@ SEC_EMERGENCY = "If you need cash now"
 SEC_TAX_LOSS = "Losses you can use to lower tax"
 TIER_FORTRESS = "Long-term (never sell)"
 TIER_ALPHA = "Active (may sell)"
-TIER_SPECULATIVE = "Small bets (high risk)"
+# v10.8.7 (A1): the canonical word is "Speculative"; the descriptive form is
+# "Speculative (high risk)". "Small bets" is banned by a lint test.
+TIER_SPECULATIVE = "Speculative (high risk)"
 HELP_TIER_FORTRESS = ("Never sold, to avoid capital gains tax. The only advice is "
                       "changing the monthly savings-plan amount.")
 HELP_TIER_ALPHA = "May be sold when cash is needed or a position breaks."
@@ -136,26 +147,27 @@ AUTOBALANCE_MANUAL = ("Tier changes do not execute trades. Buy or sell manually 
                       "in Trade Republic.")
 
 # ── v10.6.3: Empty states and onboarding ──────────────────────────────────────
-EMPTY_FORTRESS = ("No FORTRESS assets yet. FORTRESS is for eternal holdings you "
+# v10.8.7 (A1): the canonical class words are Long-term / Active / Speculative.
+EMPTY_FORTRESS = ("No Long-term assets yet. Long-term is for eternal holdings you "
                   "never sell (tax-free accumulation). Recommended: broad ETFs via "
                   "a savings plan (URTH, SPY, VWRL). Add assets to data/tiers.csv "
-                  "with tier FORTRESS.")
-EMPTY_ALPHA = ("No ALPHA assets yet. ALPHA is for active trading (weekly "
+                  "with the Long-term class.")
+EMPTY_ALPHA = ("No Active assets yet. Active is for active trading (weekly "
                "rebalancing, sell when money is needed). Recommended: 5-15 tactical "
                "stocks (NVDA, TSM, AMD, AAPL, MSFT). Add assets to data/tiers.csv "
-               "with tier ALPHA.")
-EMPTY_SPECULATIVE = ("No SPECULATIVE assets yet. SPECULATIVE is for high-risk bets "
+               "with the Active class.")
+EMPTY_SPECULATIVE = ("No Speculative assets yet. Speculative is for high-risk bets "
                      "(max 2 percent of the portfolio). Examples: penny stocks, meme "
                      "stocks, recent IPOs. These assets can go to zero; only invest "
                      "what you can afford to lose.")
 ONBOARD_TITLE = "Welcome to Quant-AI"
-ONBOARD_INTRO = "Set up your three-tier portfolio in three steps."
-ONBOARD_STEP1 = "Step 1: add your first FORTRESS asset (an ETF you never sell)."
-ONBOARD_STEP2 = "Step 2: add your first ALPHA asset (a stock you actively trade)."
+ONBOARD_INTRO = "Set up your three-class portfolio in three steps."
+ONBOARD_STEP1 = "Step 1: add your first Long-term asset (an ETF you never sell)."
+ONBOARD_STEP2 = "Step 2: add your first Active asset (a stock you actively trade)."
 ONBOARD_STEP3 = "Step 3: set your monthly savings-plan amount."
 ONBOARD_SYMBOL_LABEL = "Symbol"
-ONBOARD_ADD_FORTRESS = "Add to FORTRESS"
-ONBOARD_ADD_ALPHA = "Add to ALPHA"
+ONBOARD_ADD_FORTRESS = "Add to Long-term"
+ONBOARD_ADD_ALPHA = "Add to Active"
 ONBOARD_SPARPLAN_LABEL = "Monthly savings plan (EUR)"
 ONBOARD_COMPLETE = "Complete setup"
 ONBOARD_DONE = "Setup complete. Add your holdings in My holdings, then save."
@@ -674,11 +686,6 @@ HORIZON_MONTH = "This month"
 DIRECTION_BUY = "Buy"
 DIRECTION_SELL = "Sell"
 WHAT_TO_DO_EMPTY = "All classes are in balance. Prices are up to date."
-CLASS_FORTRESS = "Long-term"
-CLASS_ALPHA = "Active"
-CLASS_SPECULATIVE = "Small bets"
-CLASS_LABELS = {"FORTRESS": CLASS_FORTRESS, "ALPHA": CLASS_ALPHA,
-                "SPECULATIVE": CLASS_SPECULATIVE}
 # v10.8.3: the class-based invest block.
 INVEST_CLASS_HEADER = "Class"
 INVEST_NOW_HEADER = "Now"
@@ -687,7 +694,18 @@ INVEST_SUGGESTED_HEADER = "Suggested"
 INVEST_HOW_HEADER = "How"
 INVEST_STRATEGY_LABEL = "Strategy"
 INVEST_NOTHING = "Nothing to buy: every class is already at or above its target."
-INVEST_NOT_ALLOCATED = "{amount} EUR stays uninvested (no suitable holding yet)."
+
+
+# v10.8.7 (R-C1): the neutral remainder line. No accounting entity, no doubled
+# currency word, correct singular/plural.
+def invest_remainder_line(amount_eur) -> str:
+    """The one neutral remainder line: '<X> EUR remain(s) at the broker (not tracked).'"""
+    try:
+        amount = float(amount_eur)
+    except (TypeError, ValueError):
+        amount = 0.0
+    verb = "remains" if abs(amount - 1.0) < 0.005 else "remain"
+    return f"{fmt_eur(amount)} {verb} at the broker (not tracked)."
 # v10.8.3: the cost-basis column (English; fee-inclusive average cost).
 COST_BASIS_HEADER = "Average cost per share"
 COST_BASIS_HINT = ("The average you paid per share, including fees "
@@ -1083,11 +1101,11 @@ AS_OF_DATE = "as of {date}"
 # T3: labeled day change and since-first-purchase lines.
 DAY_CHANGE = "vs previous close: {sign}{eur} EUR ({sign}{pct}%)"
 SINCE_FIRST = "since first purchase: {sign}{pct}%"
-# T3: the cash row in the holdings table (class Cash, target from strategy).
-CLASS_CASH = "Cash"
-# v10.8.5 (D15): the row name is distinct from the class cell (no "Cash  Cash").
-CASH_ROW = "Cash (uninvested)"
-CASH_TARGET_HEADER = "target {pct}%"
+# v10.8.7 (R-C1): the cash row / class / target constants are removed. Uninvested
+# cash is not an entity; there is no cash row, line, target or weight anywhere.
+
+# v10.8.7 (T2/A3): the on-demand analysis hint (the first run of the day fetches).
+RUN_ANALYSIS_HINT = "The first analysis of the day can take a few minutes."
 # T7/T6: pipeline health.
 SEC_PIPELINE_HEALTH = "Pipeline health"
 PIPELINE_HEADERS = ("Stage", "Status", "Last run", "Coverage", "Error")

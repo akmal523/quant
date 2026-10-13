@@ -27,7 +27,7 @@ STATUS_FAILED = "failed"
 STATUS_MISSING = "missing"
 
 STAGES = ("prices", "fundamentals", "nlp", "regime", "scoring", "optimization",
-          "valuation")
+          "valuation", "names")
 
 # Human stage names (R6: the UI never shows a raw stage key).
 STAGE_WORDS = {
@@ -38,6 +38,7 @@ STAGE_WORDS = {
     "scoring": "Scoring",
     "optimization": "Optimization",
     "valuation": "Valuation",
+    "names": "Display names",
 }
 
 
@@ -53,12 +54,14 @@ def stage_word(stage: str) -> str:
 
 
 def status_word(status: str) -> str:
-    """Plain-word status for a stage."""
+    """Plain-word status for a stage (v10.8.7, A3: ok-fresh / ok-reused)."""
     return {
         STATUS_OK: "ok",
         STATUS_STALE: "stale",
         STATUS_FAILED: "failed",
         STATUS_MISSING: "missing",
+        "ok-fresh": "ok (fresh)",
+        "ok-reused": "ok (reused)",
     }.get(str(status), "missing")
 
 

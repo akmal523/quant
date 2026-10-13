@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from quant.config import TARGET_WEIGHTS_INVESTED
+from quant.engine.weights import instrument_weights, target_weight
 
 DEFAULT_TIER = "ALPHA"
 
@@ -59,29 +59,28 @@ def holdings_view(conn: Any = None) -> list[dict]:
         return []
 
     tmap = _tier_map()
-    total = sum(float(p.get("value_eur") or 0) for p in positions) or 1.0
     out: list[dict] = []
     for p in positions:
         sym = str(p.get("symbol") or "")
         if not sym:
             continue
-        value = float(p.get("value_eur") or 0)
-        current = value / total
-        target = float(TARGET_WEIGHTS_INVESTED.get(sym, 0.0))
         out.append({
             "symbol": sym,
             "name": _display_name(sym),
             "tier": str(tmap.get(sym, DEFAULT_TIER)).upper(),
-            "value_eur": value,
+            "value_eur": float(p.get("value_eur") or 0),
             "shares": float(p.get("shares") or 0),
             "cost_per_share": float(p.get("entry_eur") or 0),
             "profit_eur": float(p.get("profit_eur") or 0),
-            "current_weight": current,
-            "target_weight": target,
-            "drift": current - target,
             "estimated": bool(p.get("estimated")),
             "as_of": p.get("as_of"),
         })
+    # v10.8.7 (T3/R-C3): the ONE weight math. No local value/total here.
+    weights = instrument_weights(out)
+    for h in out:
+        h["current_weight"] = weights.get(h["symbol"], 0.0)
+        h["target_weight"] = target_weight(h["symbol"])
+        h["drift"] = h["current_weight"] - h["target_weight"]
     return out
 
 

@@ -188,41 +188,60 @@ def _symbolish(value, symbol: str) -> bool:
     return _blank(value) or str(value).strip().upper() == str(symbol).strip().upper()
 
 
+def _mark_names_stale(error: Any) -> None:
+    """Mark the ``names`` stage stale in run_manifest (T5).
+
+    Best-effort: when the database is locked the manifest write also fails; the
+    single quiet log line is emitted by the caller exactly once per process.
+    """
+    try:
+        from quant.data.database import connect_with_retry
+        from quant.engine import manifest
+
+        conn = connect_with_retry(attempts=1)
+        try:
+            run = manifest.latest_run_id(conn) or manifest.new_run_id()
+            manifest.record_stage(conn, run, "names", manifest.STATUS_STALE,
+                                  error=str(error))
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def ensure_display_names() -> dict:
     """Startup backfill: migrate + fill missing names. Never raises.
 
-    The ONLY write-enabled connection outside quant update/run/publish (app
-    startup, spec B1/B4). Opens a short-lived connection and closes immediately;
-    later UI reads stay read_only. Idempotent: missing cells only.
+    v10.8.7 (T5/R-C4): runs once per process (the caller guards it), with bounded
+    retry + exponential backoff. On final failure: ONE quiet log line and a
+    ``names`` stage ``stale`` flag in run_manifest. No stdout spam, no writes
+    during reruns. Idempotent: missing cells only.
     """
     try:
         from quant.data.database import (
             connect_with_retry,
-            get_connection,
             migrate_registry_display_name,
         )
     except Exception:  # noqa: BLE001
         return {}
-    own = False
     conn = None
     try:
-        conn = connect_with_retry(attempts=2, delay=0.3)
-        own = True
-    except Exception:  # noqa: BLE001
-        try:
-            conn = get_connection()
-        except Exception:  # noqa: BLE001
-            # Lock held (another app instance / update running): skip backfill for
-            # this session; the app still starts. Retried on the next start/update.
-            import logging
+        conn = connect_with_retry(attempts=3, delay=0.5)
+    except Exception as e:  # noqa: BLE001
+        # Lock held (another app instance / update running): skip for this
+        # process; the app still starts. Retried on the next start/update.
+        import logging
 
-            logging.getLogger("quant.ui").warning(
-                "Display names backfill skipped: database busy.")
-            print("Display names backfill skipped: database busy.")
-            _write_names_state({"ts": time.time(), "rows_total": 0, "filled": 0,
-                                "still_missing": 0, "skipped_reason": "lock",
-                                "unreachable_symbols": 0})
-            return {"skipped_reason": "lock"}
+        logging.getLogger("quant.ui").warning(
+            "Display names backfill skipped: database busy.")
+        _mark_names_stale(e)
+        _write_names_state({"ts": time.time(), "rows_total": 0, "filled": 0,
+                            "still_missing": 0, "skipped_reason": "lock",
+                            "unreachable_symbols": 0})
+        return {"skipped_reason": "lock"}
     try:
         migrate_registry_display_name(conn)
         summary = backfill_display_names(conn, fill_currency=False)
@@ -245,7 +264,7 @@ def ensure_display_names() -> dict:
     except Exception:  # noqa: BLE001
         return {}
     finally:
-        if own and conn is not None:
+        if conn is not None:
             try:
                 conn.close()
             except Exception:  # noqa: BLE001

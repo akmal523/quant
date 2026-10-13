@@ -243,6 +243,34 @@ REBALANCE_DRIFT_TIERS = {
     "SPECULATIVE": 0.05,
 }
 
+# ── v10.8.7 (T4): decision-taxonomy thresholds (ONE config module) ────────────
+# Every verb threshold lives here; no magic numbers in the UI or the engine.
+THREAT_DRAWDOWN = 0.20        # 20% below entry -> Threat
+SCORE_FLOOR = 40.0            # composite below this -> Threat
+SPEC_STOP = -0.50             # Speculative stop-loss
+SPEC_TAKE = 1.00              # Speculative take-profit
+SWAP_HURDLE = 0.05            # 5 points after fees/tax/confidence -> Swap
+PLAN_CHANGE_MONTHS = 3        # Long-term under target for K plan runs -> Plan change
+PLAN_CHANGE_GAP = 0.10        # under-target gap that triggers a plan change
+
+# ── v10.8.7 (T2): scoring + ideas ─────────────────────────────────────────────
+# A watched (non-held) symbol with a composite at or above this floor becomes an
+# Idea and flows into Research, swap candidates, the invest plan and This month.
+IDEA_FLOOR = 55.0
+# The documented neutral penalty applied per missing scoring component (R-C2).
+SCORE_MISSING_PENALTY = 12.0
+# Component weights for the composite (must sum to 1.0). Technical is always
+# present (prices); the others degrade to the neutral penalty when missing.
+SCORE_COMPONENT_WEIGHTS = {
+    "technical": 0.40,
+    "fundamental": 0.30,
+    "sentiment": 0.20,
+    "stewardship": 0.10,
+}
+# Confidence tier mapping (documented in CONTEXT.md): present/total ratio.
+CONFIDENCE_HIGH_RATIO = 0.8
+CONFIDENCE_MEDIUM_RATIO = 0.5
+
 # ── Optional email reporting ──────────────────────────────────────────────────
 SMTP_USER     = os.getenv("SMTP_USER",     "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")

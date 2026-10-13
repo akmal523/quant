@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.7] - 2026-10-13
+
+"Repair the model, not the rendering." The P1 defects are closed at the model
+level: cash is no longer an entity, scoring computes and degrades gracefully,
+there is ONE weight math, the decision list carries more than rebalancing, and
+startup writes happen once per process. No new pages, dependencies or visual
+density.
+
+### Owner rulings (binding)
+
+- **R-C1 — cash is not an entity.** No cash row, target, line, weight or verb.
+  Free money exists only as (a) the amount typed in the invest block and (b)
+  whatever sits at the broker, untracked. The only permitted trace is a sell
+  advice without a paired buy, reasoned "hold proceeds at the broker, untracked".
+- **R-C2 — scoring degrades gracefully.** Any subset of components yields a
+  numeric composite plus a confidence tier; a missing component is a documented
+  neutral penalty, never an abort and never a dash.
+- **R-C3 — ONE weight math.** `instrument_weights` + `class_weights`
+  (invested-only) in one module; every consumer calls them.
+- **R-C4 — single writer.** Writes happen only in the daily job, confirm, refresh
+  and the once-per-process startup catch-up. The render path is read-only.
+
+### Fixed
+
+- **Cash removed from the model (E1/T1)**: `portfolio_total` is the sum of
+  invested position values only; the flows->cash computation is deleted; the
+  `portfolio_total.cash_eur` column is frozen audit data (written NULL, never
+  read). The Cash row, cash target, cash chart line, cash hover key and the
+  "Deploy cash" verb are gone. A sell with no eligible buy is reasoned "hold
+  proceeds at the broker, untracked". The invest remainder renders ONE neutral
+  line ("<X> EUR remain at the broker (not tracked).") with correct
+  singular/plural. The v10.8.2 no-cash smoke test is reinstated, plus a grep-guard
+  that fails on any read of `cash_eur` outside the schema.
+- **Scoring computes and explains (E2/T2)**: a pure `composite_score` yields a
+  numeric composite + confidence tier from whatever components exist (technical
+  from prices is always present). The analysis chain (prices -> fundamentals ->
+  nlp -> regime -> scoring -> optimization) runs in the daily job AND the
+  on-demand "Run analysis" button, writing one `run_manifest` row per stage
+  (`ok-fresh` / `ok-reused` / `failed` / `missing`, coverage n/N). Fetch stages
+  reuse data fresher than their TTL (prices 1 day, fundamentals 7 days, nlp 1
+  day); compute stages always recompute. A new `scores` store feeds Research,
+  the taxonomy and the invest plan; a computed-but-low score renders as a NUMBER
+  plus a confidence chip, never "-". Watched non-held symbols with composite >=
+  `IDEA_FLOOR` become Ideas.
+- **ONE weight math + consistent plan (E3/T3)**: `instrument_weights` and
+  `class_weights` (invested-only) live in [`quant/engine/weights.py`](quant/engine/weights.py);
+  the Holdings table, class table, decision drift and invest plan call only them
+  (a lint test fails on any other weight computation in UI/engine code). The
+  invest plan takes the open-advice set as input (no buy into an open trim/sell;
+  the exclusion is noted in one line), separates one-off EUR from savings-plan
+  EUR/m, and can suggest a non-held idea (How = "New position").
+- **Decision taxonomy beyond rebalancing (E4/T4)**: Rebalance / Threat / Swap /
+  Plan change, each ONE item with a verb, amount, one reason and an evidence
+  pointer. A swappable position never gets a standalone sell, so a swap item and
+  a rebalance item for the same symbol never coexist. All thresholds are named
+  constants in [`quant/config.py`](quant/config.py).
+- **Write hygiene (E5/T5)**: both startup backfills (display names, valuation
+  catch-up) run once per process, before first render, with bounded retry +
+  exponential backoff; on final failure ONE quiet log line and a `names` /
+  `valuation` stage `stale` flag. Zero writes during reruns.
+
+### Changed
+
+- **Class words (A1)**: the canonical UI words are **Long-term / Active /
+  Speculative** (descriptive form "Speculative (high risk)"), from the single
+  [`quant/ui/terminology.py`](quant/ui/terminology.py) map. "Small bets" and
+  "FORTRESS" are banned from UI strings by a lint test.
+
+### Tests
+
+- [`tests/test_v10_8_7_phase1.py`](tests/test_v10_8_7_phase1.py): cash-absence
+  (Total = invested only; class Now sums to 100%; no advice mentions a cash
+  percentage; the remainder line grammar) and write hygiene (once-per-process;
+  locked DB => one quiet line + stale flag, no print, no traceback).
+- [`tests/test_v10_8_7_phase2.py`](tests/test_v10_8_7_phase2.py): the pure
+  composite + confidence tier; the pipeline + manifest on a prices-only fixture
+  (numeric composites, scoring ok coverage N/N, fundamentals/nlp flagged
+  missing, reasoned regime empty state, TTL reuse).
+- [`tests/test_v10_8_7_phase3.py`](tests/test_v10_8_7_phase3.py): the ONE weight
+  math; plan vs open advice; one-off vs EUR/m separation; the weight-computation
+  and class-synonym lints.
+- [`tests/test_v10_8_7_phase4.py`](tests/test_v10_8_7_phase4.py): a synthesized
+  trigger per verb; Today before This month; swap + rebalance never coexist;
+  thresholds are config constants.
+
+### Notes
+
+- The Tier W warn baseline grew 94 -> 98 for the new analysis module's
+  non-blocking guards.
+
 ## [10.8.6] - 2026-10-13
 
 "Fix the P0 defects permanently." The Research tab can no longer crash on a duplicate

@@ -56,6 +56,69 @@ def regime_confidence(prob: float, high: float = 0.30, medium: float = 0.15) -> 
     return "high" if d >= high else "medium" if d >= medium else "low"
 
 
+# ── v10.8.7 (T2/R-C2): the graceful composite ─────────────────────────────────
+
+def confidence_tier(present: int, total: int) -> str:
+    """Map the present/total component ratio to high | medium | low (R-C2).
+
+    Documented mapping (CONTEXT.md): ratio >= CONFIDENCE_HIGH_RATIO -> high;
+    >= CONFIDENCE_MEDIUM_RATIO -> medium; else low. A missing component is a
+    documented neutral penalty, never an abort.
+    """
+    from quant.config import CONFIDENCE_HIGH_RATIO, CONFIDENCE_MEDIUM_RATIO
+
+    if not isinstance(present, int | float) or not isinstance(total, int | float):
+        return "low"
+    total = int(total)
+    present = int(present)
+    if total <= 0:
+        return "low"
+    ratio = present / total
+    if ratio >= CONFIDENCE_HIGH_RATIO:
+        return "high"
+    if ratio >= CONFIDENCE_MEDIUM_RATIO:
+        return "medium"
+    return "low"
+
+
+def composite_score(components: dict) -> dict:
+    """A numeric composite + confidence tier from whatever components exist (R-C2).
+
+    ``components`` maps a component name to a 0-100 value or None: technical
+    (from prices - always), fundamental, sentiment, stewardship. A missing
+    component contributes the documented neutral penalty (SCORE_MISSING_PENALTY)
+    instead of aborting, so the composite is ALWAYS a number and never a dash.
+    Returns ``{composite, confidence, present, total, components}``. Pure; no I/O.
+    """
+    from quant.config import SCORE_COMPONENT_WEIGHTS, SCORE_MISSING_PENALTY
+
+    weights = SCORE_COMPONENT_WEIGHTS
+    total = len(weights)
+    present = 0
+    acc = 0.0
+    resolved: dict = {}
+    for name, weight in weights.items():
+        value = components.get(name)
+        try:
+            v = float(value) if value is not None else None
+        except (TypeError, ValueError):
+            v = None
+        if v is None:
+            resolved[name] = None
+            acc += float(weight) * float(SCORE_MISSING_PENALTY)
+            continue
+        present += 1
+        resolved[name] = round(v, 1)
+        acc += float(weight) * v
+    return {
+        "composite": round(max(0.0, min(100.0, acc)), 1),
+        "confidence": confidence_tier(present, total),
+        "present": present,
+        "total": total,
+        "components": resolved,
+    }
+
+
 def fit_market_regime(
     hist_close: pd.Series,
     vol: pd.Series,

@@ -52,18 +52,17 @@ def _range_change(series) -> tuple[float, float]:
     return last - first, (last / first - 1.0) * 100.0
 
 
-def _totals() -> tuple[float | None, float]:
-    """The Total value and cash from the valuation store (T3).
+def _total_value_store() -> float | None:
+    """The Total value (invested only) from the valuation store (T3; v10.8.7 R-C1).
 
-    Returns ``(total_or_None, cash)``; total includes cash. None when no store.
+    None when no store row exists. Cash is not an entity, so there is no cash term.
     """
     from quant.engine import mtm
 
     lt = mtm.latest_total()
     if not lt:
-        return None, 0.0
-    cash = float(lt.get("cash_eur") or 0)
-    return float(lt.get("value_eur") or 0) + cash, cash
+        return None
+    return float(lt.get("value_eur") or 0)
 
 
 def _since_first_pct(series) -> float | None:
@@ -105,26 +104,67 @@ def _invest_session_items() -> list[dict]:
 
 
 def _idea_rows() -> list[dict]:
-    """Idea candidates from the funnel (T3): symbol, name, score."""
-    df = R.q("SELECT symbol, score FROM funnel_survivors ORDER BY score DESC LIMIT 50")
+    """Idea candidates (T2): watched non-held symbols with composite >= IDEA_FLOOR.
+
+    v10.8.7 (T2): ideas come from the ``scores`` store, not the funnel cache, so a
+    watched symbol with a computed composite at or above the floor becomes an Idea
+    and flows into Research, swap candidates, the invest plan and This month.
+    """
+    from quant.config import IDEA_FLOOR
+    from quant.reporting.artifacts import read_score_row
+
+    held = {str(h.get("symbol")) for h in _holdings()}
+    df = R.q("SELECT symbol FROM asset_registry")
     if df.empty:
         return []
-    return [{"symbol": str(r["symbol"]), "name": _display(str(r["symbol"])),
-             "score": float(r["score"] or 0)} for _, r in df.iterrows()]
+    out: list[dict] = []
+    for _, r in df.iterrows():
+        sym = str(r["symbol"])
+        if sym in held:
+            continue
+        row = read_score_row(sym) or {}
+        comp = row.get("composite")
+        if comp is None or float(comp) < IDEA_FLOOR:
+            continue
+        out.append({"symbol": sym, "name": _display(sym), "score": float(comp)})
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return out[:50]
+
+
+def _scores_map() -> dict:
+    """The scores store as ``{symbol: {active_score, structural_grade, composite}}``.
+
+    v10.8.7 (T4): the decision taxonomy is fed the real scores, so a Threat or a
+    Swap can actually fire.
+    """
+    from quant.reporting.artifacts import read_score_row
+
+    df = R.q("SELECT symbol FROM asset_registry")
+    if df.empty:
+        return {}
+    out: dict = {}
+    for _, r in df.iterrows():
+        sym = str(r["symbol"])
+        row = read_score_row(sym) or {}
+        if row:
+            out[sym] = {"active_score": row.get("composite"),
+                        "structural_grade": row.get("structural_grade"),
+                        "composite": row.get("composite")}
+    return out
 
 
 def _taxonomy_ui_items(holdings: list[dict], regime) -> list[dict]:
-    """The widened verb classes as ONE-list items (T3).
+    """The widened verb classes as ONE-list items (T3/T4).
 
     Rebalance stays with build_advice (which already yields the drift buy/sell);
-    the new classes are appended here.
+    the new classes are appended here, fed the real scores and ideas.
     """
     from quant.engine import action_taxonomy as T
 
-    cash = _totals()[1]
-    taxo = T.build(holdings, scores={}, ideas=_idea_rows(), regime=regime, cash=cash)
+    taxo = T.build(holdings, scores=_scores_map(), ideas=_idea_rows(),
+                   regime=regime)
     directions = {T.VERB_SWAP: C.DIRECTION_SELL, T.VERB_THREAT: "Review",
-                  T.VERB_PLAN: C.DIRECTION_BUY, T.VERB_CASH: C.DIRECTION_BUY}
+                  T.VERB_PLAN: C.DIRECTION_BUY}
     out: list[dict] = []
     for t in taxo:
         if t["verb"] == T.VERB_REBALANCE:
@@ -206,7 +246,7 @@ def page_home() -> None:
     st.title("Portfolio")
     holdings = _holdings()
     portfolio = R.load_portfolio()
-    total, cash = _totals()
+    total = _total_value_store()
     if total is None:
         total = _total_value(holdings, portfolio)
     day_eur, day_pct, _day = _day_delta()
@@ -237,15 +277,7 @@ def page_home() -> None:
             "Now / target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
                             f"{float(h.get('target_weight') or 0) * 100:.0f}%",
         })
-    # T3: cash is a first-class row (class Cash, target from strategy).
-    # v10.8.5 (D15): the "Now / target" cell matches the other rows' "X% / Y%" form.
-    cash_target = _cash_target()
-    rows.append({
-        "Holding": C.CASH_ROW,
-        "Class": C.CLASS_CASH,
-        "Value (EUR)": C.fmt_eur(cash),
-        "Now / target": f"0% / {cash_target * 100:.0f}%",
-    })
+    # v10.8.7 (R-C1): no cash row. Uninvested cash is not an entity.
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     if not holdings:
         st.info("Add what you own in Update holdings.")
@@ -264,20 +296,6 @@ def _as_of_date():
     from quant.engine import mtm
 
     return mtm.latest_price_date() or R.latest_bar_date()
-
-
-def _cash_target() -> float:
-    """The strategy's cash target (T3); a sensible default when unset."""
-    try:
-        from quant.config import RISK_PROFILES
-        from quant.portfolio.account import load_account
-
-        profile = load_account().risk_profile
-        # Risk profiles are invested-only 3-tuples; cash target is a calm default.
-        _ = RISK_PROFILES.get(profile)
-    except Exception:  # noqa: BLE001
-        pass
-    return 0.10
 
 
 def _render_invest_block(holdings: list[dict]) -> None:
@@ -314,7 +332,9 @@ def _render_invest_block(holdings: list[dict]) -> None:
         return
     from quant.engine.invest_plan import propose_by_class
 
-    plan = propose_by_class(amount, holdings, strategy)
+    plan = propose_by_class(amount, holdings, strategy,
+                            candidates=_idea_rows(),
+                            open_advice=_open_advice_items(holdings))
     class_rows = [{
         C.INVEST_CLASS_HEADER: C.CLASS_LABELS.get(r["tier"], r["tier"]),
         C.INVEST_NOW_HEADER: f"{r['now_pct']:.0f}%",
@@ -322,18 +342,23 @@ def _render_invest_block(holdings: list[dict]) -> None:
         C.INVEST_SUGGESTED_HEADER: C.fmt_eur(r["suggested_eur"]),
     } for r in plan["classes"]]
     st.dataframe(pd.DataFrame(class_rows), width="stretch", hide_index=True)
+    # T3: the one-off sum is separate from the savings-plan EUR/m increase.
     st.caption(f"Suggested sums to {C.fmt_eur(plan['total'])} of {C.fmt_eur(amount)}.")
-    if not plan["orders"]:
+    if plan["savings_plan_eur_month"] > 0:
+        st.caption(f"+{C.fmt_eur(plan['savings_plan_eur_month'])} EUR/m savings plan.")
+    for ex in plan["excluded"]:
+        st.caption(f"{ex['name']}: {ex['reason']}")
+    if not plan["orders"] and not plan["savings_plan"]:
         st.write(C.INVEST_NOTHING)
         return
     order_rows = [{
         "Holding": R.label_for(o["name"], o["symbol"]),
         "Amount": C.fmt_eur(o["amount_eur"]),
         C.INVEST_HOW_HEADER: o["how"],
-    } for o in plan["orders"]]
+    } for o in (plan["orders"] + plan["savings_plan"])]
     st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
     if plan["not_allocated"] > 0:
-        st.caption(C.INVEST_NOT_ALLOCATED.format(amount=C.fmt_eur(plan["not_allocated"])))
+        st.caption(C.invest_remainder_line(plan["not_allocated"]))
     if st.button(C.BTN_ADD_TO_LIST, key="invest_add_list", width="stretch"):
         st.session_state["_invest_items"] = [{
             "verb": "buy", "symbol": o["symbol"],
@@ -342,6 +367,23 @@ def _render_invest_block(holdings: list[dict]) -> None:
             "horizon": C.HORIZON_MONTH, "class": o["tier"]} for o in plan["orders"]]
         st.success("Added to Today's list under This month.")
         st.rerun()
+
+
+def _open_advice_items(holdings: list[dict]) -> list[dict]:
+    """The open advice set (verb + symbol) for the invest plan (T3).
+
+    An instrument with an open trim/sell gets no buy suggestion until it clears.
+    """
+    from quant.engine import action_taxonomy as T
+    from quant.engine.advice import build_advice
+
+    regime = R.read_regime()
+    advice, _rejected = build_advice(holdings=holdings, regime=regime)
+    items = [{"verb": a.get("kind"), "symbol": a.get("symbol")} for a in advice]
+    items += [{"verb": t["verb"], "symbol": t["symbol"]}
+              for t in T.build(holdings, scores={}, ideas=_idea_rows(),
+                               regime=regime)]
+    return items
 
 
 def page_update() -> None:
@@ -563,37 +605,39 @@ def _news_tone(score) -> str:
 
 
 def _research_rows(holdings: list[dict]) -> list[dict]:
-    """The merged Research funnel rows (T6/T1 v10.8.5): held + watchlist + idea."""
+    """The merged Research funnel rows (T6/T1 v10.8.5; v10.8.7 T2).
+
+    A computed score renders as a NUMBER plus a confidence chip, never a dash
+    (R-C2). A watched non-held symbol with composite >= IDEA_FLOOR is an Idea.
+    """
+    from quant.config import IDEA_FLOOR
     from quant.engine import manifest as M
-    from quant.reporting.artifacts import read_scores
+    from quant.reporting.artifacts import read_score_row
 
     held = {str(h.get("symbol")): h for h in holdings or []}
     reg = R.q("SELECT symbol, instrument_class, universe_status FROM asset_registry")
-    ideas = R.q("SELECT symbol, score FROM funnel_survivors")
-    idea_score = ({str(r["symbol"]): float(r["score"] or 0)
-                   for _, r in ideas.iterrows()} if not ideas.empty else {})
-    nlp_ok = M.stage_status("nlp") == "ok"
 
     def _row(sym, instrument_class, universe_status, tier_word=""):
-        s = read_scores(sym) or {}
-        fund = s.get("structural_grade")
-        tech = s.get("tactical_grade")
-        comp = s.get("active_score")
-        if comp is None:
-            comp = fund
-        conf = "high" if (nlp_ok and comp is not None) else "low"
+        row = read_score_row(sym) or {}
+        comp = row.get("composite")
+        conf = str(row.get("confidence") or "low")
+        fund = row.get("structural_grade")
+        tech = row.get("tactical_grade")
         components = (f"F {_short_score(fund)} / T {_short_score(tech)} / "
                       f"conf {conf}")
+        is_idea = (sym not in held and comp is not None
+                   and float(comp) >= IDEA_FLOOR)
         if sym in held:
             stage = "Held"
             h = held[sym]
             wt = (f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
                   f"{float(h.get('target_weight') or 0) * 100:.0f}%")
             reason = f"held; {tier_word or 'class set'}."
-        elif sym in idea_score:
+        elif is_idea:
             stage = "Idea"
             wt = "-"
-            reason = f"funnel idea, score {idea_score[sym]:.0f}."
+            reason = (f"composite {float(comp):.0f} at or above the "
+                      f"{IDEA_FLOOR:.0f} floor.")
         elif str(universe_status).upper() == "WATCHLIST":
             stage = "Watchlist"
             wt = "-"
@@ -739,6 +783,7 @@ def _guarded(label: str, render: object, *args: object) -> None:
 def _render_pipeline() -> None:
     """Pipeline health tab body: the stage table + a Run analysis button."""
     _pipeline_table()
+    st.caption(C.RUN_ANALYSIS_HINT)
     if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_health", width="stretch"):
         _run_cli("run")
 
@@ -879,25 +924,32 @@ def _db_size_mb() -> float:
 
 
 def _run_cli(command: str) -> None:
-    """Run a CLI command in a subprocess and report the result (v10.8.3)."""
+    """Run a CLI command in a subprocess and report the result (v10.8.3).
+
+    v10.8.7 (T2/A3): the run is wrapped in ``st.status`` with the first-analysis
+    hint, so the user sees progress while the chain fetches and computes.
+    """
     import subprocess
     import sys
 
-    with st.spinner(f"Running {command}…"):
+    with st.status(f"Running {command}…", expanded=True) as status:
+        st.write(C.RUN_ANALYSIS_HINT)
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "quant.cli", command],
                 capture_output=True, text=True, timeout=900)
         except Exception as e:  # noqa: BLE001
+            status.update(label=f"Could not run {command}", state="error")
             st.error(f"Could not run {command}: {e}")
             return
-    if proc.returncode == 0:
-        st.success(f"{command} finished.")
-    else:
-        st.error(f"{command} failed (exit {proc.returncode}).")
-    tail = (proc.stdout or "")[-2000:]
-    if tail:
-        st.code(tail)
+        if proc.returncode == 0:
+            status.update(label=f"{command} finished.", state="complete")
+        else:
+            status.update(label=f"{command} failed (exit {proc.returncode}).",
+                          state="error")
+        tail = (proc.stdout or "")[-2000:]
+        if tail:
+            st.code(tail)
 
 
 def page_settings() -> None:

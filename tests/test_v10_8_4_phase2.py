@@ -2,7 +2,7 @@
 
 T5: advice is a stateful object; a repeated item keeps open_since and shows it;
 a finished item stops repeating and lands in History. A sell is paired with where
-its proceeds go (underweight -> idea -> cash).
+its proceeds go (underweight -> idea -> untracked hold; v10.8.7, R-C1).
 T4: the savings-plan reminder triggers, auto-clears when the flow lands, and can
 be dismissed persistently.
 """
@@ -13,7 +13,7 @@ from datetime import date
 from quant.engine import advice_state
 from quant.engine.decisions import open_since_line
 from quant.engine.pairing import (
-    ROUTE_CASH,
+    ROUTE_HOLD,
     ROUTE_IDEA,
     ROUTE_UNDERWEIGHT,
     paired_line,
@@ -50,13 +50,14 @@ def test_route_falls_back_to_best_idea():
     assert route["symbol"] == "AMZN"
 
 
-def test_route_falls_back_to_cash():
+def test_route_falls_back_to_untracked_hold():
+    """v10.8.7 (R-C1): no tracked-cash target; the proceeds stay at the broker."""
     route = route_sell({"symbol": "SXRV.DE", "amount_eur": 65.0},
                        [{"symbol": "SXRV.DE", "current_weight": 0.3,
-                         "target_weight": 0.2, "value_eur": 300.0}],
-                       cash_target=0.10)
-    assert route["kind"] == ROUTE_CASH
-    assert "cash target 10%" in route["text"]
+                         "target_weight": 0.2, "value_eur": 300.0}])
+    assert route["kind"] == ROUTE_HOLD
+    assert "untracked" in route["text"]
+    assert "cash target" not in route["text"]
 
 
 def test_paired_line_is_one_item_with_a_route():

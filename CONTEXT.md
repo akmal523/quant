@@ -3,6 +3,65 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.7 — P1 repairs: no cash, real scoring, one weight math, taxonomy, write hygiene (rulings)
+
+- **R-C1 — cash is not an entity.** Uninvested cash is NOT a row, target, line,
+  weight or verb. Free money exists only as (a) the amount the user types in the
+  invest block and (b) whatever sits at the broker, untracked. The ONLY permitted
+  trace is a sell advice without a paired buy, reasoned "no eligible buy passes
+  the hurdle; hold proceeds at the broker, untracked"
+  ([`pairing.route_sell`](quant/engine/pairing.py)). `portfolio_total(date)` is the
+  sum of invested position values only. The `portfolio_total.cash_eur` column is
+  **frozen audit data**: written NULL, never read (the physical column drop is
+  deferred to a later cleanup, out of this scope). The flows->cash computation is
+  deleted; the ledger flows remain for audit only. A grep-guard test fails on any
+  read of `cash_eur` outside the schema/migration.
+- **R-C2 — scoring degrades gracefully, never a dash.** A pure
+  [`composite_score`](quant/analytics/scoring.py) yields a numeric composite plus a
+  confidence tier from whatever components exist. Missing components are documented
+  neutral penalties (`SCORE_MISSING_PENALTY`), never an abort. **Confidence-tier
+  mapping** (present/total component ratio): `>= CONFIDENCE_HIGH_RATIO` (0.8) ->
+  **high**; `>= CONFIDENCE_MEDIUM_RATIO` (0.5) -> **medium**; else **low**. The
+  composite is written to the `scores` store for every symbol with a price.
+- **R-C3 — ONE weight math.** [`instrument_weights`](quant/engine/weights.py) and
+  [`class_weights`](quant/engine/weights.py) (invested-only basis) are the single
+  source. The Holdings table, class table, decision drift and invest plan call only
+  them; a lint test fails on any other weight computation in UI/engine code.
+- **R-C4 — single writer.** Writes happen only in the daily job, confirm, refresh
+  and the once-per-process startup catch-up. The render path is strictly read-only.
+- **Analysis pipeline + manifest (T2/A3).** The daily job AND the on-demand "Run
+  analysis" button execute the SAME ordered chain: prices -> fundamentals -> nlp ->
+  regime -> scoring -> optimization. Fetch stages reuse stored data fresher than
+  their TTL (prices 1 day, fundamentals 7 days, nlp 1 day); compute stages always
+  recompute. Every stage writes one `run_manifest` row with status `ok-fresh` /
+  `ok-reused` / `failed` / `missing`, last run, coverage n/N and error. Pipeline
+  health renders exactly this manifest.
+- **Ideas (T2).** A watched (non-held) symbol with composite >= `IDEA_FLOOR`
+  becomes stage **Idea** and flows into Research, swap candidates, the invest plan
+  (How = "New position") and the This-month list.
+- **Verb taxonomy (T4).** The ONE list carries four verb classes, each ONE item
+  with a verb, name, single broker ticker, amount, one reason and an evidence link
+  to the inspect drawer, horizon Today or This month:
+  - **Rebalance** — drift beyond `REBALANCE_DRIFT_THRESHOLD`.
+  - **Threat** — stop-loss / take-profit hit (Speculative); drawdown from average
+    cost beyond `THREAT_DRAWDOWN`; held composite below `SCORE_FLOOR`; regime shift
+    forcing class de-risking.
+  - **Swap** — held Active/Speculative composite < Idea composite by >=
+    `SWAP_HURDLE` (fees + tax + confidence gap). Rendered paired; a swappable
+    position never gets a standalone sell, so a swap item and a rebalance item for
+    the same symbol never coexist.
+  - **Plan change** — Long-term class under target for `PLAN_CHANGE_MONTHS`
+    consecutive plan runs; horizon This month.
+  All thresholds are named constants in [`quant/config.py`](quant/config.py).
+- **Class words (A1).** The canonical UI words are **Long-term / Active /
+  Speculative** (descriptive form "Speculative (high risk)"), from the single
+  [`quant/ui/terminology.py`](quant/ui/terminology.py) map. "Small bets" and
+  "FORTRESS" are banned from UI strings by a lint test.
+- **Write hygiene (T5).** Both startup backfills (display names, valuation
+  catch-up) run once per process, before first render, with bounded retry +
+  exponential backoff; on final failure ONE quiet log line and a `names` /
+  `valuation` stage `stale` flag. Zero writes during reruns.
+
 ## v10.8.6 — P0 repairs: lazy drawers, one valuation source (rulings)
 
 - **Research is safe to expand, by construction.** Each Full-analysis tab has ONE lazy

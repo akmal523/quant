@@ -60,7 +60,8 @@ def test_risk_profile_descriptions_are_plain_and_invested():
 def test_tier_dictionary_words():
     assert C.TIER_FORTRESS == "Long-term (never sell)"
     assert C.TIER_ALPHA == "Active (may sell)"
-    assert C.TIER_SPECULATIVE == "Small bets (high risk)"
+    # v10.8.7 (A1): the canonical word is "Speculative".
+    assert C.TIER_SPECULATIVE == "Speculative (high risk)"
     assert C.tier_word("FORTRESS") == C.TIER_FORTRESS
     assert C.tier_word("ALPHA") == C.TIER_ALPHA
     assert C.tier_word("SPECULATIVE") == C.TIER_SPECULATIVE

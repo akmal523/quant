@@ -312,12 +312,46 @@ def read_actions() -> list[dict]:
     return out
 
 
+def read_score_row(symbol: str) -> dict:
+    """The full score row for a symbol from the ``scores`` store (v10.8.7, T2).
+
+    Returns ``{composite, confidence, structural_grade, tactical_grade,
+    sentiment, stewardship, present, total}``; empty when nothing is stored.
+    """
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            res = conn.execute(
+                "SELECT composite, confidence, structural_grade, tactical_grade, "
+                "sentiment, stewardship, present_components, total_components "
+                "FROM scores WHERE symbol = ?", [symbol]).fetchone()
+    except Exception:  # noqa: BLE001
+        return {}
+    if not res:
+        return {}
+    return {
+        "composite": res[0], "confidence": str(res[1] or "low"),
+        "structural_grade": res[2], "tactical_grade": res[3],
+        "sentiment": res[4], "stewardship": res[5],
+        "present": int(res[6] or 0), "total": int(res[7] or 0),
+    }
+
+
 def read_scores(symbol: str) -> dict:
     """Return {structural_grade, tactical_grade, active_score} for a symbol.
 
-    Source order: the latest run's scores artifact, then asset_registry.
-    Invariants: returns the keys with None when nothing is known.
+    Source order (v10.8.7, T2): the ``scores`` store, then the latest run's
+    scores artifact, then asset_registry. Invariants: returns the keys with None
+    when nothing is known.
     """
+    row = read_score_row(symbol)
+    if row:
+        return {
+            "structural_grade": row.get("structural_grade"),
+            "tactical_grade": row.get("tactical_grade"),
+            "active_score": row.get("composite"),
+        }
     keys = {"structural_grade": None, "tactical_grade": None, "active_score": None}
     # H3.6 (N1): read the most recent SUCCESSFUL review, not the latest attempt.
     run = latest_ok_run_dir()
@@ -369,10 +403,11 @@ def read_history() -> pd.DataFrame:
 def read_portfolio_total() -> pd.DataFrame:
     """The daily portfolio total from the valuation store (v10.8.4, T1).
 
-    The single source for the home chart and the day delta. Columns ``date``,
-    ``value_eur`` and ``cash_eur``; empty when nothing is stored. Never raises.
+    The single source for the home chart and the day delta. Columns ``date`` and
+    ``value_eur`` (invested only; v10.8.7, R-C1); empty when nothing is stored.
+    Never raises.
     """
-    empty = pd.DataFrame(columns=["date", "value_eur", "cash_eur"])
+    empty = pd.DataFrame(columns=["date", "value_eur"])
     try:
         from quant.engine import mtm
 
@@ -501,17 +536,17 @@ def format_chart_ticks(dates, max_ticks: int = 6) -> list[str]:
 def compute_day_delta(series, as_of=None) -> tuple[float, float]:
     """The day change from a portfolio-total series (v10.8.6, B6).
 
-    ``series`` is ``[{date, value_eur, cash_eur}, ...]``; the total is invested
-    value plus cash. Returns ``(delta_eur, delta_pct)`` = ``total(D) - total(D-1)``
-    where D is ``as_of`` (default: the last point). No forward-fill, no fallback.
-    Pure.
+    ``series`` is ``[{date, value_eur}, ...]``; the total is the invested value
+    only (v10.8.7, R-C1). Returns ``(delta_eur, delta_pct)`` =
+    ``total(D) - total(D-1)`` where D is ``as_of`` (default: the last point). No
+    forward-fill, no fallback. Pure.
     """
     pts: list[tuple[date, float]] = []
     for row in series or []:
         d = _coerce_date(row.get("date"))
         if d is None:
             continue
-        total = float(row.get("value_eur") or 0) + float(row.get("cash_eur") or 0)
+        total = float(row.get("value_eur") or 0)
         pts.append((d, total))
     pts.sort(key=lambda t: t[0])
     if len(pts) < 2:
@@ -564,23 +599,21 @@ def compute_growth_view(portfolio, per_symbol: dict, held_symbols) -> dict:
     return out
 
 
-def compute_value_view_hover(as_of, portfolio, per_symbol: dict, cash_series,
+def compute_value_view_hover(as_of, portfolio, per_symbol: dict,
                              held_symbols) -> dict:
-    """The Value-view hover payload for ``as_of`` (v10.8.6, B3/6).
+    """The Value-view hover payload for ``as_of`` (v10.8.6, B3/6; v10.8.7, R-C1).
 
-    Returns ``{"total": <sum + cash>, "cash": <cash>, <sym>: <value>, ...}`` where
-    the symbol values sum to the invested total. Only stored values are used (no
-    forward-fill). Pure.
+    Returns ``{"total": <invested sum>, <sym>: <value>, ...}`` where the symbol
+    values sum to the invested total. Cash is not an entity (R-C1), so there is no
+    cash key. Only stored values are used (no forward-fill). Pure.
     """
     day = _coerce_date(as_of)
-    cash = float(_value_at(cash_series, day) or 0.0)
-    out: dict = {"cash": round(cash, 2)}
+    out: dict = {}
     for sym in held_symbols or []:
         v = _value_at((per_symbol or {}).get(sym), day)
         if v is not None:
             out[str(sym)] = round(float(v), 2)
-    invested_sum = sum(v for k, v in out.items() if k != "cash")
-    out["total"] = round(invested_sum + cash, 2)
+    out["total"] = round(sum(out.values()), 2)
     return out
 
 

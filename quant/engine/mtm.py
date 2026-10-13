@@ -1,5 +1,5 @@
 """
-mtm.py — the daily mark-to-market valuation store (v10.8.4, T1).
+mtm.py — the daily mark-to-market valuation store (v10.8.4, T1; v10.8.7, R-C1).
 
 Intent: the product must show ONE value per datum. Before v10.8.4 a holding's
 value came from three places (the broker CSV, the ``holdings_meta`` estimate, a
@@ -12,13 +12,16 @@ of the ``valuation`` / ``portfolio_total`` stores:
 
 It is written by the daily job, by confirm & save, and by the on-demand refresh;
 it is idempotent per (date, symbol). Shares are reconstructed from the ledger
-(recorded buys/sells plus corporate-action split factors) as of each date; cash is
-tracked from the recorded flows. Every chart, delta, holdings table and class
-weight reads this store and nothing else.
+(recorded buys/sells plus corporate-action split factors) as of each date.
+
+v10.8.7 (R-C1): uninvested cash is NOT an entity. ``portfolio_total`` is the sum of
+invested position values only. The ``cash_eur`` column is frozen audit data: it is
+written NULL and never read (the physical column drop is deferred). The flows->cash
+computation is deleted; the ledger flows remain for audit only.
 
 Invariants:
-  - Pure helpers (reconstruct_shares, cash_from_flows) do no I/O when the rows are
-    passed in; the I/O wrappers take an explicit connection.
+  - Pure helpers (reconstruct_shares) do no I/O when the rows are passed in; the
+    I/O wrappers take an explicit connection.
   - Never raises on a missing price: the symbol is skipped (its last stored value
     is untouched), never zeroed.
   - value_eur = shares * price_eur * fx, rounded to 2 decimals.
@@ -32,7 +35,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_OPENING_CASH = 0.0
 SOURCE_DAILY = "daily"
 SOURCE_CONFIRM = "confirm"
 SOURCE_REFRESH = "refresh"
@@ -110,27 +112,6 @@ def reconstruct_from_rows(opening: dict, trades: list, splits: list,
     return {sym: round(v, 6) for sym, v in shares.items() if v > 0}
 
 
-def cash_from_flows(opening_cash: float, flows: list, as_of: date) -> float:
-    """Cash as of ``as_of``: opening cash plus the recorded flows. Pure.
-
-    A buy moves money OUT of cash into invested (cash decreases); a sell and a
-    dividend move money back to cash (cash increases).
-    """
-    cash = _num(opening_cash)
-    for row in flows or []:
-        f_date, f_type, amount = (list(row) + [None, None, None])[:3]
-        fd = _as_date(f_date)
-        if fd is None or fd > as_of:
-            continue
-        kind = str(f_type).lower()
-        amount = _num(amount)
-        if kind == "buy":
-            cash -= amount
-        elif kind in ("sell", "dividend"):
-            cash += amount
-    return cash
-
-
 # ── Ledger reads (explicit connection) ────────────────────────────────────────
 
 def _opening_lots(conn: Any) -> dict:
@@ -172,15 +153,6 @@ def _split_rows(conn: Any) -> list:
         return []
 
 
-def _flow_rows(conn: Any) -> list:
-    """Recorded flows: [(date, type, amount_eur)]."""
-    try:
-        return conn.execute(
-            "SELECT date, type, amount_eur FROM flows ORDER BY date").fetchall()
-    except Exception:  # noqa: BLE001
-        return []
-
-
 def reconstruct_shares(conn: Any, as_of: date | None = None,
                        opening: dict | None = None,
                        trades: list | None = None,
@@ -198,28 +170,6 @@ def reconstruct_shares(conn: Any, as_of: date | None = None,
     if splits is None:
         splits = _split_rows(conn)
     return reconstruct_from_rows(opening, trades, splits, as_of)
-
-
-def cash_as_of(conn: Any, as_of: date | None = None,
-               opening_cash: float | None = None,
-               flows: list | None = None) -> float:
-    """Cash as of ``as_of``: opening cash (account) plus recorded flows."""
-    as_of = as_of or date.today()
-    if opening_cash is None:
-        opening_cash = _account_cash()
-    if flows is None:
-        flows = _flow_rows(conn)
-    return round(cash_from_flows(opening_cash, flows, as_of), 2)
-
-
-def _account_cash() -> float:
-    """The user's operational cash from account.yaml (0.0 on any failure)."""
-    try:
-        from quant.portfolio.account import load_account
-
-        return float(load_account().cash_eur or 0.0)
-    except Exception:  # noqa: BLE001
-        return DEFAULT_OPENING_CASH
 
 
 # ── Price / FX resolution ─────────────────────────────────────────────────────
@@ -246,16 +196,16 @@ def _fx_rate(symbol: str) -> float:
 
 def write_valuation(conn: Any, as_of: date | None = None,
                     price_lookup: Any = None, fx_lookup: Any = None,
-                    source: str = SOURCE_DAILY,
-                    opening_cash: float | None = None) -> int:
+                    source: str = SOURCE_DAILY) -> int:
     """Write one valuation row per held symbol for ``as_of`` (idempotent).
 
     ``price_lookup`` and ``fx_lookup`` are optional callables ``(symbol) -> float``
     (tests inject them). By default the native close comes from ``market_history``
     and the FX multiplier from :func:`quant.data.currency.get_fx_to_eur`.
 
-    Also upserts the day's ``portfolio_total`` (sum of value_eur + cash). Returns
-    the number of per-symbol rows written. Never raises on a missing price.
+    Also upserts the day's ``portfolio_total`` (invested value only; v10.8.7, R-C1:
+    ``cash_eur`` is frozen audit data and is written NULL). Returns the number of
+    per-symbol rows written. Never raises on a missing price.
     """
     as_of = as_of or date.today()
     shares = reconstruct_shares(conn, as_of)
@@ -280,11 +230,10 @@ def write_valuation(conn: Any, as_of: date | None = None,
             total += value
         except Exception:  # noqa: BLE001
             continue
-    cash = cash_as_of(conn, as_of, opening_cash=opening_cash)
     try:
         conn.execute(
             "INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
-            "VALUES (?, ?, ?)", [as_of, round(total, 2), cash])
+            "VALUES (?, ?, NULL)", [as_of, round(total, 2)])
     except Exception:  # noqa: BLE001
         pass
     return written
@@ -337,14 +286,13 @@ def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
     """Write a valuation row for EVERY trading day the portfolio was held (T2).
 
     Shares are reconstructed from the ledger as of each day; value = shares *
-    close * fx; cash is tracked from the flows. The series is continuous (one
+    close * fx. v10.8.7 (R-C1): cash is not tracked. The series is continuous (one
     point per trading day, no forward-filled total) and its tail equals the latest
     close. Idempotent per (date, symbol). Returns ``{days, rows}``. Never raises.
     """
     opening = _opening_lots(conn)
     trades = _trade_rows(conn)
     splits = _split_rows(conn)
-    flows = _flow_rows(conn)
     symbols = set(opening) | {str(t[1]) for t in trades if len(t) > 1 and t[1]}
     if not symbols:
         return {"days": 0, "rows": 0}
@@ -388,11 +336,10 @@ def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
                 total += value
             except Exception:  # noqa: BLE001
                 continue
-        cash = round(cash_from_flows(_account_cash(), flows, d), 2)
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
-                "VALUES (?, ?, ?)", [d, round(total, 2), cash])
+                "VALUES (?, ?, NULL)", [d, round(total, 2)])
             day_count += 1
         except Exception:  # noqa: BLE001
             pass
@@ -416,22 +363,22 @@ def refresh(as_of: date | None = None, source: str = SOURCE_REFRESH) -> dict:
 # ── Readers ───────────────────────────────────────────────────────────────────
 
 def read_total_series(conn: Any = None) -> list[dict]:
-    """The daily portfolio-total series oldest first.
+    """The daily portfolio-total series oldest first (invested value only).
 
-    Returns ``[{date, value_eur, cash_eur}]``; empty when nothing is stored.
+    Returns ``[{date, value_eur}]``; empty when nothing is stored. v10.8.7 (R-C1):
+    ``cash_eur`` is frozen audit data and is never read.
     """
-    rows = _query(conn, "SELECT date, value_eur, cash_eur FROM portfolio_total "
+    rows = _query(conn, "SELECT date, value_eur FROM portfolio_total "
                         "ORDER BY date")
-    return [{"date": r[0], "value_eur": _num(r[1]), "cash_eur": _num(r[2])}
-            for r in rows]
+    return [{"date": r[0], "value_eur": _num(r[1])} for r in rows]
 
 
 def read_series(symbol: str | None = None, start: Any = None, end: Any = None,
                 conn: Any = None) -> list[dict]:
     """Valuation rows from the store (v10.8.6, B2).
 
-    Without ``symbol``: the daily portfolio totals ``[{date, value_eur, cash_eur}]``
-    (backward compatible). With ``symbol``: the per-symbol valuation rows
+    Without ``symbol``: the daily portfolio totals ``[{date, value_eur}]``
+    (invested only; v10.8.7, R-C1). With ``symbol``: the per-symbol valuation rows
     ``[{date, symbol, shares, price_eur, fx, value_eur}]`` within ``[start, end]``.
     Only stored dates are returned (no forward-fill). Empty when nothing is stored.
     """
@@ -454,18 +401,18 @@ def read_series(symbol: str | None = None, start: Any = None, end: Any = None,
 
 
 def portfolio_total(as_of: Any, conn: Any = None) -> float:
-    """The stored portfolio total (invested value + cash) for ``as_of`` (B2).
+    """The stored portfolio total (invested value only) for ``as_of`` (B2).
 
-    0.0 when no row exists for that exact date (no forward-fill).
+    0.0 when no row exists for that exact date (no forward-fill). v10.8.7 (R-C1):
+    cash is not an entity; the total is the sum of invested position values.
     """
     d = _as_date(as_of)
     if d is None:
         return 0.0
-    rows = _query(conn, "SELECT value_eur, cash_eur FROM portfolio_total "
-                        "WHERE date = ?", [d])
+    rows = _query(conn, "SELECT value_eur FROM portfolio_total WHERE date = ?", [d])
     if not rows:
         return 0.0
-    return round(_num(rows[0][0]) + _num(rows[0][1]), 2)
+    return round(_num(rows[0][0]), 2)
 
 
 def held_symbols(as_of: Any = None, conn: Any = None) -> list[str]:
@@ -489,13 +436,13 @@ def latest_market_date(conn: Any = None) -> date | None:
 
 
 def latest_total(conn: Any = None) -> dict:
-    """The most recent ``portfolio_total`` row, or an empty dict."""
-    rows = _query(conn, "SELECT date, value_eur, cash_eur FROM portfolio_total "
+    """The most recent ``portfolio_total`` row (invested value only), or {}."""
+    rows = _query(conn, "SELECT date, value_eur FROM portfolio_total "
                         "ORDER BY date DESC LIMIT 1")
     if not rows:
         return {}
     r = rows[0]
-    return {"date": r[0], "value_eur": _num(r[1]), "cash_eur": _num(r[2])}
+    return {"date": r[0], "value_eur": _num(r[1])}
 
 
 def day_delta(conn: Any = None) -> tuple[float, float, date | None]:
@@ -621,12 +568,6 @@ def read_symbol_series(conn: Any = None) -> dict:
         out.setdefault(str(sym), []).append(
             {"date": _as_date(d), "value_eur": _num(v)})
     return out
-
-
-def cash_series(conn: Any = None) -> list[dict]:
-    """The cash series from ``portfolio_total`` oldest first."""
-    rows = _query(conn, "SELECT date, cash_eur FROM portfolio_total ORDER BY date")
-    return [{"date": _as_date(r[0]), "cash_eur": _num(r[1])} for r in rows]
 
 
 def _query(conn: Any, sql: str, params: list | None = None) -> list:

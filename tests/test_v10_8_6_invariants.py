@@ -261,15 +261,17 @@ def test_invariant_day_delta_equals_valuation_difference(valuation_store):
 
 
 def test_invariant_chart_tail_equals_portfolio_total(valuation_store):
-    """Invariant 4: the chart's last plotted value matches the store total."""
+    """Invariant 4: the chart's last plotted value matches the store total.
+
+    v10.8.7 (R-C1): the total is invested only; there is no cash term.
+    """
     from quant.engine import mtm
     from quant.reporting.artifacts import read_portfolio_total
 
     d = mtm.latest_price_date()
     chart = read_portfolio_total()
     chart_tail = float(chart["value_eur"].iloc[-1])
-    cash = float(chart["cash_eur"].iloc[-1])
-    assert abs((chart_tail + cash) - mtm.portfolio_total(d)) < 1e-9
+    assert abs(chart_tail - mtm.portfolio_total(d)) < 1e-9
 
 
 def test_invariant_growth_view_has_portfolio_and_per_asset(valuation_store):
@@ -291,20 +293,21 @@ def test_invariant_growth_view_has_portfolio_and_per_asset(valuation_store):
 
 
 def test_invariant_value_view_hover_lists_per_asset(valuation_store):
-    """Invariant 6: the Value hover lists total + cash + each held asset, summing."""
+    """Invariant 6: the Value hover lists total + each held asset, summing.
+
+    v10.8.7 (R-C1): there is no cash key; the total is the invested sum.
+    """
     from quant.engine import mtm
     from quant.reporting.artifacts import compute_value_view_hover
 
     d = mtm.latest_price_date()
     symbols = mtm.held_symbols(as_of=d)
-    cash_rows = [{"date": r["date"], "value_eur": r["cash_eur"]}
-                 for r in mtm.cash_series()]
     hover = compute_value_view_hover(d, mtm.read_total_series(),
-                                     mtm.read_symbol_series(), cash_rows, symbols)
-    assert "total" in hover and "cash" in hover
+                                     mtm.read_symbol_series(), symbols)
+    assert "total" in hover and "cash" not in hover
     for sym in symbols:
         assert sym in hover, f"missing per-asset value for {sym} in hover"
-    expected = sum(hover[sym] for sym in symbols) + hover["cash"]
+    expected = sum(hover[sym] for sym in symbols)
     assert abs(expected - hover["total"]) < 1e-9
 
 

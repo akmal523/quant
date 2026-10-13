@@ -270,20 +270,17 @@ def run_daily(
     except Exception:  # noqa: BLE001
         pass
 
-    # v10.8.4 (T1/T7): write the mark-to-market valuation store and the run
-    # manifest, so every page reads fresh, traceable values (idempotent).
+    # v10.8.7 (T2): run the analysis chain (prices -> fundamentals -> nlp ->
+    # regime -> scoring -> optimization), each stage writing a run_manifest row;
+    # then the mark-to-market valuation store (idempotent).
     try:
+        from quant.engine import analysis, mtm
         from quant.engine import manifest as manifest_mod
-        from quant.engine import mtm
 
-        run_id = manifest_mod.new_run_id()
-        manifest_mod.record_stage(
-            conn, run_id, "prices",
-            (manifest_mod.STATUS_OK if update_fn is not None
-             else manifest_mod.STATUS_MISSING),
-            coverage=manifest_mod.coverage_text((1, 1)))
+        analysis.run_analysis(conn)
         res = mtm.backfill(conn, source=mtm.SOURCE_DAILY)
         written = res.get("rows", 0)
+        run_id = manifest_mod.latest_run_id(conn) or manifest_mod.new_run_id()
         manifest_mod.record_stage(
             conn, run_id, "valuation", manifest_mod.STATUS_OK,
             coverage=manifest_mod.coverage_text((written, written)))

@@ -1,5 +1,5 @@
 """
-pairing.py — pair a sell with where its proceeds go (v10.8.4, T5).
+pairing.py — pair a sell with where its proceeds go (v10.8.4, T5; v10.8.7, R-C1).
 
 Intent: the ONE list must never tell the user to sell without saying what to do
 with the money. Every sell item proposes its proceeds routing inside the SAME
@@ -7,7 +7,8 @@ item, by this fixed priority:
 
   1. top up the largest UNDERWEIGHT holding vs its target (the gap in points);
   2. else the highest-score idea that passes the sizing laws;
-  3. else hold the money as cash ("cash target X%").
+  3. else hold the proceeds at the broker, untracked (v10.8.7, R-C1: there is no
+     tracked-cash target; the only permitted trace of cash is this reasoned line).
 
 The result renders as one line, for example:
   "Sell ~65 EUR of Nasdaq 100 (SXRV.DE) -> buy MSCI World (EUNL.DE), 4pp under target".
@@ -21,10 +22,9 @@ from __future__ import annotations
 
 from typing import Any
 
-DEFAULT_CASH_TARGET = 0.10
 ROUTE_UNDERWEIGHT = "underweight"
 ROUTE_IDEA = "idea"
-ROUTE_CASH = "cash"
+ROUTE_HOLD = "hold"
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -80,11 +80,11 @@ def best_idea(candidates: list[dict] | None, held: set, exclude: str = "") -> di
 
 
 def route_sell(sell: dict, holdings: list[dict] | None = None,
-               candidates: list[dict] | None = None,
-               cash_target: float = DEFAULT_CASH_TARGET) -> dict:
+               candidates: list[dict] | None = None) -> dict:
     """Where a sell's proceeds should go. Returns ``{kind, symbol, text}``.
 
-    Priority: underweight holding -> best idea -> hold as cash.
+    Priority: underweight holding -> best idea -> hold proceeds at the broker
+    (untracked). v10.8.7 (R-C1): there is no tracked-cash target.
     """
     holdings = holdings or []
     exclude = str(sell.get("symbol") or "")
@@ -103,19 +103,18 @@ def route_sell(sell: dict, holdings: list[dict] | None = None,
         return {"kind": ROUTE_IDEA, "symbol": idea.get("symbol"),
                 "name": idea.get("name"), "text": text}
 
-    pct = f"{_num(cash_target) * 100:.0f}"
-    return {"kind": ROUTE_CASH, "symbol": None,
-            "text": f"hold as cash (cash target {pct}%)"}
+    return {"kind": ROUTE_HOLD, "symbol": None,
+            "text": "no eligible buy passes the hurdle; hold proceeds at the "
+                    "broker, untracked"}
 
 
 def paired_line(sell: dict, holdings: list[dict] | None = None,
-                candidates: list[dict] | None = None,
-                cash_target: float = DEFAULT_CASH_TARGET) -> str:
+                candidates: list[dict] | None = None) -> str:
     """The full one-line pairing for a sell item (T5).
 
     ``sell`` carries ``label`` (the "Name (TICKER)" form) and ``amount_eur``.
     """
     amount = _num(sell.get("amount_eur"))
     label = str(sell.get("label") or _label(sell))
-    route = route_sell(sell, holdings, candidates, cash_target)
+    route = route_sell(sell, holdings, candidates)
     return f"Sell ~{amount:.0f} EUR of {label} -> {route['text']}"

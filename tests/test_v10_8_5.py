@@ -196,23 +196,13 @@ def test_taxonomy_plan_change_requires_k_months():
     assert items and items[0]["verb"] == T.VERB_PLAN
 
 
-def test_taxonomy_cash_deploy_routes_to_top_idea():
-    from quant.engine import action_taxonomy as T
-
-    items = T.cash_deploy_items(500.0, 1000.0,
-                                [{"symbol": "GGG", "name": "GGG", "score": 80}],
-                                cash_target=0.10)
-    assert items and items[0]["verb"] == T.VERB_CASH
-    assert items[0]["symbol"] == "GGG"
-
-
 def test_taxonomy_build_ranks_today_before_this_month():
     from quant.engine import action_taxonomy as T
 
     h = [{"symbol": "AAA", "tier": "SPECULATIVE", "pnl_pct": -0.6, "value_eur": 50},
          {"symbol": "FFF", "tier": "FORTRESS", "current_weight": 0.2,
           "target_weight": 0.5}]
-    items = T.build(h, months_under=3, cash=0.0, invested=1000.0)
+    items = T.build(h, months_under=3)
     horizons = [i["horizon"] for i in items]
     assert horizons == sorted(horizons, key=lambda x: 0 if x == "Today" else 1)
 

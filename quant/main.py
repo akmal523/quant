@@ -630,9 +630,8 @@ def main() -> None:
     invested = float(audit_res["Invested_EUR"].sum()) if (
         not audit_res.empty and "Invested_EUR" in audit_res) else 0.0
     pnl_pct = (pnl_eur / invested * 100) if invested > 0 else 0.0
-    cash_str = f"{account.cash_eur:.2f} EUR" if account.cash_is_set else "not set"
     reporter.line(f"  portfolio {total_value:.2f} EUR; PnL {pnl_eur:+.2f} EUR "
-                  f"({pnl_pct:+.2f}%); cash {cash_str}; risk {account.risk_profile}")
+                  f"({pnl_pct:+.2f}%); risk {account.risk_profile}")
 
     with_news = sum(
         1 for s in survivors if nlp_data_map.get(s, {}).get("data_confidence", 0.0) > 0
@@ -648,7 +647,7 @@ def main() -> None:
         from quant.reporting.artifacts import save_metrics
         record_review(
             value_eur=total_value, invested_eur=invested,
-            cash_eur=account.cash_eur, pnl_eur=pnl_eur, conn=conn,
+            cash_eur=None, pnl_eur=pnl_eur, conn=conn,
         )
         metrics_payload = {
             "review_ts": today,
@@ -700,6 +699,16 @@ def main() -> None:
 
         reporter.detail("\n" + obs.summary())
 
+    # ── v10.8.7 (T2): record the analysis manifest + scores for this run ──────
+    # The on-demand "Run analysis" button executes this pipeline; every stage
+    # writes a run_manifest row and the scores store is refreshed (R-C2).
+    try:
+        from quant.engine import analysis
+
+        analysis.run_analysis(conn)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Analysis manifest/scores failed (non-fatal): %s", e)
+
     # ── Phase 4: Daily Push Notification (canonical actions) ─────────────────
     notify_instructions = [
         {
@@ -710,11 +719,8 @@ def main() -> None:
         }
         for a in actions
     ]
-    cash_alloc = (account.cash_eur / total_value) if (
-        account.cash_is_set and total_value > 0) else 0.0
     notify_daily(
         total_value=total_value,
-        cash_allocation=cash_alloc,
         instructions=notify_instructions,
         risk_warnings=[],
     )

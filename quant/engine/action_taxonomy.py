@@ -1,9 +1,9 @@
 """
-action_taxonomy.py — the five decision verb classes (v10.8.5, T3).
+action_taxonomy.py — the decision verb classes (v10.8.5, T3; v10.8.7, T4/R-C1).
 
 Intent: the ONE list must carry more than rebalancing. Each item is still a single
 action with one reason and an evidence pointer; nothing new is added to the page.
-The five classes:
+The classes:
 
   - rebalance    drift over threshold from the target weight.
   - threat       a stop-loss/take-profit hit, a drawdown from entry, a score below
@@ -12,7 +12,10 @@ The five classes:
                  Research idea by more than a hurdle (fees + tax + confidence).
                  Rendered as ONE paired item (sell X -> buy Y).
   - plan_change  a Long-term class under target for K months of plan runs.
-  - cash_deploy  cash over its target weight, routed into the top eligible idea.
+
+v10.8.7 (R-C1): the ``cash_deploy`` verb is removed. Uninvested cash is not an
+entity; a sell without a paired buy is reasoned "hold proceeds at the broker,
+untracked" (see :mod:`quant.engine.pairing`).
 
 Invariants:
   - Pure: no I/O.
@@ -24,24 +27,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from quant.config import REBALANCE_DRIFT_THRESHOLD
+from quant.config import (
+    REBALANCE_DRIFT_THRESHOLD,
+    SCORE_FLOOR,
+    SPEC_STOP,
+    SPEC_TAKE,
+    SWAP_HURDLE,
+    THREAT_DRAWDOWN,
+)
 
 VERB_REBALANCE = "rebalance"
 VERB_THREAT = "threat"
 VERB_SWAP = "swap"
 VERB_PLAN = "plan_change"
-VERB_CASH = "cash_deploy"
 
 HORIZON_TODAY = "Today"
 HORIZON_MONTH = "This month"
-
-# Trigger thresholds (documented, conservative).
-THREAT_DRAWDOWN = 0.20       # 20% below entry
-SCORE_FLOOR = 40.0           # composite/structural below this is a threat
-SPEC_STOP = -0.50
-SPEC_TAKE = 1.00
-SWAP_HURDLE = 0.05           # 5 points after fees/tax/confidence
-DEFAULT_CASH_TARGET = 0.10
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -212,51 +213,27 @@ def plan_change_items(holdings: list[dict] | None, months_under: int = 0,
     return out
 
 
-# ── Cash deploy ───────────────────────────────────────────────────────────────
-
-def cash_deploy_items(cash: float, invested: float, ideas: list[dict] | None,
-                      cash_target: float = DEFAULT_CASH_TARGET) -> list[dict]:
-    """Cash over its target weight, routed into the top eligible idea."""
-    invested = _num(invested)
-    pool = invested + _num(cash)
-    if pool <= 0:
-        return []
-    cash_weight = _num(cash) / pool
-    if cash_weight <= cash_target:
-        return []
-    best = None
-    best_score = float("-inf")
-    for idea in ideas or []:
-        sc = _composite(idea)
-        if sc > best_score:
-            best_score = sc
-            best = idea
-    target_sym = str(best.get("symbol")) if best else None
-    target_name = best.get("name") if best else None
-    excess = round((cash_weight - cash_target) * pool, 2)
-    return [_item(
-        VERB_CASH, target_sym, target_name or "the top idea", excess,
-        f"cash is {cash_weight * 100:.0f}% vs the {cash_target * 100:.0f}% target.",
-        HORIZON_MONTH, "ALPHA", "Research")]
-
-
 # ── Aggregator ────────────────────────────────────────────────────────────────
 
 def build(holdings: list[dict] | None, scores: dict | None = None,
           ideas: list[dict] | None = None, regime: Any = None,
-          cash: float = 0.0, invested: float | None = None,
-          cash_target: float = DEFAULT_CASH_TARGET,
           months_under: int = 0) -> list[dict]:
-    """All five verb classes as ONE list. Today items sort before This-month."""
+    """All verb classes as ONE list. Today items sort before This-month.
+
+    v10.8.7 (T4): a swappable position never gets a standalone sell, so a swap
+    item and a rebalance item for the same symbol never coexist.
+    """
     holdings = holdings or []
-    if invested is None:
-        invested = sum(_num(h.get("value_eur")) for h in holdings)
     items: list[dict] = []
     items += rebalance_items(holdings)
     items += threat_items(holdings, scores, regime)
-    items += swap_items(holdings, ideas, scores)
+    swaps = swap_items(holdings, ideas, scores)
+    items += swaps
     items += plan_change_items(holdings, months_under=months_under)
-    items += cash_deploy_items(cash, invested, ideas, cash_target)
+    swap_syms = {str(s.get("symbol")) for s in swaps}
+    items = [i for i in items
+             if not (i.get("verb") == VERB_REBALANCE
+                     and str(i.get("symbol")) in swap_syms)]
     order = {HORIZON_TODAY: 0, HORIZON_MONTH: 1}
     items.sort(key=lambda i: order.get(i.get("horizon"), 2))
     return items

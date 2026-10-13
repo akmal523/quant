@@ -472,6 +472,26 @@ def init_db() -> None:
         )
     """)
 
+    # ── v10.8.7 (T2): the scoring store ───────────────────────────────────────
+    # One row per symbol: the numeric composite + confidence tier + the component
+    # grades that produced it. Written by the scoring stage (daily + on-demand);
+    # read by Research, the decision taxonomy and the invest plan. A missing
+    # component is a documented neutral penalty, never a dash (R-C2).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scores (
+            symbol VARCHAR PRIMARY KEY,
+            composite DOUBLE,
+            confidence VARCHAR,
+            structural_grade DOUBLE,
+            tactical_grade DOUBLE,
+            sentiment DOUBLE,
+            stewardship DOUBLE,
+            present_components INTEGER,
+            total_components INTEGER,
+            updated_at DOUBLE
+        )
+    """)
+
     # ── v10.4.0 (Phase 2): Trade log for Transaction Cost Analysis (TCA) ──────
     # Records the signal price/time vs the actual fill price/time so the
     # Implementation Shortfall (slippage in bps) can be measured per trade.

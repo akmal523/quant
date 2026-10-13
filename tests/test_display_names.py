@@ -64,10 +64,9 @@ def test_ensure_display_names_writes_state_file(tmp_path, monkeypatch):
         "INSERT INTO asset_registry (symbol, name, display_name, instrument_class, "
         "isin, currency, universe_status) VALUES ('ZZTEST','','','EQUITY','','','ACTIVE')")
     monkeypatch.setattr(names, "_yahoo_identity", lambda _s: ("Test Name", "USD"))
-    # Force the connect_with_retry path to fall back to the in-process connection.
-    monkeypatch.setattr(database, "connect_with_retry",
-                        lambda **_k: (_ for _ in ()).throw(TimeoutError("x")))
 
+    # v10.8.7 (T5): the in-process fallback is removed; the backfill opens its own
+    # connection via connect_with_retry (which succeeds here) and writes real counts.
     names.ensure_display_names()
     state = names.read_names_state()
     assert state

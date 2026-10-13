@@ -363,19 +363,14 @@ def _render_value_chart(history, holdings) -> None:
     growth = mode == C.GROWTH_VIEW
     since = df["review_ts"].min()
 
-    # Per-asset + cash series (store only) feed the pure helpers (R1, no joins).
+    # Per-asset series (store only) feed the pure helpers (R1, no joins).
+    # v10.8.7 (R-C1): cash is not an entity; there is no cash line or hover key.
     per_symbol: dict = {}
-    cash_rows: list = []
     if using_store:
         try:
             per_symbol = mtm.read_symbol_series() or {}
         except Exception:  # noqa: BLE001
             per_symbol = {}
-        try:
-            cash_rows = [{"date": r["date"], "value_eur": r["cash_eur"]}
-                         for r in mtm.cash_series()]
-        except Exception:  # noqa: BLE001
-            cash_rows = []
     held = [str(h.get("symbol")) for h in holdings or [] if h.get("symbol")]
     if not held:
         held = list(per_symbol.keys())
@@ -398,7 +393,7 @@ def _render_value_chart(history, holdings) -> None:
         y_vals = [p.value for p in port]
     else:
         # Thin per-asset context lines carry NO hover; the portfolio line carries
-        # the full breakdown so one tooltip lists total + cash + each held asset.
+        # the full breakdown so one tooltip lists total + each held asset.
         for sym, rows in per_symbol.items():
             keep = [(pd.to_datetime(r["date"]), float(r["value_eur"]))
                     for r in rows if r.get("value_eur") is not None]
@@ -408,21 +403,13 @@ def _render_value_chart(history, holdings) -> None:
                     x=[k[0] for k in keep], y=[k[1] for k in keep], mode="lines",
                     name=_display_name(sym), showlegend=False, hoverinfo="skip",
                     line=dict(width=0.5), opacity=0.35))
-        ck = [(pd.to_datetime(r["date"]), float(r["value_eur"])) for r in cash_rows]
-        ck = [(x, y) for x, y in ck if x >= since]
-        if len(ck) >= 2:
-            fig.add_trace(go.Scatter(
-                x=[k[0] for k in ck], y=[k[1] for k in ck], mode="lines",
-                name=C.CLASS_CASH, showlegend=False, hoverinfo="skip",
-                line=dict(width=1, dash="dot", color=P.BASELINE)))
         hover_texts = []
         for r in df.to_dict("records"):
             day = pd.Timestamp(r["review_ts"]).date()
-            hd = compute_value_view_hover(day, port_rows, per_symbol, cash_rows, held)
-            parts = [f"Total {hd['total']:.2f} EUR",
-                     f"{C.CLASS_CASH} {hd['cash']:.2f} EUR"]
+            hd = compute_value_view_hover(day, port_rows, per_symbol, held)
+            parts = [f"Total {hd['total']:.2f} EUR"]
             for sym, val in hd.items():
-                if sym in ("total", "cash"):
+                if sym == "total":
                     continue
                 parts.append(f"{_display_name(sym)} {val:.2f} EUR")
             hover_texts.append("<br>".join(parts))

@@ -26,8 +26,6 @@ import os
 
 import requests
 
-from quant.portfolio.cash_rate import current_cash_apy
-
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +89,6 @@ def _display_name(symbol) -> str:
 
 def build_daily_summary(
     total_value: float,
-    cash_allocation: float,
     instructions: list[dict],
     risk_warnings: list[str],
     regime: str = "unknown",
@@ -100,9 +97,9 @@ def build_daily_summary(
     """Build the daily briefing text.
 
     Intent: single source of truth for the push message. Includes run date,
-    market regime, cash yield, total portfolio value, exact execution
-    instructions (route/symbol/ISIN/amount), bucket violations, and data-health
-    warnings. Phase 5 (v10.2): zero emoji characters.
+    market regime, total portfolio value, exact execution instructions
+    (route/symbol/ISIN/amount), bucket violations, and data-health warnings.
+    Phase 5 (v10.2): zero emoji characters. v10.8.7 (R-C1): no cash share line.
     Invariants: returns a non-empty string.
     """
     from datetime import date
@@ -111,9 +108,7 @@ def build_daily_summary(
         "=" * 40,
         f"Date: {date.today().isoformat()}",
         f"Market regime: {regime}",
-        f"Cash rate: {current_cash_apy()*100:.2f} percent per year",
         f"Portfolio value: {total_value:.2f} EUR",
-        f"Cash share: {cash_allocation*100:.0f} percent",
         "",
         "What to do:",
     ]
@@ -174,7 +169,6 @@ def send_discord(message: str) -> bool:
 
 def notify_daily(
     total_value: float,
-    cash_allocation: float,
     instructions: list[dict],
     risk_warnings: list[str],
 ) -> bool:
@@ -189,7 +183,7 @@ def notify_daily(
                     "Missing env vars: %s", missing)
         return False
 
-    message = build_daily_summary(total_value, cash_allocation, instructions, risk_warnings)
+    message = build_daily_summary(total_value, instructions, risk_warnings)
     delivered = False
     if send_telegram(message):
         delivered = True

@@ -51,12 +51,6 @@ def test_day_delta_uses_the_store_total():
     assert when == date(2026, 6, 2)
 
 
-def test_cash_target_default_is_a_fraction():
-    from quant.ui.pages import _cash_target
-
-    assert 0.0 < _cash_target() <= 0.5
-
-
 def test_sell_line_is_one_verb_one_ticker():
     line = format_item_line({"verb": "sell_part", "label": "Nasdaq 100 (SXRV.DE)",
                              "amount_eur": 65})
@@ -65,7 +59,7 @@ def test_sell_line_is_one_verb_one_ticker():
 
 
 def test_one_class_word_mapping():
-    # R6: one mapping module, no synonym drift.
+    # R6/A1: one mapping module, no synonym drift.
     assert C.CLASS_LABELS["FORTRESS"] == "Long-term"
     assert C.CLASS_LABELS["ALPHA"] == "Active"
-    assert C.CLASS_LABELS["SPECULATIVE"] == "Small bets"
+    assert C.CLASS_LABELS["SPECULATIVE"] == "Speculative"

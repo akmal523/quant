@@ -70,9 +70,10 @@ def test_invest_plan_balances_classes_and_never_sells():
     assert plan["orders"], "expected at least one buy"
     assert all(o["amount_eur"] > 0 for o in plan["orders"])
     assert plan["total"] <= 1000.0
-    # The long-term class is under target, so it receives a savings-plan buy.
+    # v10.8.7 (T3): the long-term class is a savings-plan (EUR/m) suggestion,
+    # a separate dimension from the one-off orders.
     assert any(o["tier"] == "FORTRESS" and o["how"] == "Savings plan"
-               for o in plan["orders"])
+               for o in plan["savings_plan"])
 
 
 def test_invest_plan_class_rows_have_now_and_target():
