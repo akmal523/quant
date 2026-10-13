@@ -3,6 +3,45 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.8 — P2 repairs: editor column contract, derived Holdings Analysis, delta-badge contract (rulings)
+
+- **R-P1 — editor column contract.** The broker editor grid contains ONLY typed
+  inputs (plus a hidden index). Derived and live data live OUTSIDE the grid, in a
+  read-only check table. No table exceeds the default Streamlit container width;
+  every column has a non-empty header and, where applicable, a currency in the
+  header. The ONE column-spec contract is
+  [`quant/ui/columns.py`](quant/ui/columns.py): the grid is exactly `Name |
+  Instrument | Avg cost / share (paid ccy) | Value (EUR) | Profit (EUR) |
+  Plan (EUR/m)` (index hidden, no remove column). Below it, the read-only
+  **Entry check** table (`Instrument | Shares (derived) | Typed value (EUR) |
+  Live value (EUR) | Delta %`) is the ONLY place live and typed meet, with an
+  amber row when `|Delta| > 1%`. **Addendum A1**: the `Name` cell renders the
+  display name WITHOUT any ticker in parentheses (the parenthesized form is
+  allowed only in single-identity-column tables). **Addendum A2**: the
+  Entry-check identity column is `Instrument` (the same broker ticker as the
+  grid).
+- **R-P2 — derived status columns.** Status columns are DERIVED, never
+  placeholders: every cell is computed from advice state, weights, or the run
+  manifest; unknown => reasoned empty state, never "held" / bare 0 / bare "-".
+  The `Reason` cell ([`holdings_analysis.reason_cell`](quant/engine/holdings_analysis.py))
+  reads "<Verb> ~<amount> EUR, open since <date>" when the symbol has open advice,
+  else "no open advice; drift <x.x> pp vs <target>% target". The `Alerts` cell
+  ([`holdings_analysis.alert_count`](quant/engine/holdings_analysis.py)) counts
+  the open Threat-verb triggers (stop / drawdown / score floor / regime). The
+  coverage line is the ONE helper
+  ([`manifest.coverage_line`](quant/engine/manifest.py)): "coverage: <n>/<N>
+  symbols, as of <ts>"; a bare "-" is forbidden. The drawer has a fixed
+  five-section order (price chart; score + component bars; news; SEC; open
+  advice), each with an explicit empty state.
+- **R-P3 — one delta badge.** ONE pure helper owns every delta badge in the
+  product: sign -> icon/color/text with explicit rounding rules. No inline badge
+  formatting anywhere else. [`copy.delta_badge`](quant/ui/copy.py) returns
+  `(icon, color, text)`: icon/color from the SIGN OF EUR (up/green, down/red,
+  dot/neutral when `|eur| < 0.5`); text = `"<eur:+.0f> EUR (<pct:+.1f>%)"`,
+  except when the rounded pct is 0.0 while `eur != 0`, then `"<eur:+.0f> EUR
+  (<0.1% signed)"`. `"-0.0%"` is unrepresentable. The Portfolio header calls only
+  [`render.render_delta_badge`](quant/ui/render.py).
+
 ## v10.8.7 — P1 repairs: no cash, real scoring, one weight math, taxonomy, write hygiene (rulings)
 
 - **R-C1 — cash is not an entity.** Uninvested cash is NOT a row, target, line,

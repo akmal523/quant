@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.8] - 2026-10-13
+
+"Introduce the three missing contracts." The remaining P2 defects were
+UI-correctness defects with a common pattern: a missing contract. The broker
+editor grew column-by-column until it overflowed; Holdings Analysis status
+columns were placeholders; the day-delta badge formatted a number without a
+sign -> icon/color mapping. This release introduces the three contracts and
+enforces each with a test that would have caught the original defect. No new
+pages, dependencies or visual density.
+
+### Owner rulings (binding)
+
+- **R-P1 — editor column contract.** The broker editor grid contains ONLY typed
+  inputs (plus a hidden index). Derived and live data live OUTSIDE the grid, in a
+  read-only check table. No table exceeds the default Streamlit container width;
+  every column has a non-empty header and, where applicable, a currency in the
+  header.
+- **R-P2 — derived status columns.** Status columns are DERIVED, never
+  placeholders: every cell is computed from advice state, weights, or the run
+  manifest; unknown => reasoned empty state, never "held" / bare 0 / bare "-".
+- **R-P3 — one delta badge.** ONE pure helper owns every delta badge in the
+  product: sign -> icon/color/text with explicit rounding rules. No inline badge
+  formatting anywhere else.
+
+### Fixed
+
+- **Editor column contract + Entry-check table (D1/D2/D3, T1)**: ONE column-spec
+  contract ([`quant/ui/columns.py`](quant/ui/columns.py)) drives the broker
+  editor. The grid is exactly `Name | Instrument | Avg cost / share (paid ccy) |
+  Value (EUR) | Profit (EUR) | Plan (EUR/m)` (index hidden, no remove column);
+  every header is non-empty and money columns carry their currency. Below the
+  grid, a read-only **Entry check** table (`Instrument | Shares (derived) | Typed
+  value (EUR) | Live value (EUR) | Delta %`) is the ONLY place live and typed
+  meet, with an amber row when `|Delta| > 1%`. Addendum A1: the `Name` cell never
+  embeds the ticker. Addendum A2: the Entry-check identity column is `Instrument`.
+- **Derived Holdings Analysis + drawer contract (D4/D5, T2)**: the `Reason` cell
+  is derived from advice state and weights ("<Verb> ~<amount> EUR, open since
+  <date>" or "no open advice; drift <x.x> pp vs <target>% target"; never "held");
+  the `Alerts` cell counts the open Threat-verb triggers (stop / drawdown / score
+  floor / regime). The coverage line is the ONE helper
+  ([`manifest.coverage_line`](quant/engine/manifest.py)) and never a bare "-". The
+  drawer has a fixed five-section order (price chart; score + component bars;
+  news; SEC; open advice), each with an explicit empty state.
+- **Delta-badge contract (D6, T3)**: ONE pure helper
+  ([`copy.delta_badge`](quant/ui/copy.py)) maps the sign of EUR to icon/color/text
+  (up/green, down/red, dot/neutral when `|eur| < 0.5`); the text is
+  `"<eur:+.0f> EUR (<pct:+.1f>%)"`, except when the rounded pct is 0.0 while
+  `eur != 0`, then `"<eur:+.0f> EUR (<0.1% signed)"`. `"-0.0%"` is
+  unrepresentable. The Portfolio header calls only this helper.
+
+### Tests
+
+- [`tests/test_v10_8_8_phase1.py`](tests/test_v10_8_8_phase1.py): the editor
+  header set equals the contract; every header non-empty; the column budgets; the
+  cost header carries its currency; the A1 clean-Name lint; the Entry-check amber
+  case; the rendered headers equal the contract (AppTest).
+- [`tests/test_v10_8_8_phase2.py`](tests/test_v10_8_8_phase2.py): the derived
+  Reason/Alerts cells; the coverage line never a bare "-"; the drawer's five
+  sections with and without news/SEC data; the coverage/held grep guards.
+- [`tests/test_v10_8_8_phase3.py`](tests/test_v10_8_8_phase3.py): the delta-badge
+  case table; `"-0.0%"` unrepresentable; the sign drives the icon/color; the
+  inline-badge grep guard; the Portfolio header badge on a down day.
+
+### Notes
+
+- The environment's pandas 3.0.3 requires jinja2 >= 3.1.5 for the pandas Styler
+  (the amber Entry-check row); jinja2 was upgraded from 3.1.2 to 3.1.6 in the
+  project venv. No new dependency was added.
+
 ## [10.8.7] - 2026-10-13
 
 "Repair the model, not the rendering." The P1 defects are closed at the model

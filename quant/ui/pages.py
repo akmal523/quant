@@ -253,8 +253,9 @@ def page_home() -> None:
     series = R.read_value_series()
     first_pct = _since_first_pct(series)
 
-    st.metric("Total value", C.fmt_eur_whole(total),
-              delta=f"vs previous close: {day_eur:+,.0f} EUR ({day_pct:+.1f}%)")
+    st.metric("Total value", C.fmt_eur_whole(total))
+    # v10.8.8 (R-P3): the ONE delta badge owns the sign -> icon/color/text.
+    R.render_delta_badge(day_eur, day_pct, label="vs previous close:")
     # v10.8.5 (D7): the "as of" date is the valuation store's latest date, so the
     # caption and the chart tail can never disagree.
     when = _as_of_date()

@@ -101,6 +101,20 @@ def latest_bar_date() -> str:
     return str(df["d"].iloc[0])
 
 
+def render_delta_badge(eur, pct, label: str = "") -> None:
+    """Render the ONE delta badge (v10.8.8, R-P3).
+
+    Calls :func:`quant.ui.copy.delta_badge` for the icon/color/text; no inline
+    badge formatting exists anywhere else in the UI.
+    """
+    icon, color, text = C.delta_badge(eur, pct)
+    prefix = f"{label} " if label else ""
+    st.markdown(
+        f'<span style="color:{color}; font-weight:600">'
+        f"{prefix}{icon} {text}</span>",
+        unsafe_allow_html=True)
+
+
 def _last_sync_date():
     """The newest holdings_meta sync_date, or None (v10.7.3, Part 3.2)."""
     try:
