@@ -245,18 +245,32 @@ STATUS_WAITING = "Cooldown until {date} (do nothing)"
 STATUS_BELOW_MIN = "Below minimum order"
 STATUS_NOT_REVIEWED = "Not reviewed yet"
 # Column-name -> human header (P2: no column names in the UI).
+# v10.8.8 (R-P1): the editor grid + entry-check headers ARE the column contract
+# (see quant/ui/columns.py). Every header is non-empty; money columns carry their
+# currency. The editor grid is exactly Name | Instrument | Avg cost / share
+# (paid ccy) | Value (EUR) | Profit (EUR) | Plan (EUR/m); no remove column.
 COLUMN_HEADERS = {
+    "Name": "Name",
     "Symbol": "Instrument",
     # v10.8.3: the fee-inclusive average cost basis, in plain English.
-    "Avg_Entry_Price": "Average cost per share",
+    "Avg_Entry_Price": "Avg cost / share (paid ccy)",
     "Current_Value_EUR": "Value (EUR)",
     "Broker_PnL_EUR": "Profit (EUR)",
-    "Plan_EUR_month": "Plan (EUR/month)",
+    "Plan_EUR_month": "Plan (EUR/m)",
+    "Remove": "Remove",
     "Current_Weight": "Now / should be (of invested)",
     "Target_Weight": "Target",
     "Drift": "Difference from target",
     "Signal": "Status",
 }
+# v10.8.8 (R-P1/A2): the read-only Entry-check table headers. The identity
+# column is "Instrument" (the same broker ticker as the grid), so the two tables
+# join visually on one key. This is the ONLY place live and typed meet.
+ENTRY_CHECK_HEADERS = ("Instrument", "Shares (derived)", "Typed value (EUR)",
+                       "Live value (EUR)", "Delta %")
+ENTRY_CHECK_CAPTION = "Live values as of {date}; shares derived from your entries"
+ENTRY_CHECK_AMBER = "differs by {pct}% from the live value"
+ENTRY_CHECK_EMPTY = "No holdings to check yet."
 
 # ── First-run guide (spec 8) ──────────────────────────────────────────────────
 FIRST_RUN_STEPS = [

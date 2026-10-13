@@ -19,8 +19,8 @@ from quant.ui import render as R
 
 # The instrument classes the user may pick, in plain words (no "cash").
 _TYPE_OPTIONS = {"Stock": "EQUITY", "Fund (ETF)": "ETF", "Commodity": "COMMODITY"}
-# v10.8.5 (T4): derived, read-only editor columns never enter the diff/validation.
-_DERIVED_COLS = ["Name", "Shares", "Check"]
+# v10.8.8 (R-P1): the read-only identity column never enters the diff/validation.
+_DERIVED_COLS = ["Name"]
 
 
 def _holdings() -> list[dict]:
@@ -406,9 +406,9 @@ def page_update() -> None:
     live = {h["symbol"]: h for h in _holdings()}
     when = R.latest_bar_date()
     edited = R._render_broker_editor(portfolio, live=live)
-    if live:
-        st.caption(f"Live values {C.AS_OF_DATE.format(date=C.fmt_date(when))}. "
-                   "Broker cells stay editable until you confirm.")
+    # v10.8.8 (R-P1): the read-only Entry-check table is the ONLY place live and
+    # typed meet; the editor grid holds no live data.
+    R._render_entry_check(edited, live=live, as_of=when)
 
     if st.button("Review changes", type="primary", width="stretch"):
         from quant.engine.diff import diff_tables

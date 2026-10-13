@@ -11,6 +11,7 @@ Dependencies: streamlit, pandas, plotly, quant.*, quant.ui.copy, quant.ui.search
 """
 from __future__ import annotations
 
+import re
 import sys as _sys
 from pathlib import Path as _Path
 
@@ -33,6 +34,7 @@ from quant.reporting.artifacts import (
     read_regime,
     read_value_series,
 )
+from quant.ui import columns as COLS
 from quant.ui import copy as C
 from quant.ui import palette as P
 from quant.ui.search import discovery_candidates, label_for, load_index, search
@@ -54,22 +56,11 @@ logger = logging.getLogger(__name__)
 _EDIT_COLS = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
 # v10.8.2 (B3): the optional savings-plan rate, saved by the same Confirm.
 _PLAN_COL = "Plan_EUR_month"
-# v10.8.5 (T4/D10/D11): a column-priority layout that fits the default container.
-# Always visible: Symbol | Avg cost per share (EUR) | Value (EUR) | Profit (EUR) |
-# Shares | Plan (EUR/month). The live-vs-typed check is the final narrow badge.
-_COLUMN_CONFIG = {
-    "Symbol": st.column_config.TextColumn(C.COLUMN_HEADERS["Symbol"], width="small"),
-    "Avg_Entry_Price": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Avg_Entry_Price"], format="%.2f", width="small"),
-    "Current_Value_EUR": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Current_Value_EUR"], format="%.2f", width="small"),
-    "Broker_PnL_EUR": st.column_config.NumberColumn(
-        C.COLUMN_HEADERS["Broker_PnL_EUR"], format="%.2f", width="small"),
-    _PLAN_COL: st.column_config.NumberColumn(
-        C.COLUMN_HEADERS[_PLAN_COL], format="%.0f", width="small"),
-    "Shares": st.column_config.NumberColumn("Shares", format="%.4f", width="small"),
-    "Check": st.column_config.TextColumn("Check", width="small"),
-}
+# v10.8.8 (R-P1): the editor grid and the read-only Entry-check table are defined
+# by ONE column-spec contract in quant.ui.columns. The grid holds ONLY the two
+# read-only identity columns (Name, Instrument) and the four typed inputs; the
+# index is hidden and every header is non-empty. Derived and live data live
+# OUTSIDE the grid, in the Entry-check table.
 
 
 # ── Read-only helpers (spec 4.1: short-lived, always closed) ──────────────────
@@ -136,36 +127,105 @@ def _portfolio_signature(portfolio) -> str:
         return "empty"
 
 
-def _live_columns(base, live) -> None:
-    """Append the read-only derived Shares and the live-vs-typed check (T4).
+def _num(value) -> float | None:
+    """A float or None (never raises)."""
+    if value is None:
+        return None
+    f = pd.to_numeric(value, errors="coerce")
+    if f is None or f != f:
+        return None
+    return float(f)
 
-    Broker-typed Value/Profit stay editable until the first confirm; Shares is
-    derived from the valuation store so an entry error is visible, and the Check
-    badge flags a >1% disagreement with the last live value.
+
+def _clean_name(symbol: str) -> str:
+    """The clean display name for a symbol (no ticker in parentheses; A1).
+
+    Strips a trailing parenthesized ticker ("MSCI World Xetra (EUNL)" ->
+    "MSCI World Xetra") and returns "" when no real name is known, so the Name
+    cell never repeats the Instrument ticker (addendum A1).
+    """
+    from quant.data.names import display_name
+
+    sym = str(symbol)
+    name = str(display_name(sym) or "").strip()
+    if not name or name.upper() == sym.upper():
+        return ""
+    base = sym.split(".")[0]
+    for tok in (sym, base):
+        if tok:
+            name = re.sub(rf"\s*\({re.escape(tok)}\)\s*$", "", name,
+                          flags=re.IGNORECASE).strip()
+    if sym and sym.upper() in name.upper():
+        return ""
+    for tok in (sym, base):
+        if tok and re.search(rf"\({re.escape(tok)}\)", name, re.IGNORECASE):
+            return ""
+    return name
+
+
+def _entry_check_rows(portfolio, live) -> list[dict]:
+    """The read-only Entry-check rows (v10.8.8, R-P1).
+
+    The ONLY place live and typed meet: Shares are derived from the MTM store,
+    the typed value is the user's current input, the live value is the store's
+    value, and Delta % = (typed - live) / typed * 100.
     """
     live = live or {}
-    shares, checks = [], []
-    for sym in base["Symbol"].astype(str):
+    if portfolio is None or getattr(portfolio, "empty", True):
+        return []
+    rows: list[dict] = []
+    for _, r in portfolio.iterrows():
+        sym = str(r.get("Symbol", ""))
         h = live.get(sym)
-        shares.append(round(float(h.get("shares") or 0), 4) if h else None)
-        checks.append("")
-    for i, sym in enumerate(base["Symbol"].astype(str)):
-        h = live.get(sym)
-        if not h:
-            continue
-        try:
-            typed = float(base["Current_Value_EUR"].iloc[i] or 0)
-            live_v = float(h.get("value_eur") or 0)
-            if typed > 0 and abs(typed - live_v) / typed > 0.01:
-                checks[i] = f"differs by {abs(typed - live_v) / typed * 100:.0f}%"
-        except Exception:  # noqa: BLE001
-            pass
-    base["Shares"] = shares
-    base["Check"] = checks
+        typed = _num(r.get("Current_Value_EUR"))
+        shares = _num(h.get("shares")) if h else None
+        live_v = _num(h.get("value_eur")) if h else None
+        delta = None
+        if typed and live_v is not None:
+            delta = (typed - live_v) / typed * 100.0
+        rows.append({"Symbol": sym, "Shares": shares, "Typed": typed,
+                     "Live": live_v, "Delta": delta})
+    return rows
+
+
+def _is_amber(delta) -> bool:
+    """True when a |Delta| > 1% disagreement flags the row amber (R-P1)."""
+    d = _num(delta)
+    return d is not None and abs(d) > 1.0
+
+
+def _render_entry_check(portfolio, live=None, as_of=None) -> None:
+    """The read-only Entry-check table (v10.8.8, R-P1).
+
+    ``Instrument | Shares (derived) | Typed value (EUR) | Live value (EUR) |
+    Delta %``. An amber row highlight flags a |Delta| > 1% disagreement. This is
+    the ONLY place live and typed meet; the editor grid holds no live data.
+    """
+    rows = _entry_check_rows(portfolio, live)
+    if not rows:
+        st.caption(C.ENTRY_CHECK_EMPTY)
+        return
+    df = pd.DataFrame(rows)
+
+    def _amber(row) -> list[str]:
+        style = (f"background-color: {P.WARNING}; color: white"
+                 if _is_amber(row.get("Delta")) else "")
+        return [style for _ in row]
+
+    styler = df.style.apply(_amber, axis=1)
+    st.dataframe(styler, width="stretch", hide_index=True,
+                 column_config=COLS.check_column_config(),
+                 column_order=COLS.check_column_order())
+    st.caption(C.ENTRY_CHECK_CAPTION.format(date=C.fmt_date(as_of)))
 
 
 def _render_broker_editor(portfolio, live=None) -> pd.DataFrame:
-    """The editable broker statement table + the live read-only columns (T2).
+    """The editable broker statement table (T2; v10.8.8, R-P1).
+
+    The grid contains ONLY the two read-only identity columns (Name, Instrument)
+    and the four typed inputs (Avg cost / share, Value, Profit, Plan). Derived and
+    live data live OUTSIDE the grid, in the read-only Entry-check table. The index
+    is hidden; every header is non-empty and money columns carry their currency.
 
     The autocomplete input says what it does; selecting a match appends an
     empty-value row and shows one helper line. No silent add. After a DB update
@@ -225,16 +285,14 @@ def _render_broker_editor(portfolio, live=None) -> pd.DataFrame:
     extra = st.session_state.get("_extra", [])
     if extra:
         base = pd.concat([base, pd.DataFrame(extra)], ignore_index=True)
-    # v10.8.5 (T4/D10/D11): no Name column (shown in the Research/Holdings views),
-    # an explicit column order that fits the default width, derived Shares and the
-    # live-vs-typed Check badge as the final narrow columns.
-    _live_columns(base, live)
+    # v10.8.8 (R-P1/A1): the read-only identity columns. Name is the clean display
+    # name (no ticker in parentheses); Instrument is the broker ticker.
+    base.insert(0, "Name", [_clean_name(s) for s in base["Symbol"].astype(str)])
     return st.data_editor(
-        base, num_rows="dynamic", column_config=_COLUMN_CONFIG,
+        base, num_rows="dynamic", column_config=COLS.editor_column_config(),
         width="stretch", key="holdings", hide_index=True,
-        column_order=["Symbol", "Avg_Entry_Price", "Current_Value_EUR",
-                      "Broker_PnL_EUR", "Shares", _PLAN_COL, "Check"],
-        disabled=["Shares", "Check"],
+        column_order=COLS.editor_column_order(),
+        disabled=COLS.editor_disabled(),
     )
 
 
