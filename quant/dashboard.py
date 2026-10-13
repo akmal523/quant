@@ -64,19 +64,36 @@ def _startup_user_data() -> None:
     st.session_state["_user_data_ready"] = True
 
 
-def _startup_backfill() -> None:
-    """B1/B4: one-time startup backfill for a pre-existing DB. Documented
-    write-enabled connection exception (app startup); later reads stay read-only.
-    """
-    if st.session_state.get("_names_ensured"):
-        return
-    try:
-        from quant.data.names import ensure_display_names
+# v10.8.6 (B1): the valuation catch-up runs once per process start, never inside a
+# rerun. A module-level guard (not session state) makes it process-scoped.
+_CATCHUP_DONE = False
 
-        ensure_display_names()
+
+def _startup_backfill() -> None:
+    """Names sync (once per session) + a once-per-process valuation catch-up.
+
+    Documented write-enabled connection exception (app startup); later reads stay
+    read-only. The catch-up makes the chart tail track the latest close without
+    writing during renders (v10.8.6, B1/B2).
+    """
+    global _CATCHUP_DONE
+    if not st.session_state.get("_names_ensured"):
+        try:
+            from quant.data.names import ensure_display_names
+
+            ensure_display_names()
+        except Exception:  # noqa: BLE001
+            pass
+        st.session_state["_names_ensured"] = True
+    if _CATCHUP_DONE:
+        return
+    _CATCHUP_DONE = True
+    try:
+        from quant.engine import mtm
+
+        mtm.catch_up()
     except Exception:  # noqa: BLE001
         pass
-    st.session_state["_names_ensured"] = True
 
 
 def _startup_staleness() -> None:

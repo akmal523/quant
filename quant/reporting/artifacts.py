@@ -13,7 +13,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any, NamedTuple
 
 import pandas as pd
 
@@ -429,6 +430,158 @@ def read_value_series() -> pd.DataFrame:
     if not series:
         return empty
     return pd.DataFrame(series)
+
+
+# ── Pure chart / valuation helpers (v10.8.6, Defect B) ────────────────────────
+# Pure: no streamlit, no database writes; inputs -> outputs. The chart and the
+# header delta call these instead of recomputing inline (R1: one value per datum).
+# Inline, untestable logic is how the "+0.0%" delta and flat steps survived two
+# iterations, so these guarantees are named and tested.
+
+
+class Point(NamedTuple):
+    """One chart point: a date and its value (normalized in the Growth view)."""
+
+    date: date
+    value: float
+
+
+def _coerce_date(value: Any) -> date | None:
+    """A ``datetime.date`` from a date/datetime/Timestamp/ISO string, else None."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _value_at(rows: list[dict], day: date | None) -> float | None:
+    """The stored value exactly on ``day`` (no forward-fill), else None."""
+    if day is None:
+        return None
+    for row in rows or []:
+        if _coerce_date(row.get("date")) == day:
+            v = row.get("value_eur")
+            return float(v) if v is not None else None
+    return None
+
+
+def chart_tick_dates(dates, max_ticks: int = 6) -> list[date]:
+    """Unique, evenly sampled X-axis tick dates (v10.8.6, B5). Pure.
+
+    Deduplicates and limits to ``max_ticks`` evenly spaced entries. The renderer
+    uses these as ``tickvals`` so the axis can never show a duplicate date.
+    """
+    seen: list[date] = []
+    for d in dates or []:
+        c = _coerce_date(d)
+        if c is not None and c not in seen:
+            seen.append(c)
+    unique = sorted(seen)
+    if len(unique) <= max_ticks:
+        return unique
+    step = max(1, len(unique) // max_ticks)
+    return unique[::step]
+
+
+def format_chart_ticks(dates, max_ticks: int = 6) -> list[str]:
+    """Unique, readable X-axis labels, evenly sampled (v10.8.6, B5).
+
+    Deduplicates, limits to ``max_ticks`` evenly spaced entries, and formats each
+    as ``DD Mon``. Pure.
+    """
+    return [d.strftime("%d %b") for d in chart_tick_dates(dates, max_ticks)]
+
+
+def compute_day_delta(series, as_of=None) -> tuple[float, float]:
+    """The day change from a portfolio-total series (v10.8.6, B6).
+
+    ``series`` is ``[{date, value_eur, cash_eur}, ...]``; the total is invested
+    value plus cash. Returns ``(delta_eur, delta_pct)`` = ``total(D) - total(D-1)``
+    where D is ``as_of`` (default: the last point). No forward-fill, no fallback.
+    Pure.
+    """
+    pts: list[tuple[date, float]] = []
+    for row in series or []:
+        d = _coerce_date(row.get("date"))
+        if d is None:
+            continue
+        total = float(row.get("value_eur") or 0) + float(row.get("cash_eur") or 0)
+        pts.append((d, total))
+    pts.sort(key=lambda t: t[0])
+    if len(pts) < 2:
+        return 0.0, 0.0
+    idx = len(pts) - 1
+    if as_of is not None:
+        target = _coerce_date(as_of)
+        earlier = [i for i, (d, _t) in enumerate(pts) if target is not None and d <= target]
+        if not earlier:
+            return 0.0, 0.0
+        idx = earlier[-1]
+    if idx <= 0:
+        return 0.0, 0.0
+    prev = pts[idx - 1][1]
+    today = pts[idx][1]
+    delta = round(today - prev, 2)
+    pct = (today / prev - 1.0) * 100.0 if prev else 0.0
+    return delta, pct
+
+
+def _normalize_100(rows) -> list[Point]:
+    """A series rebased to 100 at its first point (empty when no rows). Pure."""
+    pts: list[tuple[date, float]] = []
+    for r in rows or []:
+        d = _coerce_date(r.get("date"))
+        if d is not None:
+            pts.append((d, float(r.get("value_eur") or 0.0)))
+    pts.sort(key=lambda t: t[0])
+    if not pts:
+        return []
+    base = pts[0][1]
+    if not base:
+        return [Point(d, 100.0) for d, _v in pts]
+    return [Point(d, v / base * 100.0) for d, v in pts]
+
+
+def compute_growth_view(portfolio, per_symbol: dict, held_symbols) -> dict:
+    """Normalized-to-100 series per line for the Growth view (v10.8.6, B3/5).
+
+    ``portfolio`` is ``[{date, value_eur}, ...]``; ``per_symbol`` is
+    ``{symbol: [{date, value_eur}, ...]}``; ``held_symbols`` are the lines to draw.
+    Returns ``{"portfolio": [Point, ...], <sym>: [Point, ...]}``, each rebased to
+    100 at its first point. Pure.
+    """
+    out: dict = {"portfolio": _normalize_100(portfolio)}
+    for sym in held_symbols or []:
+        pts = _normalize_100((per_symbol or {}).get(sym))
+        if pts:
+            out[str(sym)] = pts
+    return out
+
+
+def compute_value_view_hover(as_of, portfolio, per_symbol: dict, cash_series,
+                             held_symbols) -> dict:
+    """The Value-view hover payload for ``as_of`` (v10.8.6, B3/6).
+
+    Returns ``{"total": <sum + cash>, "cash": <cash>, <sym>: <value>, ...}`` where
+    the symbol values sum to the invested total. Only stored values are used (no
+    forward-fill). Pure.
+    """
+    day = _coerce_date(as_of)
+    cash = float(_value_at(cash_series, day) or 0.0)
+    out: dict = {"cash": round(cash, 2)}
+    for sym in held_symbols or []:
+        v = _value_at((per_symbol or {}).get(sym), day)
+        if v is not None:
+            out[str(sym)] = round(float(v), 2)
+    invested_sum = sum(v for k, v in out.items() if k != "cash")
+    out["total"] = round(invested_sum + cash, 2)
+    return out
 
 
 # ── Structured Logging ────────────────────────────────────────────────────────

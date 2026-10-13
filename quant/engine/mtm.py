@@ -26,8 +26,11 @@ Invariants:
 from __future__ import annotations
 
 import bisect
+import logging
 from datetime import date
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OPENING_CASH = 0.0
 SOURCE_DAILY = "daily"
@@ -412,8 +415,8 @@ def refresh(as_of: date | None = None, source: str = SOURCE_REFRESH) -> dict:
 
 # ── Readers ───────────────────────────────────────────────────────────────────
 
-def read_series(conn: Any = None) -> list[dict]:
-    """The daily total series from ``portfolio_total`` oldest first.
+def read_total_series(conn: Any = None) -> list[dict]:
+    """The daily portfolio-total series oldest first.
 
     Returns ``[{date, value_eur, cash_eur}]``; empty when nothing is stored.
     """
@@ -421,6 +424,68 @@ def read_series(conn: Any = None) -> list[dict]:
                         "ORDER BY date")
     return [{"date": r[0], "value_eur": _num(r[1]), "cash_eur": _num(r[2])}
             for r in rows]
+
+
+def read_series(symbol: str | None = None, start: Any = None, end: Any = None,
+                conn: Any = None) -> list[dict]:
+    """Valuation rows from the store (v10.8.6, B2).
+
+    Without ``symbol``: the daily portfolio totals ``[{date, value_eur, cash_eur}]``
+    (backward compatible). With ``symbol``: the per-symbol valuation rows
+    ``[{date, symbol, shares, price_eur, fx, value_eur}]`` within ``[start, end]``.
+    Only stored dates are returned (no forward-fill). Empty when nothing is stored.
+    """
+    if symbol is None:
+        return read_total_series(conn)
+    sql = ("SELECT date, symbol, shares, price_eur, fx, value_eur FROM valuation "
+           "WHERE symbol = ?")
+    params: list = [str(symbol)]
+    if start is not None:
+        sql += " AND date >= ?"
+        params.append(_as_date(start))
+    if end is not None:
+        sql += " AND date <= ?"
+        params.append(_as_date(end))
+    sql += " ORDER BY date"
+    rows = _query(conn, sql, params)
+    return [{"date": r[0], "symbol": str(r[1]), "shares": _num(r[2]),
+             "price_eur": _num(r[3]), "fx": _num(r[4]), "value_eur": _num(r[5])}
+            for r in rows]
+
+
+def portfolio_total(as_of: Any, conn: Any = None) -> float:
+    """The stored portfolio total (invested value + cash) for ``as_of`` (B2).
+
+    0.0 when no row exists for that exact date (no forward-fill).
+    """
+    d = _as_date(as_of)
+    if d is None:
+        return 0.0
+    rows = _query(conn, "SELECT value_eur, cash_eur FROM portfolio_total "
+                        "WHERE date = ?", [d])
+    if not rows:
+        return 0.0
+    return round(_num(rows[0][0]) + _num(rows[0][1]), 2)
+
+
+def held_symbols(as_of: Any = None, conn: Any = None) -> list[str]:
+    """The symbols held on the latest stored valuation date <= ``as_of`` (B3)."""
+    target = _as_date(as_of) or date.today()
+    rows = _query(conn, "SELECT MAX(date) FROM valuation WHERE date <= ?", [target])
+    if not rows or rows[0][0] is None:
+        return []
+    d = _as_date(rows[0][0])
+    srows = _query(conn, "SELECT DISTINCT symbol FROM valuation WHERE date = ? "
+                         "ORDER BY symbol", [d])
+    return [str(r[0]) for r in srows]
+
+
+def latest_market_date(conn: Any = None) -> date | None:
+    """The most recent date present in ``market_history``, or None."""
+    rows = _query(conn, "SELECT MAX(Date) FROM market_history")
+    if not rows or rows[0][0] is None:
+        return None
+    return _as_date(rows[0][0])
 
 
 def latest_total(conn: Any = None) -> dict:
@@ -436,21 +501,89 @@ def latest_total(conn: Any = None) -> dict:
 def day_delta(conn: Any = None) -> tuple[float, float, date | None]:
     """The last day's change: ``(eur, pct, latest_date)`` from stored totals.
 
-    The home header delta is exactly ``total(D) - total(D-1)`` where the total is
-    the invested value plus cash. Returns ``(0.0, 0.0, latest_date_or_None)`` when
-    fewer than two days are stored.
+    The home header delta is exactly ``total(D) - total(D-1)`` (invested value plus
+    cash). It is computed by the ONE pure helper
+    :func:`quant.reporting.artifacts.compute_day_delta`, so the number the header
+    shows and the number the invariant test checks can never drift (v10.8.6, B6).
+    Returns ``(0.0, 0.0, latest_date_or_None)`` when fewer than two days are stored.
     """
-    rows = _query(conn, "SELECT date, value_eur, cash_eur FROM portfolio_total "
-                        "ORDER BY date DESC LIMIT 2")
-    if len(rows) < 2:
-        d = _as_date(rows[0][0]) if rows else None
-        return 0.0, 0.0, d
-    latest_d = _as_date(rows[0][0])
-    prev = _num(rows[1][1]) + _num(rows[1][2])
-    last = _num(rows[0][1]) + _num(rows[0][2])
-    if not prev:
-        return 0.0, 0.0, latest_d
-    return round(last - prev, 2), (last / prev - 1.0) * 100.0, latest_d
+    series = read_total_series(conn)
+    if not series:
+        return 0.0, 0.0, None
+    latest_d = _as_date(series[-1]["date"])
+    try:
+        from quant.reporting.artifacts import compute_day_delta
+
+        eur, pct = compute_day_delta(series)
+    except Exception:  # noqa: BLE001
+        eur, pct = 0.0, 0.0
+    return eur, pct, latest_d
+
+
+# ── Startup catch-up (v10.8.6, B1/B2) ─────────────────────────────────────────
+
+def _mark_valuation_stale(error: Any) -> None:
+    """One log line + mark the ``valuation`` stage stale in run_manifest."""
+    logger.warning("valuation catch-up failed: %s", error)
+    try:
+        from quant.data.database import connect_with_retry
+        from quant.engine import manifest
+
+        conn = connect_with_retry(attempts=1)
+        try:
+            run = manifest.latest_run_id(conn) or manifest.new_run_id()
+            manifest.record_stage(conn, run, "valuation", manifest.STATUS_STALE,
+                                  error=str(error))
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def catch_up(retries: int = 3, base_delay: float = 0.5) -> dict:
+    """Catch the valuation store up to the latest price (v10.8.6, B1/B2).
+
+    Runs once per process start (the caller guards it); never inside a rerun. When
+    the latest valuation date is behind the latest ``market_history`` date, backfill
+    with bounded retry on lock contention. On final failure: one log line + mark the
+    ``valuation`` stage ``stale`` in ``run_manifest``. Never raises.
+    """
+    import time
+
+    from quant.data.database import connect_with_retry
+
+    last_err: Exception | None = None
+    tries = max(1, int(retries))
+    for attempt in range(tries):
+        conn = None
+        try:
+            conn = connect_with_retry(attempts=1)
+            price = conn.execute("SELECT MAX(Date) FROM market_history").fetchall()
+            latest_price = _as_date(price[0][0]) if price and price[0][0] else None
+            val = conn.execute("SELECT MAX(date) FROM valuation").fetchall()
+            latest_val = _as_date(val[0][0]) if val and val[0][0] else None
+            if latest_price is None:
+                return {"ok": True, "skipped": True, "reason": "no prices"}
+            if latest_val is not None and latest_val >= latest_price:
+                return {"ok": True, "skipped": True, "latest": str(latest_val)}
+            res = backfill(conn, source=SOURCE_REFRESH, end=latest_price)
+            return {"ok": True, "rows": res.get("rows", 0),
+                    "days": res.get("days", 0), "latest": str(latest_price)}
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if attempt < tries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+    _mark_valuation_stale(last_err)
+    return {"ok": False, "error": str(last_err)}
 
 
 def holdings_at(conn: Any, as_of: date | None = None) -> list[dict]:

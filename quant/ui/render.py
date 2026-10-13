@@ -23,6 +23,10 @@ import streamlit as st
 from quant import paths
 from quant.data.database import read_only_connection
 from quant.reporting.artifacts import (
+    chart_tick_dates,
+    compute_growth_view,
+    compute_value_view_hover,
+    format_chart_ticks,
     read_actions,
     read_history,
     read_portfolio_total,
@@ -318,55 +322,18 @@ def _annotation_kwargs(text: str) -> dict:
                 bgcolor=P.ANNOTATION_BG)
 
 
-def _per_asset_series(since) -> dict:
-    """{symbol: DataFrame(date, value_eur)} from the valuation store (T3)."""
-    try:
-        from quant.engine import mtm
-
-        raw = mtm.read_symbol_series()
-    except Exception:  # noqa: BLE001
-        return {}
-    out: dict = {}
-    for sym, rows in (raw or {}).items():
-        s = pd.DataFrame(rows)
-        if s.empty:
-            continue
-        s["t"] = pd.to_datetime(s["date"], errors="coerce")
-        s = s.dropna(subset=["t"]).sort_values("t")
-        if since is not None:
-            s = s[s["t"] >= since]
-        if len(s) >= 2:
-            out[str(sym)] = s
-    return out
-
-
-def _cash_frame(since) -> pd.DataFrame:
-    try:
-        from quant.engine import mtm
-
-        rows = mtm.cash_series()
-    except Exception:  # noqa: BLE001
-        return pd.DataFrame()
-    s = pd.DataFrame(rows)
-    if s.empty:
-        return s
-    s["t"] = pd.to_datetime(s["date"], errors="coerce")
-    s = s.dropna(subset=["t"]).sort_values("t")
-    if since is not None:
-        s = s[s["t"] >= since]
-    return s
-
-
 def _render_value_chart(history, holdings) -> None:
-    """Portfolio value chart: Value | Growth (T3, v10.8.4).
+    """Portfolio value chart: Value | Growth (T3; v10.8.6 B3/B4/B5).
 
     Value  = the absolute portfolio total from the valuation store, with cash and
-             a per-asset hover.
-    Growth = normalized-to-100: a bold portfolio line plus one line per held
-             asset from its first held day. The benchmark stays an optional
-             overlay. The x-axis shows at most six unique readable dates.
+             one composed per-asset hover (total + cash + each held asset).
+    Growth = normalized to 100: a bold portfolio line plus one line per held asset.
+    The chart reads ONLY the store through the pure helpers in
+    quant.reporting.artifacts; it never recomputes shares/values inline (R1).
     """
     import plotly.graph_objects as go
+
+    from quant.engine import mtm
 
     total = read_portfolio_total()
     using_store = total is not None and not total.empty and len(total) >= 2
@@ -396,34 +363,74 @@ def _render_value_chart(history, holdings) -> None:
     growth = mode == C.GROWTH_VIEW
     since = df["review_ts"].min()
 
+    # Per-asset + cash series (store only) feed the pure helpers (R1, no joins).
+    per_symbol: dict = {}
+    cash_rows: list = []
+    if using_store:
+        try:
+            per_symbol = mtm.read_symbol_series() or {}
+        except Exception:  # noqa: BLE001
+            per_symbol = {}
+        try:
+            cash_rows = [{"date": r["date"], "value_eur": r["cash_eur"]}
+                         for r in mtm.cash_series()]
+        except Exception:  # noqa: BLE001
+            cash_rows = []
+    held = [str(h.get("symbol")) for h in holdings or [] if h.get("symbol")]
+    if not held:
+        held = list(per_symbol.keys())
+    port_rows = [{"date": r["review_ts"], "value_eur": r["value_eur"]}
+                 for r in df.to_dict("records")]
+
     fig = go.Figure()
     if growth:
-        port = _rebase(df["value_eur"])
-        # v10.8.4 (T3): bold portfolio line + one line per held asset.
-        for sym, s in _per_asset_series(since).items():
+        lines = compute_growth_view(port_rows, per_symbol, held)
+        for sym, pts in lines.items():
+            if sym == "portfolio" or not pts:
+                continue
             fig.add_trace(go.Scatter(
-                x=s["t"], y=_rebase(s["value_eur"]), mode="lines",
+                x=[p.date for p in pts], y=[p.value for p in pts], mode="lines",
                 name=_display_name(sym), line=dict(width=1), opacity=0.7))
+        port = lines.get("portfolio", [])
         fig.add_trace(go.Scatter(
-            x=df["review_ts"], y=port, mode="lines", name="Portfolio",
-            line=dict(width=3, color=P.ACCENT), fill=None))
+            x=[p.date for p in port], y=[p.value for p in port], mode="lines",
+            name="Portfolio", line=dict(width=3, color=P.ACCENT)))
+        y_vals = [p.value for p in port]
     else:
-        port = df["value_eur"]
-        # Per-asset hover helpers (thin, no legend) so hovering a date lists them.
-        for sym, s in _per_asset_series(since).items():
-            fig.add_trace(go.Scatter(
-                x=s["t"], y=s["value_eur"], mode="lines",
-                name=_display_name(sym), showlegend=False,
-                line=dict(width=0.5), opacity=0.35))
-        if using_store:
-            cash = _cash_frame(since)
-            if len(cash) >= 2:
+        # Thin per-asset context lines carry NO hover; the portfolio line carries
+        # the full breakdown so one tooltip lists total + cash + each held asset.
+        for sym, rows in per_symbol.items():
+            keep = [(pd.to_datetime(r["date"]), float(r["value_eur"]))
+                    for r in rows if r.get("value_eur") is not None]
+            keep = [(x, y) for x, y in keep if x >= since]
+            if len(keep) >= 2:
                 fig.add_trace(go.Scatter(
-                    x=cash["t"], y=cash["cash_eur"], mode="lines", name=C.CLASS_CASH,
-                    line=dict(width=1, dash="dot", color=P.BASELINE)))
+                    x=[k[0] for k in keep], y=[k[1] for k in keep], mode="lines",
+                    name=_display_name(sym), showlegend=False, hoverinfo="skip",
+                    line=dict(width=0.5), opacity=0.35))
+        ck = [(pd.to_datetime(r["date"]), float(r["value_eur"])) for r in cash_rows]
+        ck = [(x, y) for x, y in ck if x >= since]
+        if len(ck) >= 2:
+            fig.add_trace(go.Scatter(
+                x=[k[0] for k in ck], y=[k[1] for k in ck], mode="lines",
+                name=C.CLASS_CASH, showlegend=False, hoverinfo="skip",
+                line=dict(width=1, dash="dot", color=P.BASELINE)))
+        hover_texts = []
+        for r in df.to_dict("records"):
+            day = pd.Timestamp(r["review_ts"]).date()
+            hd = compute_value_view_hover(day, port_rows, per_symbol, cash_rows, held)
+            parts = [f"Total {hd['total']:.2f} EUR",
+                     f"{C.CLASS_CASH} {hd['cash']:.2f} EUR"]
+            for sym, val in hd.items():
+                if sym in ("total", "cash"):
+                    continue
+                parts.append(f"{_display_name(sym)} {val:.2f} EUR")
+            hover_texts.append("<br>".join(parts))
         fig.add_trace(go.Scatter(
-            x=df["review_ts"], y=port, mode="lines", name="Portfolio",
-            line=dict(width=2, color=P.ACCENT), fill=None))
+            x=df["review_ts"], y=df["value_eur"], mode="lines", name="Portfolio",
+            text=hover_texts, hoverinfo="text",
+            line=dict(width=2, color=P.ACCENT)))
+        y_vals = [float(v) for v in df["value_eur"] if v is not None]
 
     # v10.8.5 (D17): the benchmark overlay is a Growth-view-only option.
     if growth and st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
@@ -449,18 +456,21 @@ def _render_value_chart(history, holdings) -> None:
     fig.add_hline(y=base, line_dash="dot", line_color=P.BASELINE)
     # v10.8.5 (D6): the in-plot "+X% since <date>" annotation duplicated the
     # header's "since first purchase" line; it is removed.
-    vals = [float(v) for v in port if v is not None]
     yaxis = {}
-    if vals:
-        lo, hi = min(vals), max(vals)
+    if y_vals:
+        lo, hi = min(y_vals), max(y_vals)
         pad = (hi - lo) * 0.1 or max(1.0, abs(hi) * 0.01)
         yaxis = dict(range=[lo - pad, hi + pad])
-    # v10.8.4 (T3): at most ~6 unique, readable date ticks (no duplicates).
+    # v10.8.6 (B5): unique, readable date ticks (no duplicate dates on the axis).
     span_days = (df["review_ts"].max() - df["review_ts"].min()).days
-    tickfmt = "%H:%M" if span_days < 3 else "%d %b"
+    dates = df["review_ts"].tolist()
+    if span_days < 3:
+        xaxis = dict(tickformat="%H:%M", nticks=6)
+    else:
+        xaxis = dict(tickmode="array", tickvals=chart_tick_dates(dates, max_ticks=6),
+                     ticktext=format_chart_ticks(dates, max_ticks=6))
     fig.update_layout(height=320, margin=dict(l=8, r=8, t=30, b=8),
-                      hovermode="x unified",
-                      xaxis=dict(tickformat=tickfmt, nticks=6), yaxis=yaxis,
+                      hovermode="x unified", xaxis=xaxis, yaxis=yaxis,
                       showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=-0.25,
                                   xanchor="left", x=0))
