@@ -3,6 +3,47 @@
 Canonical terms for the Quant-AI family office terminal. Keep terminology
 consistent across code, docs, and AI agents.
 
+## v10.8.9 — P3 final polish: column contract product-wide, view-bound overlays, one copy-lint module (rulings)
+
+- **R-F1 — column-spec contract product-wide.** The contract in
+  [`quant/ui/columns.py`](quant/ui/columns.py) governs EVERY table: non-empty
+  headers, currency in the header for monetary columns, a declared column budget
+  per table (`<= 8`), and low-priority content moved to the drawer/tooltip
+  instead of widening the table. No table may overflow the default container. The
+  `TABLE_SPECS` registry is the ONE list; the global AppTest table audit in
+  [`tests/test_v10_8_9_phase1.py`](tests/test_v10_8_9_phase1.py) is the permanent
+  overflow guard. Per-table specs:
+  - **editor** (`EDITOR_COLUMNS`, budget 7): `Name | Instrument | Avg cost /
+    share (paid ccy) | Value (EUR) | Profit (EUR) | Plan (EUR/m)`.
+  - **entry_check** (`CHECK_COLUMNS`, budget 5): `Instrument | Shares (derived) |
+    Typed value (EUR) | Live value (EUR) | Delta %`.
+  - **research** (`RESEARCH_COLUMNS`, budget 8): `Symbol | Class | Stage | Score |
+    Confidence | News | Now / Target`. The component detail (F-/T-/sentiment/
+    stewardship) lives in the inspect drawer, not the table; `Now / Target` is
+    held-only ("-" for watched). A compact `Wt now/tgt` fallback ("46/50" + header
+    tooltip) is available if a watched-heavy universe still overflows.
+  - **holdings_analysis** (`HOLDINGS_ANALYSIS_COLUMNS`, budget 8): `Symbol | Class
+    | Now / Target | Drift (pp) | Score | Alerts | Reason`.
+  - **invest_class** (`INVEST_CLASS_COLUMNS`, budget 8): `Class | Now | Target |
+    Suggested (EUR)`.
+  - **invest_instrument** (`INVEST_INSTRUMENT_COLUMNS`, budget 8): `Holding |
+    Amount (EUR) | How`.
+  - **home_holdings** (`HOME_HOLDINGS_COLUMNS`, budget 8): `Holding | Class |
+    Value (EUR) | Now / target`.
+- **R-F2 — chart overlays are view-bound.** The benchmark toggle exists only in
+  Growth view; its state is preserved across view switches (session key
+  `val_bench_on`). The chart carries no caption that duplicates a header metric;
+  the header keeps Total value, the delta badge, "Prices as of" and "since first
+  purchase" only.
+- **R-F3 — one copy-lint module.** [`tests/test_copy_lints.py`](tests/test_copy_lints.py)
+  is the ONE lint module covering every known bad copy pattern (doubled words,
+  doubled ticker/verb, class synonyms, a bare "-" coverage line, a parenthesized
+  ticker next to an Instrument column, the "-0.0%" badge). It scans the copy
+  module string values, the rendered AppTest page text/dataframes, and the
+  Telegram message builders. A parametrized self-test injects each pattern into a
+  fixture string and asserts the lint fails. Per-string fixes without a lint are
+  not accepted.
+
 ## v10.8.8 — P2 repairs: editor column contract, derived Holdings Analysis, delta-badge contract (rulings)
 
 - **R-P1 — editor column contract.** The broker editor grid contains ONLY typed

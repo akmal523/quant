@@ -218,14 +218,5 @@ def test_holdings_analysis_tab_renders():
         for v in _frames(at)) or "No holdings yet" in _text(at)
 
 
-def test_no_duplicated_ticker_or_word_in_the_ui():
-    """T6/D8/D14: no ') (' duplication and no repeated word on any page."""
-    import re
-
-    for title, page in _PAGES.items():
-        at = _run(page)
-        assert not at.exception, f"{title} raised: {at.exception}"
-        text = _text(at) + " " + _frames_text(at)
-        assert not re.search(r"\)\s*\(", text), f"adjacent paren groups on {title}"
-        dup = re.search(r"\b([A-Za-z]{3,})\s+\1\b", text)
-        assert not dup, f"repeated word {dup.group(0)!r} on {title}"
+# v10.8.9 (R-F3): the duplicated-ticker/word guard moved to
+# tests/test_copy_lints.py (test_no_duplicated_ticker_or_word_in_the_ui).

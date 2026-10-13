@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.9] - 2026-10-13
+
+"Close the defect register." The P3 residuals shared one pattern: mechanisms were
+introduced locally instead of product-wide, and copy fixes were applied per string
+instead of as a lint suite. This final polish release generalizes the column
+contract to every table, binds the chart overlay to its view, and consolidates the
+copy guards into ONE lint module. After this release every historical defect id
+(register items 1-41 plus F1-F5) is closed.
+
+### Owner rulings (binding)
+
+- **R-F1 — column-spec contract product-wide.** The contract in
+  [`quant/ui/columns.py`](quant/ui/columns.py) governs EVERY table: non-empty
+  headers, currency in the header for monetary columns, a declared column budget
+  per table, and low-priority content moved to the drawer/tooltip instead of
+  widening the table. No table may overflow the default container.
+- **R-F2 — chart overlays are view-bound.** The benchmark toggle exists only in
+  Growth view; the chart carries no caption that duplicates header metrics.
+- **R-F3 — one copy-lint module.** ONE lint test module covers all known bad copy
+  patterns; per-string fixes without a lint are not accepted.
+
+### Fixed
+
+- **Research table overflow (F1, T1)**: the column-spec contract now governs every
+  table. The Research funnel renders `Symbol | Class | Stage | Score | Confidence |
+  News | Now / Target` (component detail moved to the inspect drawer, where it
+  already lived); a global AppTest table audit is the permanent overflow guard.
+- **Benchmark toggle (F2, T2)**: the benchmark checkbox renders only in Growth view
+  and its state is preserved across view switches.
+- **Duplicated chart caption (F3, T2)**: no caption above/below the chart restates a
+  header metric; the header keeps Total value, delta badge, "Prices as of" and
+  "since first purchase" only.
+- **Telegram copy (F4, T3)**: the Settings line is "Telegram: on, last test ok"
+  (status word + last-test result only).
+- **Scattered copy lints (F5, T3)**: consolidated into
+  [`tests/test_copy_lints.py`](tests/test_copy_lints.py).
+
+### Tests
+
+- [`tests/test_v10_8_9_phase1.py`](tests/test_v10_8_9_phase1.py): the product-wide
+  column-spec invariants + the global AppTest table audit (non-empty headers,
+  currency notes, budget, no over-declared table) and the 15-row Research case.
+- [`tests/test_v10_8_9_phase2.py`](tests/test_v10_8_9_phase2.py): the benchmark
+  checkbox is absent in Value and present in Growth, its state survives a view
+  switch, and no caption duplicates a header metric.
+- [`tests/test_copy_lints.py`](tests/test_copy_lints.py): the consolidated copy
+  lints with a parametrized self-test that fails on each injected bad pattern.
+
+### Notes
+
+- The register-closure table (items 1-41 reconstructed from the CONTEXT.md bug
+  ledger plus the CHANGELOG D-ids, and F1-F5) is in
+  [`plans/v10.8.9-report.md`](plans/v10.8.9-report.md); none remain open.
+
 ## [10.8.8] - 2026-10-13
 
 "Introduce the three missing contracts." The remaining P2 defects were

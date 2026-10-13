@@ -752,7 +752,9 @@ WHAT_TO_DO_EMPTY = "All classes are in balance. Prices are up to date."
 INVEST_CLASS_HEADER = "Class"
 INVEST_NOW_HEADER = "Now"
 INVEST_TARGET_HEADER = "Target"
-INVEST_SUGGESTED_HEADER = "Suggested"
+# v10.8.9 (R-F1): a monetary column carries its currency in the header.
+INVEST_SUGGESTED_HEADER = "Suggested (EUR)"
+INVEST_AMOUNT_HEADER = "Amount (EUR)"
 INVEST_HOW_HEADER = "How"
 INVEST_STRATEGY_LABEL = "Strategy"
 INVEST_NOTHING = "Nothing to buy: every class is already at or above its target."
@@ -1177,8 +1179,16 @@ RUN_ANALYSIS_DONE = "Analysis finished: {n} stages recorded."
 TAB_RESEARCH = "Research"
 RESEARCH_SEARCH_LABEL = "Search"
 RESEARCH_STAGE_FILTER = "Stage"
-RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Components", "News",
-                    "Weight now / target", "Reason")
+# v10.8.9 (R-F1): the Research funnel target set. Component detail (F-/T-/
+# sentiment/stewardship) lives in the inspect drawer, not the table; the table
+# keeps the composite + confidence. "Now / Target" is held-only ("-" for watched).
+RESEARCH_HEADERS = ("Symbol", "Class", "Stage", "Score", "Confidence", "News",
+                    "Now / Target")
+# The compact fallback for watched-heavy universes: a single column with values
+# like "46/50" and a header tooltip.
+RESEARCH_NOW_TARGET_COMPACT = "Wt now/tgt"
+RESEARCH_NOW_TARGET_HELP = ("Current weight / target weight, as a percent of "
+                            "invested. Blank for watched (non-held) instruments.")
 RESEARCH_EMPTY = "No instruments in the research funnel yet."
 RESEARCH_NO_NEWS = "No recent headlines."
 # v10.8.6 (A1): one lazy per-tab drawer; a symbol is inspected only when picked.

@@ -14,6 +14,7 @@ import streamlit as st
 
 from quant import paths
 from quant.engine.decisions import format_item_line, open_since_line, timed_items
+from quant.ui import columns as COLS
 from quant.ui import copy as C
 from quant.ui import render as R
 
@@ -279,7 +280,10 @@ def page_home() -> None:
                             f"{float(h.get('target_weight') or 0) * 100:.0f}%",
         })
     # v10.8.7 (R-C1): no cash row. Uninvested cash is not an entity.
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    # v10.8.9 (R-F1): the table is rendered from its declared spec.
+    home_df = pd.DataFrame(rows, columns=COLS.table_column_order("home_holdings"))
+    st.dataframe(home_df, width="stretch", hide_index=True,
+                 column_config=COLS.table_column_config("home_holdings"))
     if not holdings:
         st.info("Add what you own in Update holdings.")
 
@@ -336,13 +340,17 @@ def _render_invest_block(holdings: list[dict]) -> None:
     plan = propose_by_class(amount, holdings, strategy,
                             candidates=_idea_rows(),
                             open_advice=_open_advice_items(holdings))
+    # v10.8.9 (R-F1): keys are the spec names; headers come from the spec config.
     class_rows = [{
-        C.INVEST_CLASS_HEADER: C.CLASS_LABELS.get(r["tier"], r["tier"]),
-        C.INVEST_NOW_HEADER: f"{r['now_pct']:.0f}%",
-        C.INVEST_TARGET_HEADER: f"{r['target_pct']:.0f}%",
-        C.INVEST_SUGGESTED_HEADER: C.fmt_eur(r["suggested_eur"]),
+        "Class": C.CLASS_LABELS.get(r["tier"], r["tier"]),
+        "Now": f"{r['now_pct']:.0f}%",
+        "Target": f"{r['target_pct']:.0f}%",
+        "Suggested": C.fmt_eur(r["suggested_eur"]),
     } for r in plan["classes"]]
-    st.dataframe(pd.DataFrame(class_rows), width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(class_rows,
+                              columns=COLS.table_column_order("invest_class")),
+                 width="stretch", hide_index=True,
+                 column_config=COLS.table_column_config("invest_class"))
     # T3: the one-off sum is separate from the savings-plan EUR/m increase.
     st.caption(f"Suggested sums to {C.fmt_eur(plan['total'])} of {C.fmt_eur(amount)}.")
     if plan["savings_plan_eur_month"] > 0:
@@ -355,9 +363,12 @@ def _render_invest_block(holdings: list[dict]) -> None:
     order_rows = [{
         "Holding": R.label_for(o["name"], o["symbol"]),
         "Amount": C.fmt_eur(o["amount_eur"]),
-        C.INVEST_HOW_HEADER: o["how"],
+        "How": o["how"],
     } for o in (plan["orders"] + plan["savings_plan"])]
-    st.dataframe(pd.DataFrame(order_rows), width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(order_rows,
+                              columns=COLS.table_column_order("invest_instrument")),
+                 width="stretch", hide_index=True,
+                 column_config=COLS.table_column_config("invest_instrument"))
     if plan["not_allocated"] > 0:
         st.caption(C.invest_remainder_line(plan["not_allocated"]))
     if st.button(C.BTN_ADD_TO_LIST, key="invest_add_list", width="stretch"):
@@ -606,10 +617,13 @@ def _news_tone(score) -> str:
 
 
 def _research_rows(holdings: list[dict]) -> list[dict]:
-    """The merged Research funnel rows (T6/T1 v10.8.5; v10.8.7 T2).
+    """The merged Research funnel rows (v10.8.9, R-F1; T6/T1 v10.8.5; v10.8.7 T2).
 
     A computed score renders as a NUMBER plus a confidence chip, never a dash
     (R-C2). A watched non-held symbol with composite >= IDEA_FLOOR is an Idea.
+    The table keeps the composite + confidence only; the component detail lives
+    in the inspect drawer (kept in the row dict as ``Components``/``Reason`` but
+    never rendered as columns).
     """
     from quant.config import IDEA_FLOOR
     from quant.engine import manifest as M
@@ -657,8 +671,10 @@ def _research_rows(holdings: list[dict]) -> list[dict]:
         return {"Symbol": R.label_for(_display(sym), sym),
                 "Class": C.class_word(instrument_class or "EQUITY"),
                 "Stage": stage, "Score": _safe_score(comp),
-                "Components": components, "News": news,
-                "Weight now / target": wt, "Reason": reason, "_sym": sym}
+                "Confidence": conf, "News": news,
+                "Now / Target": wt,
+                # Non-rendered detail (drawer only; not a table column).
+                "Components": components, "Reason": reason, "_sym": sym}
 
     out = []
     seen = set()
@@ -744,9 +760,10 @@ def _render_holdings_analysis() -> None:
             C.HOLDINGS_REASON_HEADER: HA.reason_cell(sym, open_advice, cur - tgt, tgt),
             "_sym": sym,
         })
-    df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")}
-                       for r in rows])
-    st.dataframe(df, width="stretch", hide_index=True)
+    # v10.8.9 (R-F1): render only the declared spec columns, in order.
+    df = pd.DataFrame(rows, columns=COLS.table_column_order("holdings_analysis"))
+    st.dataframe(df, width="stretch", hide_index=True,
+                 column_config=COLS.table_column_config("holdings_analysis"))
     st.caption(M.coverage_line())
     by_sym = {r["_sym"]: {"Score": r["Score"], "Components": ""} for r in rows}
     _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="ha",
@@ -799,8 +816,9 @@ def _render_research() -> None:
                      width="stretch"):
             _run_cli("run")
         return
-    df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")}
-                       for r in rows])
+    # v10.8.9 (R-F1): render only the declared spec columns, in order; the
+    # component detail stays in the drawer (it is in the row dict, not a column).
+    df = pd.DataFrame(rows, columns=COLS.table_column_order("research"))
     if len(df) > 10:
         c1, c2 = st.columns(2)
         query = c1.text_input(C.RESEARCH_SEARCH_LABEL, key="research_search")
@@ -810,7 +828,8 @@ def _render_research() -> None:
             df = df[df["Symbol"].str.contains(query, case=False, na=False)]
         if stages:
             df = df[df["Stage"].isin(stages)]
-    st.dataframe(df, width="stretch", hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True,
+                 column_config=COLS.table_column_config("research"))
     st.caption(M.coverage_line())
     # v10.8.5 (D1): the funnel table above is the content; the per-row drawer
     # below is optional. Its chart carries a unique key so identical figures can

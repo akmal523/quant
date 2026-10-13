@@ -13,11 +13,8 @@ Synthetic fixtures only; the user's real DB and data dir are never touched.
 """
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
-
-import pytest
 
 from quant.engine.invest_plan import propose_by_class
 from quant.engine.weights import class_weights, instrument_weights
@@ -144,49 +141,6 @@ def test_class_labels_are_canonical():
                             "SPECULATIVE": "Speculative"}
 
 
-def test_no_banned_class_synonyms_in_copy():
-    """A1: no 'Small bets' or 'FORTRESS' in a copy string value."""
-    copy_py = _QUANT / "ui" / "copy.py"
-    tree = ast.parse(copy_py.read_text(encoding="utf-8"))
-    key_ids = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for k in node.keys:
-                if isinstance(k, ast.Constant):
-                    key_ids.add(id(k))
-    offenders: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if id(node) in key_ids:
-                continue
-            v = node.value
-            if "Small bets" in v or re.search(r"\bFORTRESS\b", v):
-                offenders.append(v)
-    assert not offenders, f"banned class synonym in copy: {offenders}"
-
-
-@pytest.mark.parametrize("page", ["pages/portfolio.py", "pages/analysis.py"])
-def test_rendered_pages_have_no_banned_class_words(page):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
-
-    dash = str(Path(__file__).resolve().parents[1] / "quant" / "dashboard.py")
-    at = AppTest.from_file(dash, default_timeout=60)
-    at.run()
-    at.switch_page(page).run()
-    assert not at.exception, f"{page} raised: {at.exception}"
-    chunks = []
-    for attr in ("markdown", "info", "warning", "error", "caption", "text",
-                 "title", "header", "subheader"):
-        for el in getattr(at, attr, []):
-            chunks.append(str(getattr(el, "value", "")))
-    for el in getattr(at, "dataframe", []):
-        v = getattr(el, "value", None)
-        if v is not None:
-            try:
-                chunks.append(str(v.to_string()))
-            except Exception:  # noqa: BLE001
-                chunks.append(str(v))
-    text = " ".join(chunks)
-    assert "Small bets" not in text, f"'Small bets' rendered on {page}"
-    assert not re.search(r"\bFORTRESS\b", text), f"'FORTRESS' rendered on {page}"
+# v10.8.9 (R-F3): the class-synonym copy guards moved to
+# tests/test_copy_lints.py (test_no_banned_class_synonyms_in_copy and
+# test_rendered_pages_have_no_banned_class_words).

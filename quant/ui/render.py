@@ -491,8 +491,15 @@ def _render_value_chart(history, holdings) -> None:
             line=dict(width=2, color=P.ACCENT)))
         y_vals = [float(v) for v in df["value_eur"] if v is not None]
 
-    # v10.8.5 (D17): the benchmark overlay is a Growth-view-only option.
-    if growth and st.checkbox(C.LABEL_BENCHMARK, value=False, key="val_bench"):
+    # v10.8.9 (R-F2): the benchmark toggle exists ONLY in Growth view. Its state
+    # is preserved across view switches: a widget that is not rendered loses its
+    # own key, so its value is shadowed in ``val_bench_on`` and restored on return.
+    bench_on = bool(st.session_state.get("val_bench_on", False))
+    if growth:
+        st.session_state.setdefault("val_bench", bench_on)
+        bench_on = st.checkbox(C.LABEL_BENCHMARK, key="val_bench")
+        st.session_state["val_bench_on"] = bench_on
+    if growth and bench_on:
         bench = q("SELECT Date AS d, Close FROM market_history WHERE Symbol = ? "
                   "ORDER BY Date ASC", [C.BENCHMARK_SYMBOL])
         if not bench.empty:
