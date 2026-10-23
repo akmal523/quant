@@ -9,8 +9,15 @@ process.
 git clone https://github.com/akmal523/quant
 cd quant
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[dev,dashboard]"
 pre-commit install
+```
+
+The optional news-sentiment stack (torch + transformers) is the `news` extra; on
+Linux the CPU-only wheels keep it small:
+
+```bash
+pip install -e ".[news]" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 ## Style

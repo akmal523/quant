@@ -361,6 +361,14 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"backup: unreadable ({e})")
 
+    # v10.8.10: stale pre-10.8.1 copies of user state left in the code folder.
+    from quant.data.user_data import leftover_legacy_state
+
+    leftover = leftover_legacy_state()
+    if leftover:
+        print(f"old copies in {paths.CODE_ROOT} (already migrated to {paths.PROJECT_ROOT}; "
+              f"not used, safe to delete after checking): {', '.join(leftover)}")
+
     try:
         from quant.engine.valuation import days_since_last_sync
 

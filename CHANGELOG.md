@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.10] - 2026-10-23
+
+"Make the code do what the docs say." An audit of CONTEXT.md against the code
+found rules that were documented but not true. This release makes them true (or
+corrects the doc where the code was right), removes dead code, and replaces the
+1,500-line ruling log with a current CONTEXT.md.
+
+### Fixed
+
+- **The render path wrote to the database (R-C4).** Every Portfolio render
+  synced the advice log. The ONE list is now built by
+  [`quant/engine/today_list.py`](quant/engine/today_list.py) and only annotated on
+  render (`advice_state.annotate`); the daily job, Confirm and save, `refresh` and
+  `run` persist it. The savings reminder reads through a read-only connection.
+- **Plan change could never fire.** No caller passed the month count and the
+  thresholds were hard-coded. It now uses `PLAN_CHANGE_MONTHS` / `PLAN_CHANGE_GAP`
+  and per-symbol month-ends under target from the valuation store.
+- **Bear-market logic never fired on real data.** Reviews store
+  rising/falling/mixed while advice, alerts, the allocator and the taxonomy
+  compared against "bear". One normaliser (`regime_constraints.regime_key` /
+  `is_bear`) accepts both. The analysis regime stage used a 0–15 score as a
+  probability (almost always "bull") and threw the result away; it now uses the
+  probability, `regime_from_bull_prob`, and stores the estimate for `read_regime`.
+- **False swaps in the invest plan.** Its open-advice set was built with
+  `scores={}`, so every non-Long-term holding scored 0 and "trailed" any idea.
+  Swaps now need a scored Active/Speculative holding, and a swapped symbol gets no
+  standalone buy/sell.
+- **Sells never routed to ideas.** The page did not pass the idea list to the
+  pairing; the "hold proceeds" text no longer claims a hurdle that is not applied.
+- **"since first purchase" counted deposits as gains.** It is now Modified Dietz
+  over the ledger flows (`flows.since_first_return`).
+- **Delta badge printed "-0 EUR" / "-0.0%"** (and ±0.50 EUR was neutral).
+- **Automatic snapshots deleted full backups** and reset `last_backup_at`. They
+  now live in `data/backups/auto/` with their own prefix and pruning.
+- **Run analysis never fetched prices.** It now runs `refresh`, then `run`.
+- **Prices were "stale" every weekend.** Price freshness counts trading days.
+- **Scores disagreed between tabs.** Holdings analysis and the threat floor read
+  the same composite as Research; class weights in advice and the allocator come
+  from `weights.class_weights` (R-C3).
+- **Flaky CI test.** The Research inspect-control test matched Pipeline health's
+  "Stage" column; it now matches the Research column spec. The async fetch test no
+  longer hits the network.
+
+### Removed
+
+- Dead modules `quant/engine/steps.py`, `quant/reporting/reporting.py`,
+  `quant/utils/retry.py`, the root `main.py` / `data_updater.py` shims, the unused
+  weekly backup nag, and 334 unused copy constants.
+- Unused dependencies `openpyxl`, `beautifulsoup4`, `markdown`; `requests` moves
+  from the dashboard extra to the core. The no-op CPU-torch index is dropped from
+  CI; the stale `uv.lock` (10.4.2) is removed.
+
+### Changed
+
+- [`CONTEXT.md`](CONTEXT.md) states the current vocabulary, architecture and
+  rules; the old ruling log is archived in
+  [`docs/history/CONTEXT-to-v10.8.9.md`](docs/history/CONTEXT-to-v10.8.9.md).
+- README, `docs/backup.md`, `docs/performance.md`, `docs/api.md`, `mkdocs.yml`
+  and the package metadata describe the actual product (version 10.8.10
+  everywhere).
+- Backup hints point to Settings → Back up now (the bare `quant` command is not on
+  PATH after `./install.sh`). The doctor lists stale pre-10.8.1 copies of user
+  data left in the code checkout.
+
 ## [10.8.9] - 2026-10-13
 
 "Close the defect register." The P3 residuals shared one pattern: mechanisms were

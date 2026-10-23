@@ -114,6 +114,27 @@ def migrate_legacy_user_data() -> list[str]:
     return copied
 
 
+# The owner's own state (not the shipped curated inputs) that the migration copied.
+_USER_STATE_FILES: tuple[str, ...] = ("portfolio.csv", "account.yaml", "tiers.csv",
+                                      "notify.toml")
+
+
+def leftover_legacy_state() -> list[str]:
+    """User-state files still in the code checkout after the migration ran.
+
+    The migration copies and never deletes, so these stale copies stay behind
+    (and drift from the live data). The doctor lists them; the owner decides.
+    """
+    if not migration_done():
+        return []
+    legacy = Path(paths.LEGACY_DATA_DIR)
+    found = [f"data/{n}" for n in _USER_STATE_FILES if (legacy / n).exists()]
+    if (legacy / LEGACY_BACKUP_DIRNAME).is_dir():
+        found.append(f"data/{LEGACY_BACKUP_DIRNAME}/")
+    found += [n for n in LEGACY_TOP_FILES if (Path(paths.CODE_ROOT) / n).exists()]
+    return found
+
+
 def _write_marker() -> None:
     """Record that the one-time migration ran. Never raises."""
     try:

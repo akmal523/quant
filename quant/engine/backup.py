@@ -1,8 +1,8 @@
 """
 backup.py — one command, honest hygiene (v10.7.2, Part 3).
 
-Intent: one command produces a restorable archive of the user-owned state, and
-the system reminds about backups at most weekly, never nagging. The archive is a
+Intent: one command produces a restorable archive of the user-owned state; the
+doctor and Settings show one status line (stale after 30 days), never a nag. The archive is a
 stdlib tar.gz holding the broker CSV, the tier file, the DuckDB database (plus
 its ``.wal`` sibling when present), and the account settings. ``data/notify.toml``
 is included ONLY with ``--include-secrets`` (it holds the bot token).
@@ -32,7 +32,6 @@ from quant.engine import lock as lock_mod
 BACKUP_DIR_NAME = "backups"
 KEEP_BACKUPS = 5
 STALE_BACKUP_DAYS = 30
-NAG_INTERVAL_DAYS = 7
 STATE_NAME = "backup_state.json"
 PREFIX = "quant-backup-"
 SNAPSHOT_DIR_NAME = "auto"
@@ -202,24 +201,3 @@ def backup_line(today: date | None = None) -> str:
     if days > STALE_BACKUP_DAYS:
         return C.BACKUP_OLD.format(n=days)
     return C.BACKUP_LAST.format(date=C.fmt_date(last.date()))
-
-
-def ui_backup_line(today: date | None = None) -> str:
-    """The UI line: the gentle reminder at most once per week, never nagging."""
-    from quant.ui import copy as C
-
-    today = today or date.today()
-    last = last_backup_at()
-    if last is not None and (today - last.date()).days <= STALE_BACKUP_DAYS:
-        return C.BACKUP_LAST.format(date=C.fmt_date(last.date()))
-    meta = read_meta()
-    last_nag = meta.get("last_nag_at")
-    if last_nag:
-        try:
-            if (today - date.fromisoformat(str(last_nag)[:10])).days < NAG_INTERVAL_DAYS:
-                return ""
-        except ValueError:
-            pass
-    meta["last_nag_at"] = today.isoformat()
-    write_meta(meta)
-    return backup_line(today)

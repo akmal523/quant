@@ -102,6 +102,22 @@ def modified_dietz(
     return (float(v_end) - float(v_start) - net_flow) / denominator
 
 
+def since_first_return(series: list[tuple], flows: list[dict]) -> float | None:
+    """Flow-adjusted return over a value series, as a fraction (v10.8.10).
+
+    ``series`` is ``[(date, value_eur), ...]`` in date order. The start value
+    already contains every flow up to and including the first date, so only the
+    flows strictly after it enter the Modified Dietz sum: a deposit (buy) is
+    never counted as gain. None when there are fewer than two points.
+    """
+    if not series or len(series) < 2:
+        return None
+    (d0, v0), (d1, v1) = series[0], series[-1]
+    start, end = _as_date(d0), _as_date(d1)
+    later = [f for f in flows or [] if start < _as_date(f.get("date")) <= end]
+    return modified_dietz(float(v0), float(v1), later, start, end)
+
+
 def performance_line(
     v_start: float,
     v_end: float,

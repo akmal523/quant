@@ -86,8 +86,9 @@ for maintenance.
 
 ## Reliability
 
-- `quant.utils.retry.retry_with_backoff` retries transient external failures
-  with exponential backoff.
+- Database writes retry lock conflicts with bounded backoff
+  (`quant.data.database.write_connection`); the startup backfills retry with
+  exponential backoff and record a `stale` stage on final failure.
 - `quant.analytics.scoring.score_asset_with_fallbacks` degrades gracefully when
   data is missing, marking `data_quality` as PARTIAL or FALLBACK.
 - `quant.portfolio.tier_manager.load_tiers_safe` never crashes on a missing,
@@ -115,11 +116,13 @@ pytest tests/test_performance.py -v
 It reports batch scoring time for 50 and 100 assets, batch query time, and
 memory usage.
 
-## Honest performance math (v10.7.0)
+## Honest performance math
 
-The old "+2.5 percent since 13 Sep" was a naive value change and lied whenever
-money entered. From v10.7.0 the Overview return uses **Modified Dietz** over the
-period between two dates, using the `flows` table:
+A naive "value now / value then" return lies whenever money enters. The
+Portfolio header's **since first purchase** line uses **Modified Dietz** over the
+valuation store, with the ledger flows (`flows` table, written by Confirm and
+save) after the first stored date
+(`quant.engine.flows.since_first_return`):
 
 ```
 R = (V_end - V_start - F) / (V_start + sum(w_i * F_i))
@@ -128,11 +131,8 @@ w_i = (days_in_period - days_from_start_to_flow) / days_in_period
 
 Deposits do not count as profit. Flow signs: `buy` = +amount (money entered
 invested), `sell` = -amount (money left invested), `dividend` = -amount (left
-invested, landed in cash). The Overview sentence reads: "Since 13 Sep: +20.84
-EUR. Of that: you added 0.00 EUR, market moved +20.84 EUR. Return: +2.4
-percent."
+invested). Flows on the first date are already inside `V_start`.
 
-Per-asset performance is simply the price change over the period, labeled
-"price change" (honest for a held asset). The value series the chart reads is
-`portfolio_value_history(date, invested_eur)`, written by the daily job from
-shares times close; it never includes cash.
+The value series is the mark-to-market store (`portfolio_total`, one point per
+trading day, invested positions only; `quant.engine.mtm`). The day delta is
+`total(D) - total(D-1)` from the same store.

@@ -1,17 +1,17 @@
 # Quant-AI
 
-A daily portfolio manager for a solo family office on Trade Republic: one
-snapshot after the market close, plain-language add/trim/leave advice, orders
-placed in the broker app. The browser app is the product; the terminal is an
-optional power tool.
+A daily portfolio manager for one EUR-based investor on Trade Republic: one
+snapshot after the market close, plain-language buy / sell / leave-alone advice,
+orders placed in the broker app. The browser app is the product; the terminal is
+an optional power tool.
 
-This site hosts the auto-generated API reference. For the full pitch, quick
-start, architecture diagram, and configuration, see the
-[project README](https://github.com/akmal523/quant#readme).
+This site hosts the auto-generated API reference. For install, start and update,
+see the [project README](https://github.com/akmal523/quant#readme).
 
-For domain vocabulary, data contracts, architecture decisions, the module map,
-and the complete cycle ledger (every decision, bug, and guard since 10.5.2), see
-[CONTEXT.md](https://github.com/akmal523/quant/blob/main/CONTEXT.md).
+For vocabulary, architecture and the binding rules, see
+[CONTEXT.md](https://github.com/akmal523/quant/blob/main/CONTEXT.md); the
+version-by-version rulings before v10.8.10 are archived in
+[docs/history](https://github.com/akmal523/quant/tree/main/docs/history).
 
 - [API Reference](api.md)
 - [Stub and fallback policy](stub_policy.md)

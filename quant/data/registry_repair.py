@@ -278,8 +278,8 @@ def ensure_registry_rows(registry_path: str = paths.DATA_BROKER_REGISTRY,
 #     ∪ curated ISIN/name symbols
 #     ∪ BROAD_ETFS (the named always-tracked constant)
 #
-# Writers of asset_registry and their source sets are documented in CONTEXT.md
-# ("Registry write paths").
+# Writers of asset_registry and their source sets: see "Registry write paths" in
+# docs/history/CONTEXT-to-v10.8.9.md (F1 in CONTEXT.md).
 
 def working_universe_sources(
     conn: Any =None,

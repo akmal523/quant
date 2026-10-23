@@ -42,17 +42,6 @@ def _total_value(holdings: list[dict], portfolio) -> float:
     return 0.0
 
 
-def _range_change(series) -> tuple[float, float]:
-    """Signed EUR and percent change over the series (flow-adjusted by design)."""
-    if series is None or len(series) < 2:
-        return 0.0, 0.0
-    first = float(series.iloc[0]["value_eur"])
-    last = float(series.iloc[-1]["value_eur"])
-    if first == 0:
-        return 0.0, 0.0
-    return last - first, (last / first - 1.0) * 100.0
-
-
 def _total_value_store() -> float | None:
     """The Total value (invested only) from the valuation store (T3; v10.8.7 R-C1).
 
@@ -67,13 +56,24 @@ def _total_value_store() -> float | None:
 
 
 def _since_first_pct(series) -> float | None:
+    """Return since the first stored value, in percent, net of deposits.
+
+    v10.8.10: Modified Dietz over the ledger flows (:mod:`quant.engine.flows`);
+    the old last/first ratio counted every later buy as a gain.
+    """
     if series is None or len(series) < 2:
         return None
-    first = float(series.iloc[0]["value_eur"])
-    last = float(series.iloc[-1]["value_eur"])
-    if not first:
-        return None
-    return (last / first - 1.0) * 100.0
+    from quant.data.database import read_only_connection
+    from quant.engine.flows import load_flows, since_first_return
+
+    try:
+        with read_only_connection() as conn:
+            flows = load_flows(conn)
+    except Exception:  # noqa: BLE001
+        flows = []
+    points = list(zip(series["date"], series["value_eur"], strict=True))
+    ret = since_first_return(points, flows)
+    return None if ret is None else ret * 100.0
 
 
 def _render_tasks() -> None:
@@ -1027,4 +1027,4 @@ def page_settings() -> None:
     st.write(f"Prices: last date {C.fmt_date(R.latest_bar_date())}.")
     from quant.engine import backup as _backup2
 
-    st.caption(f"Backups: {_backup2.backup_dir()}")
+    st.caption(f"{_backup2.backup_line()} Backups: {_backup2.backup_dir()}")

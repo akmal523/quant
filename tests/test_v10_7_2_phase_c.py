@@ -82,19 +82,6 @@ def test_backup_lines_exact_copy(tmp_path, monkeypatch):
     assert backup.backup_line() == C.BACKUP_OLD.format(n=40)
 
 
-def test_ui_backup_line_nags_at_most_weekly(tmp_path, monkeypatch):
-    _env(tmp_path, monkeypatch)
-    from datetime import date
-
-    today = date(2026, 10, 2)
-    first = backup.ui_backup_line(today)
-    assert first == C.BACKUP_NEVER
-    # Same week: suppressed.
-    assert backup.ui_backup_line(date(2026, 10, 4)) == ""
-    # A week later: shown again.
-    assert backup.ui_backup_line(date(2026, 10, 10)) == C.BACKUP_NEVER
-
-
 def test_backup_uses_lock_helper(tmp_path, monkeypatch):
     _env(tmp_path, monkeypatch)
     calls: list[tuple] = []

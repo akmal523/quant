@@ -213,3 +213,32 @@ def test_a_sell_routes_to_an_idea_when_nothing_is_underweight():
     route = route_sell({"symbol": "ACT"}, holdings,
                        [{"symbol": "IDEA", "name": "Idea", "score": 80.0}])
     assert route["kind"] == ROUTE_IDEA and route["symbol"] == "IDEA"
+
+
+def test_doctor_lists_leftover_legacy_copies(tmp_path, monkeypatch):
+    from quant import paths
+    from quant.data import user_data
+
+    code = tmp_path / "code"
+    (code / "data" / "backups").mkdir(parents=True)
+    (code / "data" / "portfolio.csv").write_text("Symbol\n", encoding="utf-8")
+    (code / "data" / "themes.csv").write_text("theme\n", encoding="utf-8")  # shipped
+    monkeypatch.setattr(paths, "LEGACY_DATA_DIR", code / "data")
+    monkeypatch.setattr(paths, "CODE_ROOT", code)
+    monkeypatch.setattr(user_data, "migration_done", lambda: False)
+    assert user_data.leftover_legacy_state() == []
+    monkeypatch.setattr(user_data, "migration_done", lambda: True)
+    assert user_data.leftover_legacy_state() == ["data/portfolio.csv", "data/backups/"]
+
+
+def test_since_first_purchase_does_not_count_deposits_as_gain():
+    from quant.engine.flows import since_first_return
+
+    series = [(date(2026, 1, 1), 1000.0), (date(2026, 1, 31), 1600.0)]
+    # A 500 EUR buy mid-period: only 100 EUR is market gain.
+    deposit = [{"date": date(2026, 1, 16), "type": "buy", "amount_eur": 500.0}]
+    assert round(since_first_return(series, deposit), 4) == 0.08
+    # A buy ON the first date is already inside the start value.
+    first_day = [{"date": date(2026, 1, 1), "type": "buy", "amount_eur": 1000.0}]
+    assert round(since_first_return(series, first_day), 4) == 0.6
+    assert since_first_return(series[:1], []) is None

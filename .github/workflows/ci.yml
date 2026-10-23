@@ -20,10 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # CPU-only torch keeps CI lightweight; pyproject cannot express the
-          # extra index under PEP 621. The dashboard extra (streamlit) is
-          # required so the UI tests run and the coverage floor is met.
-          pip install -e ".[test,dashboard]" --extra-index-url https://download.pytorch.org/whl/cpu
+          # The dashboard extra (streamlit) is required so the UI tests run and
+          # the coverage floor is met. The optional news extra (torch) is not
+          # installed; the suite runs without it.
+          pip install -e ".[test,dashboard]"
 
       - name: Static stub audit
         # v10.7.5: fails on any blocking stub / silent-fallback finding.
