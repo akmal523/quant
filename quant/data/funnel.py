@@ -261,7 +261,7 @@ def load_survivors() -> list[str]:
     """Read the cached funnel survivors saved by data_updater.py.
 
     Invariants: returns an empty list if the table is missing/empty (caller
-    should then warn to run data_updater.py first).
+    should then warn to run quant refresh first).
     """
     try:
         from quant.data.database import get_connection

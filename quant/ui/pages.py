@@ -1,5 +1,5 @@
 """
-pages.py — the five pages of the one workflow (v10.8.3).
+pages.py — the five pages of the one workflow (v10.8.3; read-only since v10.8.10).
 
 Portfolio (home), Update holdings, History, Full analysis, Settings. Each page
 reads the ONE live source: the holdings view (positions + tiers + targets), the
@@ -128,9 +128,11 @@ def _render_what_to_do(holdings: list[dict]) -> None:
     st.subheader(C.SEC_WHAT_TO_DO)
     from quant.data.database import write_connection
     from quant.engine import advice_state
-    from quant.engine.today_list import build_items
+    from quant.engine.today_list import build_items, idea_rows
 
-    items = build_items(holdings, regime=R.read_regime(), scores=_scores_map())
+    scores = _scores_map()
+    ideas = idea_rows(holdings, scores)
+    items = build_items(holdings, regime=R.read_regime(), scores=scores, ideas=ideas)
     items = advice_state.annotate(items + _invest_session_items())
     if not items:
         st.write(C.WHAT_TO_DO_EMPTY)
@@ -141,7 +143,7 @@ def _render_what_to_do(holdings: list[dict]) -> None:
             continue
         st.markdown(f"**{horizon}**")
         for it in group:
-            line = _item_line(it, holdings)
+            line = _item_line(it, holdings, ideas)
             st.write(line)
             cls = C.CLASS_LABELS.get(it["class"], it["class"])
             caption = f"{cls} — {it['reason']}"
@@ -160,7 +162,7 @@ def _render_what_to_do(holdings: list[dict]) -> None:
                     st.error("Could not save. Nothing was written.")
 
 
-def _item_line(it: dict, holdings: list[dict]) -> str:
+def _item_line(it: dict, holdings: list[dict], ideas: list[dict]) -> str:
     """The single line for one item (T3/T5/D8): swap pairs, sells pair, else verb."""
     verb = str(it.get("verb") or "")
     if verb == "swap":
@@ -171,7 +173,7 @@ def _item_line(it: dict, holdings: list[dict]) -> str:
         from quant.engine.pairing import paired_line
 
         return paired_line({**it, "label": it.get("label") or it.get("symbol")},
-                           holdings=holdings)
+                           holdings=holdings, candidates=ideas)
     return format_item_line(it)
 
 
@@ -209,7 +211,7 @@ def page_home() -> None:
             "Holding": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
             "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
             "Value (EUR)": C.fmt_eur(h.get("value_eur") or 0),
-            "Now / target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
+            "Now / Target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
                             f"{float(h.get('target_weight') or 0) * 100:.0f}%",
         })
     # v10.8.7 (R-C1): no cash row. Uninvested cash is not an entity.
@@ -665,7 +667,6 @@ def _render_holdings_analysis() -> None:
     from quant.engine import advice_state
     from quant.engine import holdings_analysis as HA
     from quant.engine import manifest as M
-    from quant.reporting.artifacts import read_scores
 
     holdings = _holdings()
     if not holdings:
@@ -677,8 +678,9 @@ def _render_holdings_analysis() -> None:
     rows = []
     for h in holdings:
         sym = h["symbol"]
-        s = read_scores(sym) or {}
-        score = s.get("active_score")
+        # The same composite Research shows (R-C2), structural grade as fallback.
+        s = scores.get(sym) or {}
+        score = s.get("composite")
         if score is None:
             score = s.get("structural_grade")
         cur = float(h.get("current_weight") or 0)
@@ -764,9 +766,8 @@ def _render_research() -> None:
     st.dataframe(df, width="stretch", hide_index=True,
                  column_config=COLS.table_column_config("research"))
     st.caption(M.coverage_line())
-    # v10.8.5 (D1): the funnel table above is the content; the per-row drawer
-    # below is optional. Its chart carries a unique key so identical figures can
-    # never collide on Streamlit's auto-generated element id.
+    # v10.8.6 (A1): the funnel table above is the content; below it, ONE lazy
+    # "Inspect symbol" select renders the drawer for the chosen symbol only.
     by_sym = {r["_sym"]: r for r in rows}
     _inspect_drawer([r["_sym"] for r in rows], by_sym, prefix="rs",
                     key="rs_inspect", label=C.INSPECT_SYMBOL)

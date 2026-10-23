@@ -1,26 +1,29 @@
-import sys as _sys
-from pathlib import Path as _Path
+"""test_async.py — the concurrent text fetcher overlaps its I/O (hermetic).
 
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-# test_async.py
+The SEC fetch is replaced by a 0.5 s blocking stub, so the test needs no network:
+three symbols fetched concurrently finish in well under the 1.5 s a serial loop
+would take.
+"""
 import asyncio
 import time
 
-from quant.data.async_fetcher import fetch_all_texts_concurrently
+import quant.data.async_fetcher as async_fetcher
 
 
-def test_async_speed():
+def test_async_fetch_runs_concurrently(monkeypatch):
+    def _slow_8k(symbol):
+        time.sleep(0.5)
+        return f"8-K text for {symbol}"
+
+    monkeypatch.setattr(async_fetcher, "fetch_latest_8k", _slow_8k)
     symbols = ["AAPL", "MSFT", "GOOGL"]
 
     start = time.time()
-    results = asyncio.run(fetch_all_texts_concurrently(symbols))
+    results = asyncio.run(async_fetcher.fetch_all_texts_concurrently(symbols))
     elapsed = time.time() - start
 
-    assert len(results) == 3, "Failed fetching texts."
-    assert elapsed < 20.0, f"Async fetch too slow: {elapsed}s. I/O blocking detected."
-    assert "AAPL" in results, "Symbol mapping failed."
-
-    print(f"Task 4 validation passed. {len(symbols)} tickers fetched in {elapsed:.2f}s.")
+    assert results == {s: f"8-K text for {s}" for s in symbols}
+    assert elapsed < 1.2, f"fetches did not overlap: {elapsed:.2f}s"
 
 
 def test_sec_edgar_uses_lexbor_backend():
@@ -34,7 +37,3 @@ def test_sec_edgar_uses_lexbor_backend():
     import quant.data.sec_edgar as sec_edgar
 
     assert sec_edgar.LexborHTMLParser is LexborHTMLParser
-
-
-if __name__ == "__main__":
-    test_async_speed()

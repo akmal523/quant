@@ -63,7 +63,11 @@ def test_recovery_rebuilds_from_holdings_meta(tmp_path, monkeypatch):
 
 
 def test_snapshot_user_files_writes_and_prunes(tmp_path, monkeypatch):
-    """A2: the light auto-backup writes an archive and keeps only five."""
+    """A2: the light auto-snapshot writes its own series and keeps only ten.
+
+    v10.8.10: snapshots live in ``backups/auto`` with their own prefix, so they
+    never prune a full backup and never count as one.
+    """
     import glob
 
     data = tmp_path / "data"
@@ -74,13 +78,19 @@ def test_snapshot_user_files_writes_and_prunes(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_TIERS", str(data / "tiers.csv"))
     monkeypatch.setattr(paths, "DATA_ACCOUNT", str(data / "account.yaml"))
     out = tmp_path / "backups"
-    for i in range(7):
+    out.mkdir()
+    full = out / "quant-backup-20261001-0000.tar.gz"
+    full.write_bytes(b"full backup")
+    before = backup_mod.read_meta().get("last_backup_at")
+    for i in range(12):
         from datetime import datetime
         res = backup_mod.snapshot_user_files(
             str(out), now=datetime(2026, 10, 1, 0, 0, i))
         assert res["ok"] is True
-    kept = glob.glob(str(out / "quant-backup-*.tar.gz"))
-    assert len(kept) == 5
+    kept = glob.glob(str(out / "auto" / "quant-snapshot-*.tar.gz"))
+    assert len(kept) == backup_mod.KEEP_SNAPSHOTS
+    assert full.exists()
+    assert backup_mod.read_meta().get("last_backup_at") == before
 
 
 def test_write_failure_reports_a_specific_reason():

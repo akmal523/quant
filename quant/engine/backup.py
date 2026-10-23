@@ -7,10 +7,16 @@ stdlib tar.gz holding the broker CSV, the tier file, the DuckDB database (plus
 its ``.wal`` sibling when present), and the account settings. ``data/notify.toml``
 is included ONLY with ``--include-secrets`` (it holds the bot token).
 
+Automatic snapshots (``snapshot_user_files``, before every confirmed save) are a
+separate, lighter series: CSV/YAML only, written to ``backups/auto/`` with their
+own prefix and pruning, so they can never push a full backup out of the folder
+and never count as one (v10.8.10).
+
 Invariants:
   - ``create_backup`` acquires the shared runner lock (all writers respect it).
-  - The archive is pruned to the 5 most recent backups.
-  - ``last_backup_at`` is persisted; the doctor/Settings render one line.
+  - Full backups are pruned to the 5 most recent; snapshots to the 10 most recent.
+  - ``last_backup_at`` is persisted by full backups ONLY; the doctor/Settings
+    render one line from it.
   - Never raises; returns a result dict.
 """
 from __future__ import annotations
@@ -29,6 +35,9 @@ STALE_BACKUP_DAYS = 30
 NAG_INTERVAL_DAYS = 7
 STATE_NAME = "backup_state.json"
 PREFIX = "quant-backup-"
+SNAPSHOT_DIR_NAME = "auto"
+SNAPSHOT_PREFIX = "quant-snapshot-"
+KEEP_SNAPSHOTS = 10
 
 
 def backup_dir(custom: str | None = None) -> str:
@@ -86,13 +95,19 @@ def _members(include_secrets: bool) -> list[tuple[str, str]]:
     return [(arc, src) for arc, src in candidates if os.path.exists(src)]
 
 
-def prune_backups(out_dir: str | None = None, keep: int = KEEP_BACKUPS) -> int:
-    """Keep the ``keep`` most recent backups. Returns the number removed."""
+def snapshot_dir(custom: str | None = None) -> str:
+    """The automatic-snapshot directory (``<backup dir>/auto``)."""
+    return os.path.join(backup_dir(custom), SNAPSHOT_DIR_NAME)
+
+
+def prune_backups(out_dir: str | None = None, keep: int = KEEP_BACKUPS,
+                  prefix: str = PREFIX) -> int:
+    """Keep the ``keep`` most recent ``prefix`` archives. Returns the number removed."""
     out_dir = out_dir or backup_dir()
     try:
         files = sorted(
             (f for f in os.listdir(out_dir)
-             if f.startswith(PREFIX) and f.endswith(".tar.gz")),
+             if f.startswith(prefix) and f.endswith(".tar.gz")),
             reverse=True)
     except Exception:  # noqa: BLE001
         return 0
@@ -111,12 +126,13 @@ def snapshot_user_files(custom_dir: str | None = None,
     """Lightweight auto-backup of the user input files (v10.8.1, A2).
 
     Copies the table, tiers and account settings (NOT the large database) into a
-    timestamped archive, pruned to the 5 most recent. Used before every confirmed
-    table save and before every update. Never raises.
+    timestamped ``backups/auto/quant-snapshot-*`` archive, pruned to the 10 most
+    recent. Used before every confirmed table save. It is not a backup: it never
+    touches the full-backup series or ``last_backup_at``. Never raises.
     """
     now = now or datetime.now()
     try:
-        out_dir = backup_dir(custom_dir)
+        out_dir = snapshot_dir(custom_dir)
         os.makedirs(out_dir, exist_ok=True)
         members = [
             (arc, src) for arc, src in (
@@ -127,15 +143,12 @@ def snapshot_user_files(custom_dir: str | None = None,
         ]
         if not members:
             return {"ok": False, "path": None, "members": [], "error": "nothing to back up"}
-        name = f"{PREFIX}{now.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+        name = f"{SNAPSHOT_PREFIX}{now.strftime('%Y%m%d-%H%M%S')}.tar.gz"
         path = os.path.join(out_dir, name)
         with tarfile.open(path, "w:gz") as tar:
             for arc, src in members:
                 tar.add(src, arcname=arc)
-        prune_backups(out_dir)
-        meta = read_meta()
-        meta["last_backup_at"] = now.isoformat(timespec="seconds")
-        write_meta(meta)
+        prune_backups(out_dir, keep=KEEP_SNAPSHOTS, prefix=SNAPSHOT_PREFIX)
         return {"ok": True, "path": path, "members": [a for a, _ in members],
                 "error": None}
     except Exception as e:  # noqa: BLE001

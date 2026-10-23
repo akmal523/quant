@@ -1,6 +1,6 @@
 """
-columns.py — the ONE column-spec contract for the broker editor + entry check
-(v10.8.8, R-P1).
+columns.py — the ONE column-spec contract for every table (v10.8.8, R-P1;
+v10.8.9, R-F1).
 
 Intent: the broker editor grew column-by-column across versions until it
 overflowed the container and kept an unlabeled index/action column, and live
@@ -29,8 +29,10 @@ join visually on one key.
 Invariants:
   - Pure module: no streamlit import at module load (``editor_column_config``
     imports it lazily), so the contract is importable and testable without a UI.
-  - ``EDITOR_COLUMNS`` and ``CHECK_COLUMNS`` are the ONLY column lists; the
-    renderer derives its config, order and disabled set from them.
+  - ``TABLE_SPECS`` is the ONE registry of table column lists (editor, entry
+    check, research, holdings analysis, invest class/instrument, home holdings);
+    each table derives its config and order from its spec and declares a column
+    budget (<= 8).
 
 Dependencies: typing only (streamlit imported lazily).
 """
@@ -91,7 +93,7 @@ EDITOR_COLUMNS: list[ColumnSpec] = [
                True, "small", numeric=True, fmt="%.0f"),
 ]
 
-# The editor budget: the six contract columns (no optional Remove column).
+# The editor budget: the six contract columns plus the hidden index.
 EDITOR_MAX_COLUMNS = 7
 
 # ── The read-only Entry-check table (R-P1): the ONLY place live and typed meet ─
@@ -218,7 +220,7 @@ HOME_HOLDINGS_COLUMNS: list[ColumnSpec] = [
     ColumnSpec("Holding", "Holding", "", False, "medium"),
     ColumnSpec("Class", "Class", "", False, "small"),
     ColumnSpec("Value (EUR)", "Value (EUR)", "EUR", False, "small"),
-    ColumnSpec("Now / target", "Now / target", "", False, "small"),
+    ColumnSpec("Now / Target", "Now / Target", "", False, "small"),
 ]
 HOME_HOLDINGS_MAX_COLUMNS = 8
 

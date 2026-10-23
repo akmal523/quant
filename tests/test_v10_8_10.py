@@ -193,3 +193,23 @@ def test_delta_badge_never_writes_minus_zero(eur, pct, text):
 
 def test_delta_badge_neutral_boundary_is_strictly_below_half():
     assert C.delta_badge(0.5, 0.1)[0] != C.delta_badge(0.49, 0.1)[0]
+
+
+# ── Freshness and pairing ─────────────────────────────────────────────────────
+
+def test_friday_close_is_fresh_over_the_weekend():
+    from quant.engine.analysis import STAGE_TTL_DAYS, _age_days
+
+    friday = date(2026, 10, 23)
+    for today in (date(2026, 10, 24), date(2026, 10, 25), date(2026, 10, 26)):
+        assert _age_days("market_history", friday, today) < STAGE_TTL_DAYS["prices"]
+    assert _age_days("market_history", friday, date(2026, 10, 27)) >= 1
+
+
+def test_a_sell_routes_to_an_idea_when_nothing_is_underweight():
+    from quant.engine.pairing import ROUTE_IDEA, route_sell
+
+    holdings = [_h("ACT", "ALPHA", cur=0.9, tgt=0.1)]
+    route = route_sell({"symbol": "ACT"}, holdings,
+                       [{"symbol": "IDEA", "name": "Idea", "score": 80.0}])
+    assert route["kind"] == ROUTE_IDEA and route["symbol"] == "IDEA"

@@ -38,6 +38,7 @@ from quant.config import (
     TARGET_WEIGHTS_INVESTED,
 )
 from quant.engine.sizing import round_down
+from quant.engine.weights import class_weights
 from quant.portfolio.regime_constraints import is_bear
 
 ROUND_STEP = 5.0
@@ -147,10 +148,8 @@ def allocate(
 
     # Bets: gated, and carved OUT of the active pool so the split sums to B.
     invested = sum(_num(h.get("value_eur")) for h in holdings)
-    spec_value = sum(
-        _num(h.get("value_eur")) for h in holdings
-        if str(h.get("tier", "")).upper() == "SPECULATIVE")
-    bets_weight = (spec_value / invested) if invested > 0 else 0.0
+    bets_weight = class_weights(holdings)["SPECULATIVE"]  # R-C3: the ONE weight math
+    spec_value = bets_weight * invested
     has_spec = spec_value > 0
     bet_candidate = next(
         (c for c in candidates

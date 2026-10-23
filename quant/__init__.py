@@ -1,3 +1,3 @@
-"""Quant-AI: institutional-grade systematic equity pipeline."""
+"""Quant-AI: a daily portfolio manager for one investor on Trade Republic."""
 
-__version__ = "10.8.9"
+__version__ = "10.8.10"

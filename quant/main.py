@@ -1,6 +1,12 @@
 """
-main.py — Orchestration engine v9.0.
-Architecture:
+main.py — the ``quant run`` review pipeline (the "Run analysis" scoring step).
+
+Reads the stored market data (``quant refresh`` fetches it), scores the
+universe, audits the broker table and writes the review artifacts, then runs the
+analysis chain (:func:`quant.engine.analysis.run_analysis`) so the run manifest
+and the ``scores`` store are current.
+
+Steps:
   1. Load & sort market data from DuckDB
   2. Filter survivors (portfolio + ETFs + fundamentals screener)
   3. Async fetch SEC 8-K / news texts
@@ -199,7 +205,7 @@ def main() -> None:
         # v10.4.0 (Phase 4): structured telemetry for DuckDB query time.
         obs.record_metric("duckdb_query_ms", (time.perf_counter() - _q0) * 1000.0)
     except Exception:
-        logger.error("market_history missing. Run data_updater.py.")
+        logger.error("market_history missing. Run quant refresh first.")
         return
 
     if "Date" in pl_df.columns:
@@ -261,7 +267,7 @@ def main() -> None:
             active_symbols.update(cached_survivors)
             logger.info("Funnel survivors loaded from cache: %d", len(cached_survivors))
         else:
-            logger.warning("No cached funnel survivors - run data_updater.py first. "
+            logger.warning("No cached funnel survivors - run quant refresh first. "
                            "Scanning CORE + ACTIVE + portfolio only.")
     except Exception as e:
         logger.warning("Funnel survivor cache read failed: %s", e)
@@ -283,7 +289,7 @@ def main() -> None:
     # guard the regime HMM fit below calls max() on an empty dict and crashes.
     if not grouped_data:
         logger.error("No market data for the scan universe. "
-                     "Run data_updater.py to populate market_history.")
+                     "Run quant refresh to populate market_history.")
         return
 
     # ── Pillar 1: Smart Funnel ──────────────────────────────────────────────

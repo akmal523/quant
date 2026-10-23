@@ -1,7 +1,8 @@
 """test_v10_8_4_phase3.py — T2/T3/T8 page-level rules (v10.8.4, Phase 3).
 
 T8: the class plan for an amount sums to that amount (rows + unallocated).
-T3: the day delta is the total change from the store; cash is a first-class row.
+T3: the day delta is the total change from the store (the frozen cash_eur column is
+    never read; v10.8.7, R-C1).
 T9 (partial): one verb, one ticker; one class-word mapping.
 """
 from __future__ import annotations

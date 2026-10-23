@@ -197,11 +197,12 @@ def build_advice(
 
     by_symbol = {str(h.get("symbol")): h for h in holdings}
     total = sum(_num(h.get("value_eur")) for h in holdings) or 1.0
-    invested = sum(_num(h.get("value_eur")) for h in holdings)
-    spec_value = sum(
-        _num(h.get("value_eur")) for h in holdings
-        if (tmap.get(str(h.get("symbol", "")).strip())
-            or str(h.get("tier", "")).upper()) == "SPECULATIVE")
+    from quant.engine.weights import class_weights
+
+    # R-C3: the class weight comes from the ONE weight math (tier map applied).
+    spec_weight = class_weights([
+        {**h, "tier": tmap.get(str(h.get("symbol", "")).strip())
+         or str(h.get("tier", "")).upper()} for h in holdings])["SPECULATIVE"]
     from quant.portfolio.regime_constraints import is_bear as _is_bear
 
     is_bear = _is_bear(regime)
@@ -266,10 +267,9 @@ def build_advice(
         if tier == "SPECULATIVE":
             # R5: advisories are notes, never forced sells. The stop-loss itself
             # is an alert (alerts.evaluate_alerts), not drift advice.
-            why = "small bet; stop-loss handled by alerts."
-            if invested > 0 and (spec_value / invested) > BETS_MAX:
-                why = ui_copy.SPEC_CAP_VIOLATION.format(
-                    pct=f"{spec_value / invested * 100:.0f}")
+            why = "speculative position; stop-loss handled by alerts."
+            if spec_weight > BETS_MAX:
+                why = ui_copy.SPEC_CAP_VIOLATION.format(pct=f"{spec_weight * 100:.0f}")
             else:
                 change = _spec_change(holding)
                 if (change is not None and change >= SPECULATIVE_TAKE_PROFIT

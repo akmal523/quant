@@ -6,7 +6,8 @@ with the money. Every sell item proposes its proceeds routing inside the SAME
 item, by this fixed priority:
 
   1. top up the largest UNDERWEIGHT holding vs its target (the gap in points);
-  2. else the highest-score idea that passes the sizing laws;
+  2. else the highest-score idea (a watched symbol at or above ``IDEA_FLOOR``;
+     the caller passes the idea list);
   3. else hold the proceeds at the broker, untracked (v10.8.7, R-C1: there is no
      tracked-cash target; the only permitted trace of cash is this reasoned line).
 
@@ -104,8 +105,8 @@ def route_sell(sell: dict, holdings: list[dict] | None = None,
                 "name": idea.get("name"), "text": text}
 
     return {"kind": ROUTE_HOLD, "symbol": None,
-            "text": "no eligible buy passes the hurdle; hold proceeds at the "
-                    "broker, untracked"}
+            "text": "no underweight holding or idea to buy; hold proceeds at "
+                    "the broker, untracked"}
 
 
 def paired_line(sell: dict, holdings: list[dict] | None = None,

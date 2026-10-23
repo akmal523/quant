@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quant-ai"
-version = "10.8.3"
-description = "Institutional-grade systematic equity pipeline for a EUR-native family office."
+version = "10.8.10"
+description = "A daily portfolio manager for one EUR-based investor on Trade Republic."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Quant-AI contributors" }]
 keywords = [
-    "quantitative-finance",
-    "systematic-trading",
-    "polars",
+    "portfolio-management",
+    "personal-finance",
+    "trade-republic",
     "duckdb",
-    "portfolio-optimization",
+    "streamlit",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -29,7 +29,6 @@ dependencies = [
     "yfinance>=0.2.40",
     "pandas>=2.0",
     "numpy>=1.26",
-    "openpyxl>=3.1",
     # v10.8.2: account.yaml is read/written with PyYAML. It used to arrive
     # transitively via transformers; now that the news stack is optional it must
     # be a direct dependency.
@@ -40,26 +39,28 @@ dependencies = [
     "duckdb>=1.0.0",
     "platformdirs>=4.0",
     "feedparser>=6.0",
-    "beautifulsoup4>=4.12",
+    # lxml: the parser behind pd.read_html (universe builder).
     "lxml>=5.0",
+    "requests>=2.31",
     # v10.8.0 (1.3): bound the fragile parser. selectolax 1.0 removed the Modest
     # backend; the lexbor backend is used, but a major bump is not assumed safe.
     "selectolax>=0.3.16,<1.0",
     "polars>=1.0",
+    # pyarrow: parquet run artifacts and polars -> pandas conversion.
     "pyarrow>=15.0",
     "cvxpy>=1.4",
     "hmmlearn>=0.3",
     "scikit-learn>=1.4",
     "arch>=6.0",
     "sec-edgar-downloader>=5.0",
-    "markdown>=3.5",
+    # jinja2: pandas Styler (the amber Entry-check rows).
     "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]
 # v10.8.0 (1.3): the real minimum. The UI uses st.segmented_control (1.40) and
 # the width="stretch" argument on charts/tables/buttons (1.49).
-dashboard = ["streamlit>=1.49", "plotly>=5.18", "requests>=2.31"]
+dashboard = ["streamlit>=1.49", "plotly>=5.18"]
 # v10.8.2: the news-sentiment stack is optional. Without it the Market tab says
 # so in one line and the rest of the app is unaffected.
 news = ["torch>=2.2", "transformers>=4.40"]
@@ -135,7 +136,7 @@ known-first-party = ["quant"]
 "tests/test_institutional.py" = ["N806"]
 
 [tool.bumpversion]
-current_version = "10.8.3"
+current_version = "10.8.10"
 commit = true
 tag = true
 tag_name = "v{new_version}"

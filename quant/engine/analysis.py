@@ -102,9 +102,20 @@ def _covered(conn: Any, table: str, col: str, sym_col: str,
         if not row or row[0] is None:
             continue
         latest = _to_date(row[0])
-        if latest is not None and (now - latest).days < ttl_days:
+        if latest is not None and _age_days(table, latest, now) < ttl_days:
             n += 1
     return n
+
+
+def _age_days(table: str, latest: date, now: date) -> int:
+    """Age of the newest row. Prices age in trading days (Mon-Fri), so Friday's
+    close is still fresh on Saturday and Sunday; other stores in calendar days."""
+    if table == "market_history":
+        import numpy as np
+
+        # Bars are dated at the close; the bar for ``now`` arrives after it.
+        return max(0, int(np.busday_count(latest, now)) - 1)
+    return (now - latest).days
 
 
 def _record(conn: Any, run_id: str, stage: str, status: str,

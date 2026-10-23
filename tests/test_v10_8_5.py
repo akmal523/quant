@@ -218,7 +218,7 @@ def test_taxonomy_build_ranks_today_before_this_month():
 # ── Phase D (T5/T6): holdings drill-down + no duplicated ticker/word ──────────
 
 def test_holdings_analysis_tab_renders():
-    """T5: the Holdings analysis tab shows a table and opens per-row drawers."""
+    """T5: the Holdings analysis tab shows a table and has one lazy Inspect drawer."""
     at = _run("pages/analysis.py")
     assert not at.exception
     assert any(
