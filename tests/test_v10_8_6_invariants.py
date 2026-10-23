@@ -158,8 +158,11 @@ def test_both_tables_render_for_overlapping_symbols(overlapping_portfolio):
     has_drift = any(
         v is not None and hasattr(v, "columns") and "Drift (pp)" in v.columns
         for v in _frames(at))
+    from quant.ui import columns as COLS
+
     has_stage = any(
-        v is not None and hasattr(v, "columns") and "Stage" in v.columns
+        v is not None and hasattr(v, "columns")
+        and list(v.columns) == COLS.table_column_order("research")
         for v in _frames(at))
     assert has_drift, "Holdings Analysis table missing"
     assert has_stage, "Research funnel table missing"

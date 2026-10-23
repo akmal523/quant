@@ -48,6 +48,18 @@ def _frames(at: AppTest) -> list:
     return [getattr(el, "value", None) for el in getattr(at, "dataframe", [])]
 
 
+def _is_research_table(v) -> bool:
+    """The Research funnel, matched by its declared column spec.
+
+    A bare "Stage" column is not enough: Pipeline health has one too, so manifest
+    rows written by another (xdist) test made the check match the wrong table.
+    """
+    from quant.ui import columns as COLS
+
+    return (v is not None and hasattr(v, "columns")
+            and list(v.columns) == COLS.table_column_order("research"))
+
+
 def _frames_text(at: AppTest) -> str:
     out = []
     for v in _frames(at):
@@ -71,9 +83,7 @@ def test_research_tab_shows_funnel_or_explicit_empty_state():
     """T1: Research contains the funnel table OR a reason + Run analysis, never blank."""
     at = _run("pages/analysis.py")
     assert not at.exception
-    has_stage = any(
-        v is not None and hasattr(v, "columns") and "Stage" in v.columns
-        for v in _frames(at))
+    has_stage = any(_is_research_table(v) for v in _frames(at))
     text = _text(at)
     assert has_stage or "Run analysis" in text, "Research tab rendered nothing"
 
@@ -93,9 +103,7 @@ def test_research_has_an_inspect_control_when_rows_exist():
     """v10.8.6 (A1): the drawer is one lazy inspect select, not per-row expanders."""
     at = _run("pages/analysis.py")
     assert not at.exception
-    has_stage = any(
-        v is not None and hasattr(v, "columns") and "Stage" in v.columns
-        for v in _frames(at))
+    has_stage = any(_is_research_table(v) for v in _frames(at))
     if has_stage:
         labels = [str(getattr(sb, "label", "")) for sb in getattr(at, "selectbox", [])]
         assert any("Inspect" in label for label in labels)
