@@ -2,8 +2,12 @@
 allocator.py — the monthly savings-plan split (v10.7.0, Section 8.2).
 
 Intent: the user decides one number (the budget) from their salary; the system
-does the rest but always shows reasons. Cash competes openly as an asset; nothing
-is automatic behind the user's back.
+does the rest but always shows reasons. Nothing is automatic behind the user's
+back.
+
+v10.8.10 (R-C1): a leg of kind ``"cash"`` is the UNALLOCATED part of the budget,
+not a holding. Its consumers (:mod:`quant.engine.savings_plan`) report it as "not
+allocated"; it never becomes a row, target or weight.
 
 Algorithm:
   - long base = MONTHLY_LONG_TERM_SHARE (70 percent) of the budget.
@@ -11,14 +15,13 @@ Algorithm:
     target gaps (largest gap first); if no FORTRESS holding exists, propose one
     broad ETF with the full long base and a reason.
   - active pool = budget - long base. If the regime is bear, the active pool
-    goes to cash with the regime reason. Else if any ALPHA holding or candidate
-    has HIGH conviction, allocate to at most two (largest conviction first);
-    else to cash with the no-idea reason.
+    stays unallocated with the regime reason. Else if any ALPHA holding or
+    candidate has HIGH conviction, allocate to at most two (largest conviction
+    first); else it stays unallocated with the no-idea reason.
   - bets: only if the user has SPECULATIVE holdings or explicitly enabled bets,
     the bets weight is below 2 percent, and a candidate has HIGH conviction;
     amount = min(10 percent of the budget, room to 2 percent); else zero.
-  - all EUR rounded to 5. The cash line is always shown when cash receives
-    anything, because cash is a decision, not a leftover.
+  - all EUR rounded to 5; the rounding residual joins the unallocated leg.
 
 Invariants: pure function; no I/O.
 """
@@ -35,6 +38,7 @@ from quant.config import (
     TARGET_WEIGHTS_INVESTED,
 )
 from quant.engine.sizing import round_down
+from quant.portfolio.regime_constraints import is_bear
 
 ROUND_STEP = 5.0
 DEFAULT_BROAD_ETF = "EUNL.DE"
@@ -162,7 +166,7 @@ def allocate(
         active_pool = max(0.0, active_pool - bet_amount)
 
     if active_pool > 0:
-        if str(regime).lower() == "bear":
+        if is_bear(regime):
             legs.append(_leg(
                 None, "cash", active_pool, "cash",
                 "market is falling; new active money goes to cash until the "

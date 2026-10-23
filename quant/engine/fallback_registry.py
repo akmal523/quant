@@ -119,6 +119,15 @@ FALLBACKS: dict[str, dict] = {
                               "test_fallback_render_rows_differ"),
     "notify._load_state": _e("missing or invalid notify state", {}, "empty",
                              "test_fallback_notify_load_state"),
+    # ── the ONE list / regime (v10.8.10) ──────────────────────────────────────
+    "today_list._rows": _e("unreadable store", [], "empty",
+                           "test_fallback_today_list_rows"),
+    "today_list.persist": _e("advice log not writable / inputs unreadable", 0,
+                             "none", "test_fallback_today_list_persist"),
+    "advice_state._insert": _e("unwritable advice_log", None, "none",
+                               "test_fallback_advice_state_insert"),
+    "artifacts._analysis_regime": _e("unreadable meta table", {}, "empty",
+                                     "test_fallback_artifacts_analysis_regime"),
 }
 
 

@@ -390,23 +390,30 @@ def delta_badge(eur, pct) -> tuple[str, str, str]:
     """The ONE delta badge: ``(icon, color, text)`` from the sign of ``eur`` (R-P3).
 
     icon/color: up/green, down/red, dot/neutral when ``|eur| < 0.5``.
-    text: ``"<eur:+.0f> EUR (<pct:+.1f>%)"``, except when the rounded pct is 0.0
-    while ``eur != 0``, then ``"<eur:+.0f> EUR (<0.1% signed)"``. ``"-0.0%"`` is
-    unrepresentable.
+    text: ``"<eur:+.0f> EUR (<pct:+.1f>%)"``. A non-zero value that rounds to zero
+    is written as a signed "less than" instead: ``"-<1 EUR"`` / ``"+<0.1%"`` (the
+    pct sign follows ``eur`` when ``eur != 0``). Exact zero is ``"+0 EUR (+0.0%)"``,
+    so ``"-0 EUR"`` and ``"-0.0%"`` are unrepresentable.
     """
     e = 0.0 if _is_missing(eur) else float(eur)
     p = 0.0 if _is_missing(pct) else float(pct)
-    if e > 0.5:
+    if e >= 0.5:
         icon, color = _DELTA_UP, _palette.GAIN
-    elif e < -0.5:
+    elif e <= -0.5:
         icon, color = _DELTA_DOWN, _palette.LOSS
     else:
         icon, color = _DELTA_FLAT, _palette.TEXT_MUTED
-    if round(p, 1) == 0.0 and e != 0:
-        pct_txt = "-<0.1%" if e < 0 else "+<0.1%"
+    whole = int(abs(e) + 0.5)  # half away from zero, matching the icon boundary
+    if whole == 0:
+        eur_txt = "+0" if e == 0 else ("-<1" if e < 0 else "+<1")
+    else:
+        eur_txt = f"{'-' if e < 0 else '+'}{whole}"
+    if round(p, 1) == 0.0:
+        sign = e if e != 0 else p
+        pct_txt = "+0.0%" if sign == 0 else ("-<0.1%" if sign < 0 else "+<0.1%")
     else:
         pct_txt = f"{p:+.1f}%"
-    return icon, color, f"{e:+.0f} EUR ({pct_txt})"
+    return icon, color, f"{eur_txt} EUR ({pct_txt})"
 
 
 def class_word(instrument_class: str) -> str:

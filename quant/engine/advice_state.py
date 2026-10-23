@@ -15,6 +15,10 @@ against the ``advice_log`` table:
 Identity is ``(verb, symbol, horizon)``: the same recommendation for the same
 thing in the same time bucket is one open object.
 
+Only the writers (daily job, confirm, refresh, via
+:func:`quant.engine.today_list.persist`) call :func:`sync`; the render path calls
+the read-only :func:`annotate` (v10.8.10, R-C4).
+
 Invariants:
   - ``sync`` never raises; on failure it returns the items unchanged.
   - Only ``open`` rows are returned by :func:`open_items`; a done row disappears
@@ -74,18 +78,7 @@ def sync(conn: Any, items: list[dict] | None, as_of: date | None = None) -> list
         seen.add(k)
         found = open_by_key.get(k)
         if found is None:
-            try:
-                row = conn.execute(
-                    "INSERT INTO advice_log (verb, symbol, amount_eur, reason, "
-                    "horizon, class, created_at, open_since, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, now(), ?, ?) RETURNING id",
-                    [str(item.get("verb") or ""), str(item.get("symbol") or ""),
-                     item.get("amount_eur"), str(item.get("reason") or ""),
-                     str(item.get("horizon") or ""), str(item.get("class") or ""),
-                     as_of, STATUS_OPEN]).fetchone()
-                rid = int(row[0]) if row else None
-            except Exception:  # noqa: BLE001
-                rid = None
+            rid = _insert(conn, item, as_of)
             enriched = dict(item)
             enriched["id"] = rid
             enriched["open_since"] = as_of
@@ -115,6 +108,52 @@ def sync(conn: Any, items: list[dict] | None, as_of: date | None = None) -> list
             except Exception:  # noqa: BLE001
                 pass
     return out
+
+
+def annotate(items: list[dict] | None, as_of: date | None = None,
+             conn: Any = None) -> list[dict]:
+    """Read-only twin of :func:`sync` for the render path (v10.8.10, R-C4).
+
+    Enriches each item with the ``id`` / ``open_since`` of its open log row; an
+    item the writers have not persisted yet gets ``id=None`` and
+    ``open_since=as_of``. Never writes, never raises.
+    """
+    as_of = as_of or date.today()
+    open_by_key = {_key(r): r for r in open_items(conn)}
+    out: list[dict] = []
+    for item in items or []:
+        found = open_by_key.get(_key(item))
+        enriched = dict(item)
+        enriched["id"] = found["id"] if found else None
+        enriched["open_since"] = (found.get("open_since") if found else None) or as_of
+        out.append(enriched)
+    return out
+
+
+def mark_item_done(conn: Any, item: dict, as_of: date | None = None) -> bool:
+    """Mark one item done, logging it first if the writers have not yet (user click)."""
+    if conn is None:
+        return False
+    rid = item.get("id")
+    if rid is None:
+        found = {_key(r): r for r in open_items(conn)}.get(_key(item))
+        rid = found["id"] if found else _insert(conn, item, as_of or date.today())
+    return mark_done(conn, rid)
+
+
+def _insert(conn: Any, item: dict, as_of: date) -> int | None:
+    try:
+        row = conn.execute(
+            "INSERT INTO advice_log (verb, symbol, amount_eur, reason, "
+            "horizon, class, created_at, open_since, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, now(), ?, ?) RETURNING id",
+            [str(item.get("verb") or ""), str(item.get("symbol") or ""),
+             item.get("amount_eur"), str(item.get("reason") or ""),
+             str(item.get("horizon") or ""), str(item.get("class") or ""),
+             as_of, STATUS_OPEN]).fetchone()
+        return int(row[0]) if row else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def mark_done(conn: Any, advice_id: int | None) -> bool:

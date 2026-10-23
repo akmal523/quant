@@ -28,6 +28,8 @@ from __future__ import annotations
 from typing import Any
 
 from quant.config import (
+    PLAN_CHANGE_GAP,
+    PLAN_CHANGE_MONTHS,
     REBALANCE_DRIFT_THRESHOLD,
     SCORE_FLOOR,
     SPEC_STOP,
@@ -43,6 +45,9 @@ VERB_PLAN = "plan_change"
 
 HORIZON_TODAY = "Today"
 HORIZON_MONTH = "This month"
+
+# Only these classes are swap candidates; Long-term is never sold for an idea.
+_SWAPPABLE_TIERS = ("ALPHA", "SPECULATIVE")
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -129,18 +134,16 @@ def threat_items(holdings: list[dict] | None, scores: dict | None = None,
                              f"down {abs(pnl_pct) * 100:.0f}% from entry.",
                              HORIZON_TODAY, tier, "Holdings analysis"))
             continue
-        # Score floor.
-        s = scores.get(sym) or {}
-        comp = s.get("active_score")
-        if comp is None:
-            comp = s.get("structural_grade")
+        # Score floor: the held composite (R-C2), structural grade as fallback.
+        comp = _score_of(scores.get(sym) or {})
         if comp is not None and _num(comp) < SCORE_FLOOR:
             out.append(_item(VERB_THREAT, sym, _label(h), None,
                              f"score {_num(comp):.0f} below the {SCORE_FLOOR:.0f} floor.",
                              HORIZON_TODAY, tier, "Research"))
     # Bear regime (market-level, once).
-    label = regime.get("label") if isinstance(regime, dict) else regime
-    if str(label).lower() == "bear":
+    from quant.portfolio.regime_constraints import is_bear
+
+    if is_bear(regime):
         out.append(_item(VERB_THREAT, None, "the Active class", None,
                          "falling regime; de-risk the Active part.",
                          HORIZON_TODAY, "ALPHA", "Market"))
@@ -149,11 +152,19 @@ def threat_items(holdings: list[dict] | None, scores: dict | None = None,
 
 # ── Swap ──────────────────────────────────────────────────────────────────────
 
-def _composite(item: dict) -> float:
-    for key in ("composite", "active_score", "score", "structural_grade"):
+_SCORE_KEYS = ("composite", "active_score", "score", "structural_grade")
+
+
+def _score_of(item: dict) -> Any:
+    """The first known score field (composite first), or None when unknown."""
+    for key in _SCORE_KEYS:
         if item.get(key) is not None:
-            return _num(item.get(key))
-    return 0.0
+            return item.get(key)
+    return None
+
+
+def _composite(item: dict) -> float:
+    return _num(_score_of(item))
 
 
 def swap_items(holdings: list[dict] | None, ideas: list[dict] | None,
@@ -164,10 +175,12 @@ def swap_items(holdings: list[dict] | None, ideas: list[dict] | None,
     ideas = ideas or []
     for h in holdings or []:
         tier = _tier(h)
-        if tier == "FORTRESS":
+        if tier not in _SWAPPABLE_TIERS:
             continue
         sym = str(h.get("symbol"))
         s = scores.get(sym) or {}
+        if _score_of({**h, **s}) is None:
+            continue  # an unscored holding is never swapped on a fake 0
         held_score = _composite({**h, **s})
         best = None
         best_score = float("-inf")
@@ -194,21 +207,30 @@ def swap_items(holdings: list[dict] | None, ideas: list[dict] | None,
 
 # ── Plan change ───────────────────────────────────────────────────────────────
 
-def plan_change_items(holdings: list[dict] | None, months_under: int = 0,
-                      gap: float = 0.10, months_required: int = 3) -> list[dict]:
-    """A Long-term class under target for K months of plan runs."""
-    if months_under < months_required:
-        return []
+def plan_change_items(holdings: list[dict] | None,
+                      months_under: int | dict | None = None,
+                      gap: float = PLAN_CHANGE_GAP,
+                      months_required: int = PLAN_CHANGE_MONTHS) -> list[dict]:
+    """A Long-term holding under target for K consecutive months of plan runs.
+
+    ``months_under`` is either one count for every holding or a per-symbol map
+    (see :func:`quant.engine.today_list.months_under_target`).
+    """
     out: list[dict] = []
     for h in holdings or []:
         if _tier(h) != "FORTRESS":
+            continue
+        sym = str(h.get("symbol"))
+        months = (int((months_under or {}).get(sym, 0))
+                  if isinstance(months_under, dict) else int(months_under or 0))
+        if months < months_required:
             continue
         cur = _num(h.get("current_weight"))
         tgt = _num(h.get("target_weight"))
         if (tgt - cur) > gap:
             out.append(_item(
-                VERB_PLAN, str(h.get("symbol")), _label(h), None,
-                f"under target for {months_under} months; raise the savings plan.",
+                VERB_PLAN, sym, _label(h), None,
+                f"under target for {months} months; raise the savings plan.",
                 HORIZON_MONTH, "FORTRESS", "Savings plan"))
     return out
 
@@ -217,7 +239,7 @@ def plan_change_items(holdings: list[dict] | None, months_under: int = 0,
 
 def build(holdings: list[dict] | None, scores: dict | None = None,
           ideas: list[dict] | None = None, regime: Any = None,
-          months_under: int = 0) -> list[dict]:
+          months_under: int | dict | None = None) -> list[dict]:
     """All verb classes as ONE list. Today items sort before This-month.
 
     v10.8.7 (T4): a swappable position never gets a standalone sell, so a swap

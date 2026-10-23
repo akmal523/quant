@@ -298,6 +298,11 @@ def run_daily(
     except Exception:  # noqa: BLE001
         new_alerts = []
 
+    # v10.8.10 (R-C4): persist the ONE list (advice log) from the fresh data.
+    from quant.engine.today_list import persist
+
+    persist(conn)
+
     result = DailyResult(
         status="ok",
         message="daily run complete",

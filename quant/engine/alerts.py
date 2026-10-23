@@ -236,7 +236,9 @@ def evaluate_alerts(
                 _mark_condition_cleared(conn, symbol, KIND_SPECULATIVE)
 
     # 4. Regime flip (market-level, one alert).
-    if str(regime).lower() == "bear" and str(prev_regime).lower() != "bear":
+    from quant.portfolio.regime_constraints import is_bear
+
+    if is_bear(regime) and not is_bear(prev_regime):
         _emit({
             "symbol": None,
             "kind": KIND_REGIME,

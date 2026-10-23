@@ -13,6 +13,7 @@ Invariants:
 """
 from __future__ import annotations
 
+from datetime import date
 from unittest import mock
 
 import numpy as np
@@ -41,16 +42,27 @@ def _triggers() -> dict[str, tuple]:
     from quant.data import user_data
     from quant.engine import (
         advice,
+        advice_state,
         alerts,
         flows,
         news_pillar,
         notify,
         recovery,
         sizing,
+        today_list,
         valuation,
     )
     from quant.portfolio import account, cash_rate, optimizer, portfolio, risk, tier_manager
+    from quant.reporting import artifacts
     from quant.ui import render
+
+    def _persist_broken():
+        with mock.patch("quant.engine.holdings_view.holdings_view", side_effect=_raise):
+            return today_list.persist()
+
+    def _analysis_regime_broken():
+        with mock.patch("quant.data.database.read_only_connection", side_effect=_raise):
+            return artifacts._analysis_regime()
 
     def _read_cache_broken():
         with mock.patch.object(news_pillar, "_cache_path", return_value="/nonexistent/x.json"):
@@ -135,6 +147,12 @@ def _triggers() -> dict[str, tuple]:
         "render._rows_differ": (lambda: render._rows_differ(None, None), False),
         "notify._load_state": (
             lambda: _load_state_missing(), {}),
+        "today_list._rows": (
+            lambda: today_list._rows("SELECT 1", conn=_BrokenConn()), []),
+        "today_list.persist": (_persist_broken, 0),
+        "advice_state._insert": (
+            lambda: advice_state._insert(_BrokenConn(), {}, date.today()), None),
+        "artifacts._analysis_regime": (_analysis_regime_broken, {}),
     }
 
 

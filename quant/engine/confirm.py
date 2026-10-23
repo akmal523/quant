@@ -67,6 +67,12 @@ def confirm_save(cleaned, diff: dict, when: date | None = None,
     except Exception:  # noqa: BLE001
         pass  # the table + snapshot + ledger are already saved; never fail here
 
+    # 6. v10.8.10 (R-C4): the confirm is a writer; persist the ONE list so the
+    #    advice log reflects the new holdings (the render path only reads it).
+    from quant.engine.today_list import persist
+
+    persist()
+
     return {"ok": True, "changes": len(diff.get("changes", [])), "error": None}
 
 

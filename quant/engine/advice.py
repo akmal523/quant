@@ -202,8 +202,9 @@ def build_advice(
         _num(h.get("value_eur")) for h in holdings
         if (tmap.get(str(h.get("symbol", "")).strip())
             or str(h.get("tier", "")).upper()) == "SPECULATIVE")
-    regime_label = regime.get("label") if isinstance(regime, dict) else regime
-    is_bear = str(regime_label).lower() == "bear"
+    from quant.portfolio.regime_constraints import is_bear as _is_bear
+
+    is_bear = _is_bear(regime)
 
     # 1. Open alerts first (alert sells ignore cooldowns, but FORTRESS never
     #    sells: a structural break on a long-term holding is a signal, not a

@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from quant import paths
-from quant.engine.decisions import format_item_line, open_since_line, timed_items
+from quant.engine.decisions import format_item_line, open_since_line
 from quant.ui import columns as COLS
 from quant.ui import copy as C
 from quant.ui import render as R
@@ -78,11 +78,11 @@ def _since_first_pct(series) -> float | None:
 
 def _render_tasks() -> None:
     """Stateful task items in the action area (T4), not a floating banner."""
-    from quant.data.database import write_connection
+    from quant.data.database import read_only_connection, write_connection
     from quant.engine import reminders
 
     try:
-        with write_connection() as conn:
+        with read_only_connection() as conn:
             rem = reminders.savings_plan_reminder(conn)
     except Exception:  # noqa: BLE001
         rem = None
@@ -105,101 +105,33 @@ def _invest_session_items() -> list[dict]:
 
 
 def _idea_rows() -> list[dict]:
-    """Idea candidates (T2): watched non-held symbols with composite >= IDEA_FLOOR.
+    """Idea candidates (T2): watched non-held symbols with composite >= IDEA_FLOOR."""
+    from quant.engine.today_list import idea_rows
 
-    v10.8.7 (T2): ideas come from the ``scores`` store, not the funnel cache, so a
-    watched symbol with a computed composite at or above the floor becomes an Idea
-    and flows into Research, swap candidates, the invest plan and This month.
-    """
-    from quant.config import IDEA_FLOOR
-    from quant.reporting.artifacts import read_score_row
-
-    held = {str(h.get("symbol")) for h in _holdings()}
-    df = R.q("SELECT symbol FROM asset_registry")
-    if df.empty:
-        return []
-    out: list[dict] = []
-    for _, r in df.iterrows():
-        sym = str(r["symbol"])
-        if sym in held:
-            continue
-        row = read_score_row(sym) or {}
-        comp = row.get("composite")
-        if comp is None or float(comp) < IDEA_FLOOR:
-            continue
-        out.append({"symbol": sym, "name": _display(sym), "score": float(comp)})
-    out.sort(key=lambda x: x["score"], reverse=True)
-    return out[:50]
+    return idea_rows(_holdings(), _scores_map())
 
 
 def _scores_map() -> dict:
-    """The scores store as ``{symbol: {active_score, structural_grade, composite}}``.
+    """The scores store as ``{symbol: {composite, structural_grade}}`` (T4)."""
+    from quant.engine.today_list import scores_map
 
-    v10.8.7 (T4): the decision taxonomy is fed the real scores, so a Threat or a
-    Swap can actually fire.
-    """
-    from quant.reporting.artifacts import read_score_row
-
-    df = R.q("SELECT symbol FROM asset_registry")
-    if df.empty:
-        return {}
-    out: dict = {}
-    for _, r in df.iterrows():
-        sym = str(r["symbol"])
-        row = read_score_row(sym) or {}
-        if row:
-            out[sym] = {"active_score": row.get("composite"),
-                        "structural_grade": row.get("structural_grade"),
-                        "composite": row.get("composite")}
-    return out
-
-
-def _taxonomy_ui_items(holdings: list[dict], regime) -> list[dict]:
-    """The widened verb classes as ONE-list items (T3/T4).
-
-    Rebalance stays with build_advice (which already yields the drift buy/sell);
-    the new classes are appended here, fed the real scores and ideas.
-    """
-    from quant.engine import action_taxonomy as T
-
-    taxo = T.build(holdings, scores=_scores_map(), ideas=_idea_rows(),
-                   regime=regime)
-    directions = {T.VERB_SWAP: C.DIRECTION_SELL, T.VERB_THREAT: "Review",
-                  T.VERB_PLAN: C.DIRECTION_BUY}
-    out: list[dict] = []
-    for t in taxo:
-        if t["verb"] == T.VERB_REBALANCE:
-            continue
-        out.append({
-            "horizon": t["horizon"], "class": t["class"],
-            "direction": directions.get(t["verb"], C.DIRECTION_BUY),
-            "verb": t["verb"], "label": t["label"], "amount_eur": t["amount_eur"],
-            "reason": t["reason"], "symbol": t["symbol"],
-            "evidence": t.get("evidence"),
-            "target_symbol": t.get("target_symbol"),
-            "target_name": t.get("target_name"),
-        })
-    return out
+    return scores_map()
 
 
 def _render_what_to_do(holdings: list[dict]) -> None:
-    """The ONE list: Today / This month, five verb classes, stateful and paired."""
+    """The ONE list: Today / This month, four verb classes, stateful and paired.
+
+    v10.8.10 (R-C4): read-only. The writers persist the list
+    (:func:`quant.engine.today_list.persist`); this only annotates each item with
+    its logged ``open_since``. "Mark done" is a user action and may write.
+    """
     st.subheader(C.SEC_WHAT_TO_DO)
     from quant.data.database import write_connection
     from quant.engine import advice_state
-    from quant.engine.advice import build_advice
+    from quant.engine.today_list import build_items
 
-    regime = R.read_regime()
-    advice, _rejected = build_advice(holdings=holdings, regime=regime)
-    items = (timed_items(holdings, advice) + _invest_session_items()
-             + _taxonomy_ui_items(holdings, regime))
-    # T5: persist state (open_since / status) so a repeated item shows its age
-    # and a finished one stops repeating.
-    try:
-        with write_connection() as conn:
-            items = advice_state.sync(conn, items)
-    except Exception:  # noqa: BLE001
-        pass
+    items = build_items(holdings, regime=R.read_regime(), scores=_scores_map())
+    items = advice_state.annotate(items + _invest_session_items())
     if not items:
         st.write(C.WHAT_TO_DO_EMPTY)
         return
@@ -217,14 +149,15 @@ def _render_what_to_do(holdings: list[dict]) -> None:
             if since:
                 caption += f" ({since})"
             st.caption(caption)
-            if it.get("id"):
-                if st.button("Mark done", key=f"adv_done_{it['id']}"):
-                    try:
-                        with write_connection() as conn:
-                            advice_state.mark_done(conn, it["id"])
-                        st.rerun()
-                    except Exception:  # noqa: BLE001
-                        st.error("Could not save. Nothing was written.")
+            done_key = it.get("id") or "_".join(
+                str(it.get(f) or "") for f in ("verb", "symbol", "horizon"))
+            if st.button("Mark done", key=f"adv_done_{done_key}"):
+                try:
+                    with write_connection() as conn:
+                        advice_state.mark_item_done(conn, it)
+                    st.rerun()
+                except Exception:  # noqa: BLE001
+                    st.error("Could not save. Nothing was written.")
 
 
 def _item_line(it: dict, holdings: list[dict]) -> str:
@@ -393,7 +326,7 @@ def _open_advice_items(holdings: list[dict]) -> list[dict]:
     advice, _rejected = build_advice(holdings=holdings, regime=regime)
     items = [{"verb": a.get("kind"), "symbol": a.get("symbol")} for a in advice]
     items += [{"verb": t["verb"], "symbol": t["symbol"]}
-              for t in T.build(holdings, scores={}, ideas=_idea_rows(),
+              for t in T.build(holdings, scores=_scores_map(), ideas=_idea_rows(),
                                regime=regime)]
     return items
 
@@ -801,7 +734,7 @@ def _render_pipeline() -> None:
     _pipeline_table()
     st.caption(C.RUN_ANALYSIS_HINT)
     if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_health", width="stretch"):
-        _run_cli("run")
+        _run_analysis()
 
 
 def _render_research() -> None:
@@ -814,7 +747,7 @@ def _render_research() -> None:
         st.info(C.NOT_AVAILABLE.format(reason=reason) + f" [{C.BTN_RUN_ANALYSIS}]")
         if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_research",
                      width="stretch"):
-            _run_cli("run")
+            _run_analysis()
         return
     # v10.8.9 (R-F1): render only the declared spec columns, in order; the
     # component detail stays in the drawer (it is in the row dict, not a column).
@@ -976,12 +909,13 @@ def _drawer_advice(sym: str) -> None:
 def _render_market() -> None:
     """Market tab (T6): regime + confidence + what it changes, or reason + run."""
     from quant.engine import manifest as M
+    from quant.portfolio.regime_constraints import regime_key
 
     regime = R.read_regime()
-    label = regime.get("label")
+    key = regime_key(regime)
     conf = regime.get("confidence")
-    if label and conf:
-        st.write(f"Market trend: {label} ({conf} confidence).")
+    if key and conf:
+        st.write(f"Market trend: {C.regime_word(key)} ({conf} confidence).")
         st.caption("This changes only the Active part today; the Long-term part is "
                    "untouched.")
     else:
@@ -989,7 +923,7 @@ def _render_market() -> None:
         st.info(C.NOT_AVAILABLE.format(reason=reason) + f" [{C.BTN_RUN_ANALYSIS}]")
         if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_market",
                      width="stretch"):
-            _run_cli("run")
+            _run_analysis()
     try:
         from quant.engine.news_pillar import model_available
 
@@ -1008,11 +942,22 @@ def _db_size_mb() -> float:
         return 0.0
 
 
-def _run_cli(command: str) -> None:
+def _run_analysis() -> None:
+    """The "Run analysis" button: fetch fresh data, then score (v10.8.10).
+
+    ``quant run`` only reads the store, so on its own the button never fetched
+    anything. Refresh first, then run: the same chain as the daily job.
+    """
+    if _run_cli("refresh"):
+        _run_cli("run")
+
+
+def _run_cli(command: str) -> bool:
     """Run a CLI command in a subprocess and report the result (v10.8.3).
 
     v10.8.7 (T2/A3): the run is wrapped in ``st.status`` with the first-analysis
     hint, so the user sees progress while the chain fetches and computes.
+    Returns True when the command exited 0.
     """
     import subprocess
     import sys
@@ -1026,7 +971,7 @@ def _run_cli(command: str) -> None:
         except Exception as e:  # noqa: BLE001
             status.update(label=f"Could not run {command}", state="error")
             st.error(f"Could not run {command}: {e}")
-            return
+            return False
         if proc.returncode == 0:
             status.update(label=f"{command} finished.", state="complete")
         else:
@@ -1035,6 +980,7 @@ def _run_cli(command: str) -> None:
         tail = (proc.stdout or "")[-2000:]
         if tail:
             st.code(tail)
+    return proc.returncode == 0
 
 
 def page_settings() -> None:

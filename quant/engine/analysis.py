@@ -243,6 +243,25 @@ def _fetch_stage(conn: Any, run_id: str, stage: str, table: str, col: str,
                    error="no data source available")
 
 
+REGIME_META_KEY = "analysis_regime"
+
+
+def write_regime(conn: Any, label: str, prob: float, as_of: date) -> None:
+    """Store the regime estimate where :func:`artifacts.read_regime` finds it."""
+    import json
+
+    from quant.analytics.scoring import regime_confidence
+
+    payload = {"state": "estimated", "label": label, "prob": round(prob, 4),
+               "confidence": regime_confidence(prob), "as_of": as_of.isoformat(),
+               "error": None}
+    try:
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                     [REGIME_META_KEY, json.dumps(payload)])
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _regime_stage(conn: Any, run_id: str, now: date) -> dict:
     """Compute the macro regime from the benchmark history (always recompute)."""
     try:
@@ -259,14 +278,17 @@ def _regime_stage(conn: Any, run_id: str, now: date) -> dict:
         import pandas as pd
 
         from quant.analytics.scoring import fit_market_regime
+        from quant.portfolio.regime_constraints import regime_from_bull_prob
 
         series = pd.Series(closes)
         vol = series.pct_change().rolling(20).std()
-        prob = fit_market_regime(series, vol)
-        label = "bull" if prob >= 0.5 else "bear"
+        # max_points=1.0: the fit returns the bull PROBABILITY, not score points.
+        prob = float(fit_market_regime(series, vol, max_points=1.0))
+        label = regime_from_bull_prob(prob)
+        write_regime(conn, label, prob, now)
         return _record(conn, run_id, "regime", manifest.STATUS_OK,
                        coverage=manifest.coverage_text((1, 1)),
-                       error="") | {"label": label}
+                       error="") | {"label": label, "prob": prob}
     except Exception as e:  # noqa: BLE001
         return _record(conn, run_id, "regime", manifest.STATUS_FAILED, error=str(e))
 

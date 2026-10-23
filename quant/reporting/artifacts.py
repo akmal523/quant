@@ -202,15 +202,39 @@ def read_update_state() -> dict:
         return {}
 
 
+def _analysis_regime() -> dict:
+    """The regime stored by the analysis chain's regime stage, or {}."""
+    try:
+        from quant.data.database import read_only_connection
+        from quant.engine.analysis import REGIME_META_KEY
+
+        with read_only_connection() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key = ?",
+                               [REGIME_META_KEY]).fetchone()
+        data = json.loads(row[0]) if row and row[0] else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def read_regime() -> dict:
     """Return the regime block (spec 1.2). Neutral default when absent.
 
-    H3.6 (N1): reads the most recent SUCCESSFUL review (ok_only).
+    H3.6 (N1): reads the most recent SUCCESSFUL review (ok_only). v10.8.10: the
+    analysis chain's regime stage also stores an estimate; the newer of the two
+    (by ``as_of``) wins. The label may be either vocabulary (bull/bear/chop or
+    rising/falling/mixed); consumers normalise with
+    :func:`quant.portfolio.regime_constraints.regime_key`.
     """
-    review = latest_review(ok_only=True)
-    regime = review.get("regime")
-    if isinstance(regime, dict):
-        return {**_REGIME_DEFAULT, **regime}
+    review = latest_review(ok_only=True).get("regime")
+    review = review if isinstance(review, dict) else {}
+    stored = _analysis_regime()
+    best = review
+    if stored and (not review.get("label")
+                   or str(stored.get("as_of") or "") >= str(review.get("as_of") or "")):
+        best = stored
+    if best:
+        return {**_REGIME_DEFAULT, **best}
     return dict(_REGIME_DEFAULT)
 
 

@@ -57,9 +57,21 @@ def _cmd_update(_args: argparse.Namespace) -> int:
     if not _lock_or_fail("update"):
         return 1
     try:
-        return updater_main()
+        rc = updater_main()
+        _persist_today_list()
+        return rc
     finally:
         lock_mod.release()
+
+
+def _persist_today_list() -> None:
+    """Writers only (R-C4): rebuild the ONE list and sync the advice log."""
+    try:
+        from quant.engine.today_list import persist
+
+        persist()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _print_open_alerts() -> None:
@@ -93,7 +105,9 @@ def _cmd_run(_args: argparse.Namespace) -> int:
     try:
         _print_open_alerts()
         try:
-            return pipeline_main()
+            rc = pipeline_main()
+            _persist_today_list()
+            return rc
         except Exception as e:  # noqa: BLE001
             try:
                 from quant.reporting.artifacts import new_run_dir, save_metrics
