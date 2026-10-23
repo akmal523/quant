@@ -256,3 +256,42 @@ def test_rendered_pages_have_no_banned_class_words(page):
     text = _page_text(at)
     assert "Small bets" not in text, f"'Small bets' rendered on {page}"
     assert not re.search(r"\bFORTRESS\b", text), f"'FORTRESS' rendered on {page}"
+
+
+# ── Source 4: UI f-strings (paths the AppTests may not render) ────────────────
+
+_EUR_FORMATTERS = {"fmt_eur", "fmt_eur_whole"}
+
+
+def _doubled_currency_fstrings(path: Path) -> list[int]:
+    """Lines where an f-string puts literal "EUR" right after a ``fmt_eur*`` value.
+
+    ``fmt_eur`` already appends " EUR", so ``f"{C.fmt_eur(x)} EUR/m"`` renders
+    "12.30 EUR EUR/m" (v10.8.10). The rendered-page scan only sees paths the
+    AppTests reach; this static check covers the rest.
+    """
+    lines: list[int] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        for cur, nxt in zip(node.values, node.values[1:], strict=False):
+            call = cur.value if isinstance(cur, ast.FormattedValue) else None
+            name = getattr(getattr(call, "func", None), "attr", None) or getattr(
+                getattr(call, "func", None), "id", None)
+            if (name in _EUR_FORMATTERS and isinstance(nxt, ast.Constant)
+                    and str(nxt.value).lstrip().startswith("EUR")):
+                lines.append(node.lineno)
+    return lines
+
+
+def test_no_doubled_currency_in_ui_fstrings():
+    offenders = {str(p.relative_to(_QUANT)): _doubled_currency_fstrings(p)
+                 for p in sorted((_QUANT / "ui").glob("*.py"))}
+    offenders = {k: v for k, v in offenders.items() if v}
+    assert not offenders, f"fmt_eur(...) followed by a literal EUR: {offenders}"
+
+
+def test_doubled_currency_check_catches_the_pattern(tmp_path):
+    bad = tmp_path / "bad.py"
+    bad.write_text('x = f"+{C.fmt_eur(1)} EUR/m"\n', encoding="utf-8")
+    assert _doubled_currency_fstrings(bad) == [1]

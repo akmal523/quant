@@ -197,19 +197,23 @@ HOLDINGS_ANALYSIS_COLUMNS: list[ColumnSpec] = [
 ]
 HOLDINGS_ANALYSIS_MAX_COLUMNS = 8
 
+# Money columns are numeric (sortable); the currency lives in the header only.
+
 # Invest-plan class table (Now/Target are percents, not money).
 INVEST_CLASS_COLUMNS: list[ColumnSpec] = [
     ColumnSpec("Class", C.INVEST_CLASS_HEADER, "", False, "medium"),
     ColumnSpec("Now", C.INVEST_NOW_HEADER, "", False, "small"),
     ColumnSpec("Target", C.INVEST_TARGET_HEADER, "", False, "small"),
-    ColumnSpec("Suggested", C.INVEST_SUGGESTED_HEADER, "EUR", False, "small"),
+    ColumnSpec("Suggested", C.INVEST_SUGGESTED_HEADER, "EUR", False, "small",
+               numeric=True, fmt="%.2f"),
 ]
 INVEST_CLASS_MAX_COLUMNS = 8
 
 # Invest-plan instrument table (money column carries its currency note).
 INVEST_INSTRUMENT_COLUMNS: list[ColumnSpec] = [
     ColumnSpec("Holding", "Holding", "", False, "medium"),
-    ColumnSpec("Amount", C.INVEST_AMOUNT_HEADER, "EUR", False, "small"),
+    ColumnSpec("Amount", C.INVEST_AMOUNT_HEADER, "EUR", False, "small",
+               numeric=True, fmt="%.2f"),
     ColumnSpec("How", C.INVEST_HOW_HEADER, "", False, "small"),
 ]
 INVEST_INSTRUMENT_MAX_COLUMNS = 8
@@ -219,7 +223,8 @@ INVEST_INSTRUMENT_MAX_COLUMNS = 8
 HOME_HOLDINGS_COLUMNS: list[ColumnSpec] = [
     ColumnSpec("Holding", "Holding", "", False, "medium"),
     ColumnSpec("Class", "Class", "", False, "small"),
-    ColumnSpec("Value (EUR)", "Value (EUR)", "EUR", False, "small"),
+    ColumnSpec("Value (EUR)", "Value (EUR)", "EUR", False, "small",
+               numeric=True, fmt="%.2f"),
     ColumnSpec("Now / Target", "Now / Target", "", False, "small"),
 ]
 HOME_HOLDINGS_MAX_COLUMNS = 8

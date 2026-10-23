@@ -210,7 +210,7 @@ def page_home() -> None:
         rows.append({
             "Holding": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
             "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
-            "Value (EUR)": C.fmt_eur(h.get("value_eur") or 0),
+            "Value (EUR)": round(float(h.get("value_eur") or 0), 2),
             "Now / Target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
                             f"{float(h.get('target_weight') or 0) * 100:.0f}%",
         })
@@ -280,7 +280,7 @@ def _render_invest_block(holdings: list[dict]) -> None:
         "Class": C.CLASS_LABELS.get(r["tier"], r["tier"]),
         "Now": f"{r['now_pct']:.0f}%",
         "Target": f"{r['target_pct']:.0f}%",
-        "Suggested": C.fmt_eur(r["suggested_eur"]),
+        "Suggested": round(float(r["suggested_eur"] or 0), 2),
     } for r in plan["classes"]]
     st.dataframe(pd.DataFrame(class_rows,
                               columns=COLS.table_column_order("invest_class")),
@@ -289,7 +289,7 @@ def _render_invest_block(holdings: list[dict]) -> None:
     # T3: the one-off sum is separate from the savings-plan EUR/m increase.
     st.caption(f"Suggested sums to {C.fmt_eur(plan['total'])} of {C.fmt_eur(amount)}.")
     if plan["savings_plan_eur_month"] > 0:
-        st.caption(f"+{C.fmt_eur(plan['savings_plan_eur_month'])} EUR/m savings plan.")
+        st.caption(f"+{C.fmt_eur(plan['savings_plan_eur_month'])}/m savings plan.")
     for ex in plan["excluded"]:
         st.caption(f"{ex['name']}: {ex['reason']}")
     if not plan["orders"] and not plan["savings_plan"]:
@@ -297,7 +297,7 @@ def _render_invest_block(holdings: list[dict]) -> None:
         return
     order_rows = [{
         "Holding": R.label_for(o["name"], o["symbol"]),
-        "Amount": C.fmt_eur(o["amount_eur"]),
+        "Amount": round(float(o["amount_eur"] or 0), 2),
         "How": o["how"],
     } for o in (plan["orders"] + plan["savings_plan"])]
     st.dataframe(pd.DataFrame(order_rows,
@@ -517,7 +517,9 @@ def page_history() -> None:
             "Action": str(r.get("verb") or ""),
             "Instrument": R.label_for(_display(r.get("symbol") or ""),
                                       r.get("symbol") or ""),
-            "Amount (EUR)": C.fmt_eur(r.get("amount_eur") or 0),
+            # The header carries the currency; an amount-less item stays blank.
+            "Amount (EUR)": ("" if r.get("amount_eur") is None
+                             else f"{float(r['amount_eur']):.2f}"),
             "Status": str(r.get("status") or ""),
         } for r in log]
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
