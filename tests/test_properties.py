@@ -18,7 +18,7 @@ from datetime import date
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from quant.engine import allocator, flows
+from quant.engine import flows
 from quant.engine.advice import build_advice
 from tests.fixtures.live_portfolio import alpha_case, holding
 
@@ -50,43 +50,6 @@ def test_advice_kinds_subset_of_tier(tier, drift, regime, cooldown, conviction):
     advice, _ = build_advice([record], tiers={"SYN": tier}, regime=regime, as_of=AS_OF)
     kinds = {a["kind"] for a in advice if a.get("symbol") == "SYN"}
     assert kinds <= ALLOWED_KINDS[tier]
-
-
-# ── Property 2: budget conservation ───────────────────────────────────────────
-
-def _alloc_fixture(n_fortress, n_high, bets):
-    holdings = []
-    for i in range(n_fortress):
-        holdings.append(holding(
-            f"F{i}", f"Fortress {i}", "FORTRESS", 1000.0, total=10_000.0,
-            target=0.30, current_weight=0.10 + 0.05 * i))
-    for i in range(n_high):
-        holdings.append(holding(
-            f"A{i}", f"Alpha {i}", "ALPHA", 1000.0, total=10_000.0,
-            target=0.20, current_weight=0.10, conviction=90.0))
-    candidates = []
-    if bets:
-        holdings.append(holding(
-            "BET", "Small Bet", "SPECULATIVE", 50.0, total=10_000.0,
-            target=0.02, conviction=90.0))
-        candidates.append({"symbol": "BET", "name": "Small Bet",
-                           "tier": "SPECULATIVE", "conviction": 90.0})
-    return holdings, candidates
-
-
-@given(
-    budget=st.floats(5, 10_000),
-    n_fortress=st.integers(0, 3),
-    n_high=st.integers(0, 3),
-    regime=st.sampled_from(["bull", "bear"]),
-    bets=st.booleans(),
-)
-@settings(max_examples=200)
-def test_budget_conservation(budget, n_fortress, n_high, regime, bets):
-    holdings, candidates = _alloc_fixture(n_fortress, n_high, bets)
-    legs = allocator.allocate(
-        budget, holdings, regime=regime, candidates=candidates, bets_enabled=bets)
-    assert abs(sum(leg["amount_eur"] for leg in legs) - budget) < 1e-6
 
 
 # ── Property 3: sizing law monotonicity ───────────────────────────────────────

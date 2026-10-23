@@ -41,27 +41,6 @@ def test_confirmed_table_survives_restart(tmp_path, monkeypatch):
     assert str(again.iloc[0]["Symbol"]) == "AMZN"
 
 
-def test_recovery_rebuilds_from_holdings_meta(tmp_path, monkeypatch):
-    """A3: rebuild the five columns from the newest saved snapshot."""
-    from quant.data import database
-    from quant.engine.recovery import restore_last_saved_holdings
-
-    conn = database.get_connection()
-    conn.execute("DELETE FROM holdings_meta WHERE symbol = 'RECTEST'")
-    conn.execute("INSERT INTO holdings_meta (symbol, shares, sync_date, "
-                 "invested_at_sync) VALUES ('RECTEST', 2.0, '2026-10-01', 100.0)")
-
-    def _price(_sym, conn=None):
-        return 60.0
-
-    monkeypatch.setattr("quant.data.currency.price_in_eur", _price)
-    rows = restore_last_saved_holdings(conn=conn)
-    row = next(r for r in rows if r["Symbol"] == "RECTEST")
-    assert row["Avg_Entry_Price"] == 50.0       # 100 invested / 2 shares
-    assert row["Current_Value_EUR"] == 120.0    # 2 shares * 60
-    assert row["Broker_PnL_EUR"] == 20.0        # 120 - 100
-
-
 def test_snapshot_user_files_writes_and_prunes(tmp_path, monkeypatch):
     """A2: the light auto-snapshot writes its own series and keeps only ten.
 

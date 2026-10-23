@@ -38,7 +38,6 @@ def _raise(*_a, **_k):
 
 def _triggers() -> dict[str, tuple]:
     """Map each registry key to (trigger callable, expected default)."""
-    from quant.analytics.scoring import calculate_conviction
     from quant.data import user_data
     from quant.engine import (
         advice,
@@ -47,7 +46,6 @@ def _triggers() -> dict[str, tuple]:
         flows,
         news_pillar,
         notify,
-        recovery,
         sizing,
         today_list,
         valuation,
@@ -90,7 +88,6 @@ def _triggers() -> dict[str, tuple]:
             return notify._load_state()
 
     return {
-        "scoring._clamp": (lambda: calculate_conviction(None, None, None), "LOW"),
         "advice._spec_change": (lambda: advice._spec_change({"pnl_pct": "bad"}), None),
         "advice._tier_lookup": (lambda: advice._tier_lookup("bad"), {}),
         "advice._as_date": (lambda: advice._as_date("not-a-date"), None),
@@ -143,7 +140,6 @@ def _triggers() -> dict[str, tuple]:
         "user_data._copy_if_missing": (
             lambda: user_data._copy_if_missing(
                 "/nonexistent/src", "/nonexistent/dst"), False),
-        "recovery._meta_rows": (lambda: recovery._meta_rows(_BrokenConn()), []),
         "render._rows_differ": (lambda: render._rows_differ(None, None), False),
         "notify._load_state": (
             lambda: _load_state_missing(), {}),

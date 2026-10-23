@@ -85,26 +85,6 @@ def test_observability_captures_error():
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
 
-def test_alerts_drawdown():
-    """Deep drawdown triggers CRITICAL alert."""
-    from quant.reporting.alerts import AlertSystem
-    series = pd.Series([100.0, 100.0, 100.0, 80.0])  # -20%
-    alerts = AlertSystem().check_drawdown(series)
-    assert any(a.level == "CRITICAL" for a in alerts)
-    print("  [PASS] test_alerts_drawdown")
-
-
-def test_alerts_rebalance():
-    """Drift beyond 5% triggers rebalance alert."""
-    from quant.reporting.alerts import AlertSystem
-    alerts = AlertSystem().check_rebalance(
-        {"EUNL.DE": 0.60}, {"EUNL.DE": 0.50}
-    )
-    assert len(alerts) == 1
-    assert "SELL" in alerts[0].action
-    print("  [PASS] test_alerts_rebalance")
-
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

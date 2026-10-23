@@ -22,7 +22,6 @@ TESTS = ROOT / "tests"
 # The decision core: patching any of these in a test is forbidden.
 DECISION_MODULES = {
     "quant.engine.advice",
-    "quant.engine.allocator",
     "quant.engine.flows",
     "quant.engine.sizing",
     "quant.analytics.scoring",
@@ -104,19 +103,20 @@ def test_no_test_patches_the_decision_core():
 
 
 def test_real_pipeline_runs_unmocked():
-    """The advice pipeline, allocator, and flows math run on real inputs."""
+    """The advice pipeline, the ONE list and the flows math run on real inputs."""
     from datetime import date
 
-    from quant.engine import allocator, flows
+    from quant.engine import flows
     from quant.engine.advice import build_advice
+    from quant.engine.today_list import build_items
     from tests.fixtures.live_portfolio import live_shaped, live_tiers
 
     holdings = live_shaped()
     advice, _rejected = build_advice(holdings, tiers=live_tiers(), as_of=date(2026, 10, 2))
     assert advice, "the real advice pipeline produced no advice"
 
-    legs = allocator.allocate(200.0, holdings, regime="bull", candidates=[])
-    assert abs(sum(leg["amount_eur"] for leg in legs) - 200.0) < 1e-6
+    items = build_items(holdings, scores={}, ideas=[], months_under={})
+    assert all(i["horizon"] in ("Today", "This month") for i in items)
 
     ret = flows.modified_dietz(1000.0, 1100.0, [], date(2026, 1, 1), date(2026, 1, 31))
     assert abs(ret - 0.10) < 1e-9

@@ -24,9 +24,12 @@ Invariants:
 from __future__ import annotations
 
 from quant.config import BETS_MAX, DEFAULT_RISK_PROFILE, RISK_PROFILES
-from quant.engine.allocator import DEFAULT_BROAD_ETF, DEFAULT_BROAD_ETF_NAME, ROUND_STEP
 from quant.engine.sizing import round_down
 from quant.engine.weights import CLASS_ORDER, class_weights
+
+ROUND_STEP = 5.0                       # suggestions are whole 5 EUR steps
+DEFAULT_BROAD_ETF = "EUNL.DE"          # the first long-term fund when none is held
+DEFAULT_BROAD_ETF_NAME = "iShares Core MSCI World"
 
 MIN_ORDER_EUR = 25.0
 

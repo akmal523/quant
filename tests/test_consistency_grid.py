@@ -11,10 +11,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from quant import config
 from quant.data.database import get_connection
-from quant.engine import advice as advice_mod
-from quant.engine import allocator, valuation
+from quant.engine import valuation
 from quant.engine.advice import build_advice
 from quant.ui.copy import BROKER_STATEMENT_AS_OF
 
@@ -31,29 +29,6 @@ def test_build_advice_reads_target_map():
     advice, _ = build_advice([holding], tiers={"EUNL.DE": "FORTRESS"}, as_of=AS_OF)
     # target 0.50, current 0.10 -> gap 0.40 > 0.10 -> change_savings_plan.
     assert any(a["kind"] == "change_savings_plan" for a in advice)
-
-
-def test_allocator_reads_target_map():
-    holding = {"symbol": "EUNL.DE", "name": "iShares Core MSCI World",
-               "tier": "FORTRESS", "value_eur": 1000.0, "current_weight": 0.10}
-    legs = allocator.allocate(200.0, [holding], regime="bull")
-    long_legs = [leg for leg in legs if leg["kind"] == "long_term"]
-    assert long_legs and long_legs[0]["symbol"] == "EUNL.DE"
-
-
-def test_single_target_map_instance():
-    """No parallel maps: both modules reference the ONE config dictionary."""
-    assert advice_mod.TARGET_WEIGHTS_INVESTED is config.TARGET_WEIGHTS_INVESTED
-    assert allocator.TARGET_WEIGHTS_INVESTED is config.TARGET_WEIGHTS_INVESTED
-
-
-def test_split_reason_uses_target_map_numbers():
-    holding = {"symbol": "EUNL.DE", "name": "iShares Core MSCI World",
-               "tier": "FORTRESS", "value_eur": 1000.0, "current_weight": 0.10}
-    legs = allocator.allocate(200.0, [holding], regime="bull")
-    long_leg = next(leg for leg in legs if leg["kind"] == "long_term")
-    target_pct = config.TARGET_WEIGHTS_INVESTED["EUNL.DE"] * 100
-    assert f"{target_pct:.0f} percent target" in long_leg["reason"]
 
 
 # ── Part 4.2: single tier source ──────────────────────────────────────────────
@@ -104,5 +79,3 @@ def test_estimated_label_carries_estimated():
 
 def test_broker_statement_label():
     assert "broker statement" in BROKER_STATEMENT_AS_OF.format(date="1 Oct 2026")
-
-

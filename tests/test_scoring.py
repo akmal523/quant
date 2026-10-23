@@ -170,34 +170,6 @@ def test_allocate_capital_hold():
     print(f"  [PASS] test_allocate_capital_hold: {result}")
 
 
-# ── Position Sizing ────────────────────────────────────────────────────────────
-
-def test_kelly_position_size():
-    """Kelly with 60% win rate, 2:1 reward/risk."""
-    from quant.analytics.scoring import kelly_position_size
-    from quant.config import MAX_POSITION_PCT
-    size = kelly_position_size(win_rate=0.60, avg_win=2.0, avg_loss=1.0)
-    assert abs(size - 0.10) < 0.005, f"Expected 0.10, got {size}"
-    assert 0.0 <= size <= MAX_POSITION_PCT
-    print(f"  [PASS] test_kelly_position_size: size={size}")
-
-def test_kelly_position_size_edge_cases():
-    from quant.analytics.scoring import kelly_position_size
-    assert kelly_position_size(0.0, 1.0, 1.0) == 0.0
-    assert kelly_position_size(0.6, 0.0, 1.0) == 0.0
-    assert kelly_position_size(0.6, 1.0, 0.0) == 0.0
-    assert kelly_position_size(-0.5, 1.0, 1.0) == 0.0
-    assert kelly_position_size(1.1, 1.0, 1.0) == 0.0
-    print("  [PASS] test_kelly_position_size_edge_cases")
-
-def test_target_volatility_size():
-    from quant.analytics.scoring import target_volatility_size
-    from quant.config import MAX_POSITION_PCT
-    size = target_volatility_size(asset_annual_vol=0.30)
-    assert size <= MAX_POSITION_PCT
-    print(f"  [PASS] test_target_volatility_size: size={size}")
-
-
 # ── Fast Filter ───────────────────────────────────────────────────────────────
 
 def test_apply_fast_filter():
@@ -209,29 +181,6 @@ def test_apply_fast_filter():
     assert apply_fast_filter({}) is False
     assert apply_fast_filter(None) is False
     print("  [PASS] test_apply_fast_filter: all cases correct")
-
-
-# ── HMM ────────────────────────────────────────────────────────────────────────
-
-def test_hmm_market_state_score_short_history():
-    """History < 252 days → returns mid-point."""
-    from quant.analytics.scoring import hmm_market_state_score
-    from quant.config import WEIGHT_TECHNICAL
-    short_close = pd.Series(np.random.randn(200).cumsum() + 100)
-    short_vol = pd.Series(np.abs(np.random.randn(200)))
-    score = hmm_market_state_score(short_close, short_vol)
-    assert score == WEIGHT_TECHNICAL / 2.0, f"Expected {WEIGHT_TECHNICAL/2.0}, got {score}"
-    print(f"  [PASS] test_hmm_market_state_score_short_history: score={score}")
-
-def test_hmm_market_state_score_nan_vol():
-    """All-NaN volatility → returns mid-point."""
-    from quant.analytics.scoring import hmm_market_state_score
-    from quant.config import WEIGHT_TECHNICAL
-    close = pd.Series(np.random.randn(500).cumsum() + 100)
-    nan_vol = pd.Series([np.nan] * 500)
-    score = hmm_market_state_score(close, nan_vol)
-    assert score == WEIGHT_TECHNICAL / 2.0
-    print(f"  [PASS] test_hmm_market_state_score_nan_vol: score={score}")
 
 
 # ── Risk ───────────────────────────────────────────────────────────────────────
@@ -252,43 +201,3 @@ def test_calculate_risk_penalty():
 
 
 # ── Run All ────────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("  SCORING ENGINE UNIT TESTS")
-    print("=" * 60)
-
-    test_stewardship_score_v2_general()
-    test_stewardship_score_v2_financials()
-    test_stewardship_score_v2_missing_data()
-    test_stewardship_score_v2_zero_values()
-    test_evaluate_structural_grade_etf_bypass()
-    test_evaluate_structural_grade_deep_value()
-    test_evaluate_structural_grade_clipping()
-
-    test_evaluate_tactical_grade_bullish()
-    test_evaluate_tactical_grade_bearish()
-    test_evaluate_tactical_grade_clipping()
-
-    test_tactical_grade_no_data_penalty()
-    test_tactical_grade_partial_confidence()
-
-    test_allocate_capital_core_buy()
-    test_allocate_capital_speculative()
-    test_allocate_capital_structural_floor()
-    test_allocate_capital_hold()
-
-    test_kelly_position_size()
-    test_kelly_position_size_edge_cases()
-    test_target_volatility_size()
-
-    test_apply_fast_filter()
-
-    test_hmm_market_state_score_short_history()
-    test_hmm_market_state_score_nan_vol()
-
-    test_calculate_risk_penalty()
-
-    print("\n" + "=" * 60)
-    print("  ALL TESTS PASSED")
-    print("=" * 60)

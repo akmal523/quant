@@ -24,9 +24,9 @@ import pandas as pd
 
 from quant import paths
 from quant.data.database import get_connection
-from quant.engine import allocator, flows, lock, sizing, valuation
+from quant.engine import flows, lock, sizing, valuation
 from quant.engine.advice import build_advice
-from tests.fixtures.live_portfolio import alpha_case, live_shaped, live_tiers
+from tests.fixtures.live_portfolio import alpha_case
 
 AS_OF = date(2026, 10, 2)
 FAR_FUTURE = date(2099, 1, 1)
@@ -104,17 +104,6 @@ def test_regression_holdings_meta_sync():
     row = conn.execute(
         "SELECT shares FROM holdings_meta WHERE symbol = 'EUNL.DE'").fetchone()
     assert abs(row[0] - 10.0) < 1e-9
-
-
-def test_regression_allocator_advice_agree():
-    """[regression] v10.7.3 Part 5: allocator and advice name the same top-up."""
-    holdings = live_shaped()
-    legs = allocator.allocate(200.0, holdings, regime="bull", candidates=[])
-    alloc_symbol = next(leg["symbol"] for leg in legs if leg["kind"] == "long_term")
-    advice, _ = build_advice(holdings, tiers=live_tiers(), as_of=AS_OF)
-    advice_symbol = next(
-        a["symbol"] for a in advice if a["kind"] == "change_savings_plan")
-    assert alloc_symbol == advice_symbol == "EUNL.DE"
 
 
 def test_regression_fortress_verdict_never_sell():

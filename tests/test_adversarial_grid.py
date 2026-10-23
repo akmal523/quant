@@ -20,13 +20,13 @@ import pytest
 
 from quant import paths
 from quant.data.database import get_connection
-from quant.engine import allocator, lock, notify, valuation
+from quant.engine import lock, notify, valuation
 from quant.engine.advice import build_advice
 from quant.errors import DataError
 from quant.portfolio.portfolio import load_portfolio, portfolio_issues
 from quant.portfolio.tier_manager import get_asset_tier, validate_tiers_csv
 from quant.ui.copy import DB_BUSY_RETRY
-from tests.fixtures.live_portfolio import degenerate_cases, holding
+from tests.fixtures.live_portfolio import holding
 
 AS_OF = date(2026, 10, 2)
 
@@ -37,15 +37,6 @@ def test_zero_holdings_returns_empty_advice():
     advice, rejected = build_advice([], tiers={}, as_of=AS_OF)
     assert advice == []
     assert rejected == []
-
-
-def test_one_fortress_allocator():
-    holdings = degenerate_cases()["one_fortress"]
-    legs = allocator.allocate(200.0, holdings, regime="bull")
-    long_legs = [leg for leg in legs if leg["kind"] == "long_term"]
-    assert long_legs and long_legs[0]["symbol"] == "EUNL.DE"
-    assert [leg for leg in legs if leg["kind"] == "cash"]
-    assert not [leg for leg in legs if leg["kind"] == "bet"]
 
 
 def test_all_holdings_one_tier_cap_violation():

@@ -129,7 +129,6 @@ known-first-party = ["quant"]
 [tool.ruff.lint.per-file-ignores]
 # Matrix notation (X, R, N, T) is the standard in the quant modules; renaming
 # these to lowercase would hurt readability of the linear-algebra code.
-"quant/analytics/metrics.py" = ["N806"]
 "quant/analytics/scoring.py" = ["N806"]
 "quant/portfolio/optimizer.py" = ["N806"]
 "scripts/backtest.py" = ["N806"]
@@ -160,7 +159,6 @@ source_paths = ["quant", "scripts"]
 only_mutate = [
     "quant/analytics/scoring.py",
     "quant/engine/flows.py",
-    "quant/engine/allocator.py",
     "quant/engine/sizing.py",
     "quant/engine/advice.py",
     "quant/portfolio/optimizer.py",

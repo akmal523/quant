@@ -10,7 +10,6 @@
 tier_s_modules = [
     "quant/analytics/scoring.py",
     "quant/engine/flows.py",
-    "quant/engine/allocator.py",
     "quant/engine/sizing.py",
     "quant/engine/advice.py",
     "quant/engine/alerts.py",

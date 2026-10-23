@@ -9,7 +9,6 @@ Invariants: pure unit tests; no network, no I/O.
 """
 from __future__ import annotations
 
-from quant.engine import allocator
 from quant.engine.advice import build_advice
 from quant.ui import copy as C
 
@@ -40,20 +39,6 @@ def test_fortress_verdict_never_sell():
     assert by_sym["5J50.DE"]["kind"] != "sell_part"
 
 
-def test_allocator_and_advice_agree_on_topup():
-    legs = allocator.allocate(200.0, _LIVE, regime="bull", candidates=[])
-    long_legs = [leg for leg in legs if leg["kind"] == "long_term"]
-    assert long_legs, "the allocator must allocate the long base"
-    alloc_symbol = long_legs[0]["symbol"]
-
-    advice, _rejected = build_advice(holdings=_LIVE, tiers=_TIERS)
-    topups = [a for a in advice if a["kind"] == "change_savings_plan"]
-    assert topups, "advice must suggest a savings-plan top-up"
-    advice_symbol = topups[0]["symbol"]
-
-    assert alloc_symbol == advice_symbol == "EUNL.DE"
-
-
 def test_topup_sentence_is_the_one_shared_string():
     advice, _rejected = build_advice(holdings=_LIVE, tiers=_TIERS)
     topup = next(a for a in advice if a["kind"] == "change_savings_plan")
@@ -63,12 +48,3 @@ def test_topup_sentence_is_the_one_shared_string():
     assert topup["why"] == (
         "Top up the savings plan for iShares Core MSCI World (EUNL.DE): it is 34 "
         "percent of invested vs 50 percent target.")
-
-
-def test_split_reason_states_both_numbers():
-    legs = allocator.allocate(200.0, _LIVE, regime="bull", candidates=[])
-    long_leg = next(leg for leg in legs if leg["kind"] == "long_term")
-    # R10: the reason names the largest-gap holding and states the actual gap.
-    assert "iShares Core MSCI World is 34 percent of invested" in long_leg["reason"]
-    assert "50 percent target" in long_leg["reason"]
-    assert "a gap of 16 points" in long_leg["reason"]

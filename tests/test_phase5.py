@@ -9,75 +9,12 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import datetime as dt
 import unittest
 
 import pandas as pd
 
 from quant.analytics.scoring import etf_quality_score, etf_tactical_grade
-from quant.execution.discovery import demote_stale_active, graduate
-from quant.execution.routing import build_execution_instruction, route_signal
-from quant.execution.taxonomy import INVERSE_STRUCTURE, validate_isin
-
-
-class TestGraduationGracePeriod(unittest.TestCase):
-    def test_graduate_then_demote_stays_active(self):
-        """A symbol graduated today stays ACTIVE inside the grace period."""
-        from quant.data.database import get_connection, init_db
-        init_db()
-        conn = get_connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO asset_registry "
-            "(symbol, universe_status, graduated_at, updated_at) "
-            "VALUES ('TEST_GRACE', 'ACTIVE', ?, ?)",
-            [dt.date.today().isoformat(), 0.0],
-        )
-        demoted = demote_stale_active(months=6, grace_months=3,
-                                      graduated_this_run={"TEST_GRACE"})
-        self.assertEqual(demoted, 0)
-        row = conn.execute(
-            "SELECT universe_status FROM asset_registry WHERE symbol = 'TEST_GRACE'"
-        ).fetchone()
-        self.assertEqual(row[0], "ACTIVE")
-        conn.execute("DELETE FROM asset_registry WHERE symbol = 'TEST_GRACE'")
-
-
-class TestCoreImmunity(unittest.TestCase):
-    def test_core_never_demoted(self):
-        """CORE symbols are never demoted."""
-        from quant.data.database import get_connection, init_db
-        init_db()
-        conn = get_connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO asset_registry "
-            "(symbol, universe_status, graduated_at, updated_at) "
-            "VALUES ('TEST_CORE', 'CORE', ?, ?)",
-            ["2020-01-01", 0.0],
-        )
-        demoted = demote_stale_active(months=6, grace_months=0)
-        self.assertEqual(demoted, 0)
-        row = conn.execute(
-            "SELECT universe_status FROM asset_registry WHERE symbol = 'TEST_CORE'"
-        ).fetchone()
-        self.assertEqual(row[0], "CORE")
-        conn.execute("DELETE FROM asset_registry WHERE symbol = 'TEST_CORE'")
-
-    def test_core_never_graduated(self):
-        """CORE symbols are never graduated."""
-        from quant.data.database import get_connection, init_db
-        init_db()
-        conn = get_connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO asset_registry (symbol, universe_status, updated_at) "
-            "VALUES ('TEST_CORE2', 'CORE', ?)",
-            [0.0],
-        )
-        graduate("TEST_CORE2", "52-week high")
-        row = conn.execute(
-            "SELECT universe_status FROM asset_registry WHERE symbol = 'TEST_CORE2'"
-        ).fetchone()
-        self.assertEqual(row[0], "CORE")
-        conn.execute("DELETE FROM asset_registry WHERE symbol = 'TEST_CORE2'")
+from quant.execution.taxonomy import validate_isin
 
 
 class TestDelistTracking(unittest.TestCase):
@@ -113,22 +50,6 @@ class TestValidateIsin(unittest.TestCase):
 
     def test_non_alnum(self):
         self.assertFalse(validate_isin("IE00B4L5Y98-"))
-
-
-class TestInverseRouting(unittest.TestCase):
-    def test_inverse_never_sparplan(self):
-        """INVERSE structure never routes to SPARPLAN."""
-        self.assertEqual(route_signal(85, 50, "ETF", INVERSE_STRUCTURE), "HOLD")
-
-    def test_plain_etf_still_sparplan(self):
-        """PLAIN ETF still routes to SPARPLAN."""
-        self.assertEqual(route_signal(85, 50, "ETF"), "SPARPLAN")
-
-    def test_missing_isin_instruction(self):
-        """Missing ISIN emits an explicit ISIN MISSING instruction."""
-        inst = build_execution_instruction("VOO", "SPARPLAN", 100, 50, 100, isin="")
-        self.assertIn("ISIN MISSING", inst["instruction"])
-        self.assertEqual(inst["action"], "HOLD")
 
 
 class TestEtfScoreDifferentiation(unittest.TestCase):

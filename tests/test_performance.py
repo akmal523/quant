@@ -7,11 +7,7 @@ from __future__ import annotations
 
 import sys
 import time
-import tracemalloc
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -27,64 +23,6 @@ def test_batch_query_performance():
 
     assert set(data.keys()) == {"prices", "fundamentals", "news"}
     assert elapsed < 5.0
-
-
-def test_batch_scoring_100_assets():
-    """Batch scoring 100 assets completes in under 60 seconds."""
-    from quant.analytics.scoring import batch_score_assets_parallel
-
-    rng = np.random.default_rng(1)
-    symbols = [f"ASSET_{i:03d}" for i in range(100)]
-    price_data = {
-        s: pd.DataFrame({
-            "Close": 100 + rng.normal(0, 1, 100).cumsum(),
-            "Volume": rng.integers(100_000, 1_000_000, 100).astype(float),
-        })
-        for s in symbols
-    }
-    fundamentals = {s: {"PE": 20, "ROE": 0.2} for s in symbols}
-    news = {s: [] for s in symbols}
-    tiers = {s: "ALPHA" for s in symbols}
-
-    start = time.time()
-    results = batch_score_assets_parallel(symbols, price_data, fundamentals, news, tiers)
-    elapsed = time.time() - start
-
-    assert len(results) == 100
-    assert elapsed < 60.0
-
-
-
-def test_no_memory_leak_batch_scoring():
-    """Repeated batch scoring does not grow memory unboundedly."""
-    import gc
-
-    from quant.analytics.scoring import batch_score_assets
-
-    rng = np.random.default_rng(3)
-    symbols = [f"ASSET_{i}" for i in range(50)]
-    price_data = {
-        s: pd.DataFrame({
-            "Close": 100 + rng.normal(0, 1, 100).cumsum(),
-            "Volume": rng.integers(100_000, 1_000_000, 100).astype(float),
-        })
-        for s in symbols
-    }
-    fundamentals = {s: {"PE": 20, "ROE": 0.2} for s in symbols}
-    news = {s: [] for s in symbols}
-    tiers = {s: "ALPHA" for s in symbols}
-
-    tracemalloc.start()
-    gc.collect()
-    first = tracemalloc.take_snapshot()
-    for _ in range(5):
-        batch_score_assets(symbols, price_data, fundamentals, news, tiers)
-    gc.collect()
-    last = tracemalloc.take_snapshot()
-    tracemalloc.stop()
-
-    growth = sum(s.size_diff for s in last.compare_to(first, "lineno") if s.size_diff > 0)
-    assert growth < 20 * 1024 * 1024
 
 
 def test_generators_properly_closed():

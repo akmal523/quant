@@ -9,9 +9,7 @@ All tests are hermetic: synthetic data only, no network, no live store.
 """
 from __future__ import annotations
 
-import os
 import sys
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -158,49 +156,3 @@ def test_prioritize_sells_with_tax():
     assert out[0]["symbol"] == "NVDA"
     assert out[0]["tax_impact"] < 0
     assert "tax-free" in out[1]["tax_note"]
-
-
-
-# ── Signal cache staleness ────────────────────────────────────────────────────
-
-def test_signal_cache_stale_detection(tmp_path, monkeypatch):
-    """A cache older than max_age_days is invalidated."""
-    from datetime import date
-
-    import quant.portfolio.signal_cache as sc
-
-    cache_file = tmp_path / "signal_cache.json"
-    monkeypatch.setattr(sc, "cache_path", lambda: str(cache_file))
-
-    # A fresh as_of (today): the first assert is clock-relative, never a fixed
-    # calendar date that silently goes stale.
-    sc.save_signal_cache([{"symbol": "AAPL"}], date.today().isoformat())
-    assert sc.load_signal_cache(max_age_days=7) is not None
-
-    old = time.time() - 10 * 86400
-    os.utime(cache_file, (old, old))
-    assert sc.load_signal_cache(max_age_days=7) is None
-
-    sc.invalidate_signal_cache()
-    assert not cache_file.exists()
-
-
-
-# ── Batch scoring ─────────────────────────────────────────────────────────────
-
-def test_batch_score_assets():
-    """Batch scoring returns one row per symbol, routed by tier."""
-    from quant.analytics.scoring import batch_score_assets
-
-    df = batch_score_assets(
-        ["EUNL.DE", "NVDA", "GME"],
-        price_data={},
-        fundamentals={
-            "EUNL.DE": {"PE": 20, "ROE": 0.2},
-            "NVDA": {"PE": 30, "ROE": 0.3},
-        },
-        news={},
-        tiers={"EUNL.DE": "FORTRESS", "NVDA": "ALPHA", "GME": "SPECULATIVE"},
-    )
-    assert len(df) == 3
-    assert set(df["symbol"]) == {"EUNL.DE", "NVDA", "GME"}

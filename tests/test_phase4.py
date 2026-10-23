@@ -12,8 +12,6 @@ import unittest
 
 import pandas as pd
 
-from quant.execution.discovery import detect_graduation
-from quant.execution.routing import build_execution_instruction, route_signal
 from quant.execution.taxonomy import classify_instrument, resolve_broker
 from quant.portfolio.optimizer import minimum_trade_size, passes_fee_hurdle
 from quant.portfolio.risk import (
@@ -57,26 +55,6 @@ class TestCashRiskFreeRate(unittest.TestCase):
         self.assertIsInstance(sh, float)
 
 
-class TestSignalRouting(unittest.TestCase):
-    def test_etf_routes_sparplan(self):
-        self.assertEqual(route_signal(85, 50, "ETF"), "SPARPLAN")
-
-    def test_high_tactical_routes_active(self):
-        self.assertEqual(route_signal(60, 80, "EQUITY"), "ACTIVE")
-
-    def test_high_structural_routes_sparplan(self):
-        self.assertEqual(route_signal(85, 55, "EQUITY"), "SPARPLAN")
-
-    def test_low_grades_hold(self):
-        self.assertEqual(route_signal(40, 40, "EQUITY"), "HOLD")
-
-    def test_execution_instruction_sparplan(self):
-        inst = build_execution_instruction("VUSA.DE", "SPARPLAN", 100, 50, 100,
-                                           "IE00B5BMR087", "VUSA.DE")
-        self.assertEqual(inst["action"], "SPARPLAN")
-        self.assertIn("0 EUR buy fee", inst["instruction"])
-
-
 class TestTaxonomy(unittest.TestCase):
     def test_classify_equity(self):
         self.assertEqual(classify_instrument("AAPL"), "EQUITY")
@@ -92,41 +70,6 @@ class TestTaxonomy(unittest.TestCase):
     def test_resolve_broker_fallback(self):
         broker = resolve_broker("UNKNOWN_SYM")
         self.assertEqual(broker["tr_ticker"], "UNKNOWN_SYM")
-
-
-class TestDiscovery(unittest.TestCase):
-    def _make_df(self, closes, volumes):
-        idx = pd.date_range("2024-01-01", periods=len(closes), freq="D")
-        return pd.DataFrame({"Close": closes, "Volume": volumes}, index=idx)
-
-    def test_52w_high_graduates(self):
-        closes = list(range(100, 200))  # monotonic rising -> new high
-        vols = [1000] * 100
-        df = self._make_df(closes, vols)
-        ok, reason = detect_graduation("X", df)
-        self.assertTrue(ok)
-        self.assertIn("52-week high", reason)
-
-    def test_volume_anomaly_graduates(self):
-        closes = [100] * 100
-        vols = [1000] * 99 + [5000]  # 5x the 20d avg
-        df = self._make_df(closes, vols)
-        ok, reason = detect_graduation("X", df)
-        self.assertTrue(ok)
-        self.assertIn("volume", reason)
-
-    def test_no_anomaly(self):
-        closes = [100] * 100
-        vols = [1000] * 100
-        df = self._make_df(closes, vols)
-        ok, _ = detect_graduation("X", df)
-        self.assertFalse(ok)
-
-    def test_insufficient_data(self):
-        df = self._make_df([100, 101], [1000, 1000])
-        ok, reason = detect_graduation("X", df)
-        self.assertFalse(ok)
-        self.assertIn("insufficient", reason)
 
 
 if __name__ == "__main__":

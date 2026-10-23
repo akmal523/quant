@@ -7,38 +7,9 @@ Hermetic: synthetic data only, no network, no live store.
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-
-def test_batch_scoring_performance():
-    """Batch scoring 50 assets completes in under 30 seconds."""
-    from quant.analytics.scoring import batch_score_assets_parallel
-
-    rng = np.random.default_rng(0)
-    symbols = [f"ASSET_{i}" for i in range(50)]
-    price_data = {
-        s: pd.DataFrame({
-            "Close": 100 + rng.normal(0, 1, 100).cumsum(),
-            "Volume": rng.integers(100_000, 1_000_000, 100).astype(float),
-        })
-        for s in symbols
-    }
-    fundamentals = {s: {"PE": 20, "ROE": 0.2} for s in symbols}
-    news = {s: [] for s in symbols}
-    tiers = {s: "ALPHA" for s in symbols}
-
-    start = time.time()
-    results = batch_score_assets_parallel(symbols, price_data, fundamentals, news, tiers)
-    elapsed = time.time() - start
-
-    assert len(results) == 50
-    assert elapsed < 30.0
 
 
 def test_load_tiers_safe_missing(tmp_path, monkeypatch):

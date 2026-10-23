@@ -1,14 +1,16 @@
 """quant — command-line interface.
 
-Intent: one console entry point (``quant``) for the two-step pipeline plus
-reconciliation, replacing direct ``python3 main.py`` / ``python3 data_updater.py``
-invocations. The root wrapper scripts remain as thin compatibility shims.
+Intent: one console entry point (``quant``; ``python -m quant.cli`` without an
+activated environment). Six user commands (``dash``, ``refresh``, ``daily``,
+``upgrade``, ``backup``, ``doctor``) plus hidden maintenance commands.
 
 State Transition:
-  quant update    -> fetch market data + funnel survivors (writes DuckDB)
-  quant run       -> score, audit the portfolio, emit reports
-  quant reconcile -> diff the theoretical portfolio vs the broker CSV export
-  quant all       -> update then run (full daily cycle)
+  quant refresh   -> fetch market data + funnel survivors (writes DuckDB), then
+                     persist the ONE list
+  quant run       -> score, audit the holdings table, write the review, run the
+                     analysis chain, persist the ONE list
+  quant all       -> refresh then run
+  quant daily     -> the timer's job (quant.engine.daily.run_daily)
 
 Invariants:
   - Importing this package has NO side effects (heavy imports are lazy).
@@ -19,12 +21,10 @@ Dependencies: argparse; pipeline modules imported lazily inside commands.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import os
 import subprocess
 import sys
 from collections.abc import Sequence
-from pathlib import Path
 
 from quant.cli import output
 
@@ -478,59 +478,6 @@ def _cmd_dash(args: argparse.Namespace) -> int:
     )
 
 
-def _cmd_reconcile(args: argparse.Namespace) -> int:
-    """Diff the theoretical portfolio against the broker CSV export."""
-    import pandas as pd
-
-    from quant import paths
-    from quant.execution.reconciliation import (
-        build_theoretical_snapshot,
-        reconcile,
-        save_snapshot,
-    )
-    from quant.portfolio.portfolio import load_portfolio
-
-    today = dt.date.today().isoformat()
-    portfolio_df = load_portfolio(str(paths.DATA_PORTFOLIO))
-    if portfolio_df.empty:
-        print("[!] portfolio.csv is empty or missing; nothing to reconcile.")
-        return 1
-
-    scan_path = Path(paths.OUTPUTS_DIR) / "market_scan_v8.csv"
-    if scan_path.exists():
-        try:
-            scan_df = pd.read_csv(scan_path)
-        except Exception:  # noqa: BLE001
-            scan_df = pd.DataFrame(columns=["Symbol", "Current_Price"])
-    else:
-        scan_df = pd.DataFrame(columns=["Symbol", "Current_Price"])
-
-    theoretical = build_theoretical_snapshot(portfolio_df, scan_df, today)
-    save_snapshot(theoretical)
-
-    broker_path = Path(args.broker)
-    broker_df = pd.read_csv(broker_path, comment="#") if broker_path.exists() else pd.DataFrame()
-    result = reconcile(theoretical, broker_df)
-
-    print("=" * 78)
-    print(f" BROKER RECONCILIATION — {today}")
-    print("=" * 78)
-    if result.empty:
-        print(" No positions to reconcile.")
-        return 0
-
-    breaks = result[result["flag"].astype(str).str.startswith("[!]")]
-    print(result.to_string(index=False))
-    print("-" * 78)
-    if breaks.empty:
-        print(" OK: no reconciliation breaks.")
-        return 0
-    print(f" [!] {len(breaks)} reconciliation break(s) detected:")
-    for _, r in breaks.iterrows():
-        print(f"   {r['symbol']}: {r['flag']} (deviation {r['deviation_eur']} EUR)")
-    return 2
-
-
 def _cmd_all(args: argparse.Namespace) -> int:
     """Full daily cycle: update then run."""
     rc = _cmd_update(args)
@@ -716,8 +663,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── Hidden internal commands ──────────────────────────────────────────────
     sub.add_parser("run", help=hidden)
-    reconcile = sub.add_parser("reconcile", help=hidden)
-    reconcile.add_argument("--broker", default=None)
     sub.add_parser("all", help=hidden)
     news_doc = sub.add_parser("news-doctor", help=hidden)
     news_doc.add_argument("--enable", action="store_true")
@@ -799,8 +744,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Exit codes (spec 3.1): 0 success, 1 data-quality gate failure, 2 config error.
     """
-    from quant import paths
-
     if argv is None:
         import sys
 
@@ -809,12 +752,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     argv = ["refresh" if a == "update" else a for a in argv]
     parser = build_parser()
     args = parser.parse_args(argv)
-    if getattr(args, "broker", None) is None:
-        args.broker = str(paths.DATA_PORTFOLIO)
 
-    # Only commands that produce a run create a run dir + pipeline.log. publish,
-    # reconcile, and dash must NOT mint a new (empty) run dir, or latest_run()
-    # would point at it instead of the last real run.
+    # Only commands that produce a run create a run dir + pipeline.log; the
+    # others (dash, doctor, ...) must NOT mint a new (empty) run dir, or
+    # latest_run() would point at it instead of the last real run.
     log_path = (
         output.default_log_path()
         if args.command in ("refresh", "update", "run", "all")
@@ -827,7 +768,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "update": _cmd_update,
         "upgrade": _cmd_upgrade,
         "run": _cmd_run,
-        "reconcile": _cmd_reconcile,
         "all": _cmd_all,
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,

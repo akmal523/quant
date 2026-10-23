@@ -93,7 +93,6 @@ def test_mean_cvar_optimizer():
     assert cvar >= 0.0
 
 
-
 def test_regime_constraints():
     from quant.portfolio.regime_constraints import (
         apply_regime_constraints,
@@ -107,17 +106,6 @@ def test_regime_constraints():
     assert apply_regime_constraints(0.10, "bull") == 0.10
 
 
-def test_tca_implementation_shortfall():
-    from quant.execution.tca import estimate_slippage_bps, implementation_shortfall
-    # BUY filled above signal -> positive cost.
-    assert implementation_shortfall(100.0, 101.0, "BUY") > 0
-    # SELL filled below signal -> positive cost.
-    assert implementation_shortfall(100.0, 99.0, "SELL") > 0
-    # Perfect fill -> zero.
-    assert implementation_shortfall(100.0, 100.0, "BUY") == 0.0
-    assert estimate_slippage_bps(0.0) >= 0.0
-
-
 def test_vol_aware_min_trade_size():
     from quant.portfolio.optimizer import (
         minimum_trade_size,
@@ -126,47 +114,6 @@ def test_vol_aware_min_trade_size():
     base = minimum_trade_size(200.0)
     scaled = minimum_trade_size_vol_aware(200.0, 0.30)
     assert scaled > base, "higher vol must raise the fee floor"
-
-
-def test_reconciliation_flags():
-    from quant.execution.reconciliation import reconcile
-    theo = pd.DataFrame([
-        {"snapshot_date": "2024-01-01", "symbol": "AAPL", "shares": 1.0,
-         "price_eur": 100.0, "value_eur": 100.0},
-    ])
-    broker = pd.DataFrame([{"Symbol": "AAPL", "Value_EUR": 100.5}])
-    res = reconcile(theo, broker)
-    assert res.iloc[0]["flag"] == ""  # within tolerance
-
-    broker_bad = pd.DataFrame([{"Symbol": "AAPL", "Value_EUR": 90.0}])
-    res_bad = reconcile(theo, broker_bad)
-    assert res_bad.iloc[0]["flag"].startswith("[!]")
-
-
-def test_alpha_metrics():
-    from quant.analytics.metrics import (
-        alpha_decay_curve,
-        deflated_sharpe_ratio,
-        information_coefficient,
-        turnover_stats,
-    )
-    rng = np.random.RandomState(1)
-    rets = pd.Series(rng.normal(0.0006, 0.01, 500))
-    dsr = deflated_sharpe_ratio(rets, n_trials=10)
-    assert 0.0 <= dsr <= 1.0
-
-    sig = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
-    fwd = pd.Series([0.01, 0.02, 0.03, 0.04, 0.05])
-    assert information_coefficient(sig, fwd) > 0.9
-
-    prices = pd.DataFrame({"A": np.linspace(100, 120, 30)})
-    signals = pd.DataFrame({"A": np.linspace(0, 1, 30)})
-    curve = alpha_decay_curve(signals, prices, horizons=(1, 5))
-    assert set(curve["horizon"]) == {1, 5}
-
-    weights = pd.DataFrame({"A": [0.5, 0.6, 0.4], "B": [0.5, 0.4, 0.6]})
-    ts = turnover_stats(weights)
-    assert ts["mean_turnover"] > 0
 
 
 def test_event_bus_new_events():

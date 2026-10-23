@@ -26,7 +26,6 @@ def run_health_check() -> dict:
         _check_data_freshness(),
         _check_tiers_validation(),
         _check_database_integrity(),
-        _check_signal_cache(),
         _check_external_apis(),
     ]
     statuses = [c["status"] for c in checks]
@@ -80,8 +79,6 @@ def _check_tiers_validation() -> dict:
                 "message": f"Failed to validate tiers.csv: {e}"}
 
 
-
-
 def _check_database_integrity() -> dict:
     """Check that the DuckDB store is readable and populated."""
     try:
@@ -96,21 +93,6 @@ def _check_database_integrity() -> dict:
     except Exception as e:  # noqa: BLE001
         return {"name": "Database integrity", "status": "CRITICAL",
                 "message": f"Database check failed: {e}"}
-
-
-def _check_signal_cache() -> dict:
-    """Check that the signal cache is fresh."""
-    try:
-        from quant.portfolio.signal_cache import load_signal_cache
-        cache = load_signal_cache(max_age_days=7)
-        if cache is None:
-            return {"name": "Signal cache", "status": "WARNING",
-                    "message": "Signal cache is stale or missing. Run 'quant run'."}
-        return {"name": "Signal cache", "status": "OK",
-                "message": "Signal cache is fresh."}
-    except Exception as e:  # noqa: BLE001
-        return {"name": "Signal cache", "status": "WARNING",
-                "message": f"Failed to check signal cache: {e}"}
 
 
 def _check_external_apis() -> dict:

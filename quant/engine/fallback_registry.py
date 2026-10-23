@@ -23,9 +23,6 @@ def _e(failure: str, default: Any, marker: str, test: str) -> dict:
 
 
 FALLBACKS: dict[str, dict] = {
-    # ── scoring ───────────────────────────────────────────────────────────────
-    "scoring._clamp": _e("non-numeric conviction input", 0.0, "none",
-                         "test_fallback_scoring_clamp"),
     # ── advice ────────────────────────────────────────────────────────────────
     "advice._spec_change": _e("non-numeric pnl_pct", None, "none",
                               "test_fallback_advice_spec_change"),
@@ -113,8 +110,6 @@ FALLBACKS: dict[str, dict] = {
     # ── persistence (v10.8.1) ─────────────────────────────────────────────────
     "user_data._copy_if_missing": _e("missing or unreadable source file", False,
                                      "none", "test_fallback_user_data_copy_if_missing"),
-    "recovery._meta_rows": _e("unreadable holdings_meta", [], "empty",
-                              "test_fallback_recovery_meta_rows"),
     "render._rows_differ": _e("uncomparable table frames", False, "none",
                               "test_fallback_render_rows_differ"),
     "notify._load_state": _e("missing or invalid notify state", {}, "empty",

@@ -60,17 +60,6 @@ def _is_research_table(v) -> bool:
             and list(v.columns) == COLS.table_column_order("research"))
 
 
-def _frames_text(at: AppTest) -> str:
-    out = []
-    for v in _frames(at):
-        if v is not None:
-            try:
-                out.append(str(v.to_string()))
-            except Exception:  # noqa: BLE001
-                out.append(str(v))
-    return " ".join(out)
-
-
 # ── Phase A (T1) ──────────────────────────────────────────────────────────────
 
 def test_full_analysis_renders_without_crash():

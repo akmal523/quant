@@ -14,7 +14,6 @@ All tests are hermetic: synthetic data only, no network, no live store.
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
@@ -42,15 +41,6 @@ def test_1_1_bitemporal_consistency():
     as_of = "2020-01-01"
     visible = [r for r in rows if r["published_date"] <= as_of]
     assert len(visible) == 1 and visible[0]["PE"] == 18
-
-
-def test_1_2_dividend_leakage_not_a_sell():
-    """A dividend-driven price drop must not become a sell signal."""
-    from quant.portfolio.fortress import fortress_signal
-
-    # A Fortress asset never sells, regardless of a price drop.
-    assert fortress_signal(80.0) in ("INCREASE_SPARPLAN", "MAINTAIN")
-    assert fortress_signal(10.0) == "MAINTAIN"
 
 
 def test_1_3_split_detection_no_crash_alert():
@@ -95,17 +85,6 @@ def test_2_2_five_year_listing_filter():
 
 
 # ── Category 3: Mathematical Soundness ────────────────────────────────────────
-
-def test_3_1_deflated_sharpe_vs_raw():
-    """Deflated Sharpe is finite and within 30 percent of the raw Sharpe."""
-    from quant.analytics.scoring import deflated_sharpe_ratio
-
-    raw = 1.5
-    dsr = deflated_sharpe_ratio(raw, num_trials=10, n=252)
-    assert math.isfinite(dsr)
-    assert abs(dsr - raw) / raw < 0.30
-    # A single trial returns the raw Sharpe unchanged.
-    assert deflated_sharpe_ratio(raw, num_trials=1, n=252) == raw
 
 
 def test_3_2_covariance_stability():
@@ -237,23 +216,7 @@ def test_6_2_liquidity_constraint():
     assert ok is False and "ADV" in reason
 
 
-
 # ── Category 7: System Robustness ─────────────────────────────────────────────
-
-def test_7_1_empty_universe_goes_to_cash():
-    """When every asset is weak, no BUY signal is emitted."""
-    from quant.portfolio.portfolio import tier_audit
-
-    portfolio = pd.DataFrame({"Symbol": ["A", "B"]})
-    scan = pd.DataFrame({
-        "Symbol": ["A", "B"],
-        "Structural_Grade": [20.0, 30.0],
-        "Tactical_Grade": [20.0, 25.0],
-        "nlp_score": [-50.0, -40.0],
-    })
-    audit = tier_audit(portfolio, scan)
-    assert not audit["Signal"].isin(["BUY", "BUY_SPECULATIVE"]).any()
-
 
 
 def test_7_3_api_rate_limit_counter():

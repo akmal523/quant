@@ -19,15 +19,13 @@ import numpy as np
 import pandas as pd
 
 from quant.analytics.scoring import (
-    calculate_conviction,
-    deflated_sharpe_ratio,
     etf_tactical_grade,
     evaluate_structural_grade,
     evaluate_tactical_grade,
     fit_market_regime,
     stewardship_score_v2,
 )
-from quant.engine import allocator, flows, sizing
+from quant.engine import flows, sizing
 from quant.features.indicators import atr, garch_volatility, rsi
 from quant.portfolio.risk import (
     calculate_liquidity_score,
@@ -153,34 +151,6 @@ def test_emergency_plan_monotone_in_amount():
     assert large["total_available"] >= small["total_available"]
     assert [r["symbol"] for r in small["recommendations"]] == \
         [r["symbol"] for r in large["recommendations"]][:len(small["recommendations"])]
-
-
-# ── Allocator ─────────────────────────────────────────────────────────────────
-
-def test_allocator_budget_conservation_and_long_base():
-    for budget in (5.0, 50.0, 200.0, 1000.0, 10_000.0):
-        legs = allocator.allocate(budget, [], regime="bull")
-        assert abs(sum(leg["amount_eur"] for leg in legs) - budget) < 1e-6
-        long_base = sum(leg["amount_eur"] for leg in legs if leg["kind"] == "long_term")
-        assert abs(long_base - budget * 0.70) < 5.0  # 70 percent, within rounding
-
-
-# ── Conviction ────────────────────────────────────────────────────────────────
-
-def test_conviction_sensitive_and_thresholds():
-    assert calculate_conviction(100.0, 100.0, 100.0) == "HIGH"
-    assert calculate_conviction(50.0, 50.0, 50.0) == "LOW"
-    assert calculate_conviction(70.0, 70.0, 70.0) == "MEDIUM"
-    assert calculate_conviction(90.0, 90.0, 90.0) != calculate_conviction(10.0, 10.0, 10.0)
-
-
-# ── Deflated Sharpe ───────────────────────────────────────────────────────────
-
-def test_deflated_sharpe_monotone_in_trials():
-    assert deflated_sharpe_ratio(1.0, num_trials=1) == 1.0  # raw Sharpe at one trial
-    assert deflated_sharpe_ratio(1.0, num_trials=100) < 1.0
-    assert deflated_sharpe_ratio(1.0, num_trials=100) <= \
-        deflated_sharpe_ratio(1.0, num_trials=10)
 
 
 # ── Sizing ────────────────────────────────────────────────────────────────────

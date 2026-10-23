@@ -49,20 +49,6 @@ def test_factor_scores_zscore_columns_present():
     print("  [PASS] test_factor_scores_zscore_columns_present")
 
 
-def test_sector_neutral_rank():
-    """Sector rank should be 1 for best composite within each sector."""
-    from quant.analytics.scoring import sector_neutral_rank
-
-    features = pd.DataFrame({
-        "Sector": ["Tech", "Tech", "Fin", "Fin"],
-        "composite_score": [1.0, 0.5, 0.8, 0.2],
-    })
-    out = sector_neutral_rank(features)
-    assert out["sector_rank"].iloc[0] == 1.0  # best Tech
-    assert out["sector_rank"].iloc[2] == 1.0  # best Fin
-    print("  [PASS] test_sector_neutral_rank")
-
-
 # ── No-Lookahead Fundamentals ─────────────────────────────────────────────────
 
 def test_get_fundamentals_as_of_no_lookahead():
@@ -116,40 +102,6 @@ def test_cost_aware_backtest_empty():
 
 
 # ── Liquidity & Validation ────────────────────────────────────────────────────
-
-def test_liquidity_score():
-    """ADV below threshold -> score < 1; above -> 1."""
-    from quant.analytics.validation import is_liquid, liquidity_score
-
-    assert liquidity_score(500_000) < 1.0
-    assert liquidity_score(2_000_000) == 1.0
-    assert is_liquid(2_000_000) is True
-    assert is_liquid(500_000) is False
-    print("  [PASS] test_liquidity_score")
-
-
-def test_validate_market_data_raises_on_nonpositive():
-    """Non-positive Close must raise."""
-    from quant.analytics.validation import validate_market_data
-
-    bad = pd.DataFrame({"Close": [100.0, 0.0, 50.0], "Symbol": ["A"] * 3, "Date": [1, 2, 3]})
-    try:
-        validate_market_data(bad)
-        assert False, "should have raised"
-    except ValueError:
-        pass
-    print("  [PASS] test_validate_market_data_raises_on_nonpositive")
-
-
-def test_sanitize_fundamentals():
-    """Negative PE and out-of-range ROE -> None."""
-    from quant.analytics.validation import sanitize_fundamentals
-
-    out = sanitize_fundamentals({"PE": -5.0, "ROE": 2.0, "PEG": 1.0})
-    assert out["PE"] is None
-    assert out["ROE"] is None
-    assert out["PEG"] == 1.0
-    print("  [PASS] test_sanitize_fundamentals")
 
 
 if __name__ == "__main__":
