@@ -41,13 +41,10 @@ def _label(item: dict) -> str:
 # "Sell ~X EUR of Name (TICKER.DE)": one verb, one ticker.
 _VERB_TEMPLATES = {
     "buy": "Buy {amount} EUR of {label}",
-    "top_up": "Buy {amount} EUR of {label}",
     "sell_part": "Sell ~{amount} EUR of {label}",
-    "change_savings_plan": "Change the savings plan for {label}",
-    # v10.8.5 (T3): the widened verb classes (one item each in the ONE list).
-    "rebalance": "Rebalance {label}",
+    "plan_up": "Raise the savings plan for {label}",
+    "plan_down": "Lower the savings plan for {label}",
     "threat": "Review {label}",
-    "plan_change": "Raise the savings plan for {label}",
     "swap": "Swap {label}",
 }
 

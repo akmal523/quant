@@ -445,19 +445,6 @@ def init_db() -> None:
         )
     """)
 
-    # ── v10.7.0: Holdings metadata (shares from the broker CSV sync) ─────────
-    # On every CSV sync, shares = Current_Value_EUR / price_eur at sync time.
-    # Between syncs, the daily revalue uses shares * latest close and labels the
-    # value "estimated". Broker PnL stays the synced truth until the next sync.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS holdings_meta (
-            symbol VARCHAR PRIMARY KEY,
-            shares DOUBLE,
-            sync_date DATE,
-            invested_at_sync DOUBLE
-        )
-    """)
-
     # ── v10.7.0: Flows (money entering/leaving the INVESTED pool) ────────────
     # Types: buy (money entered invested), sell (money left invested to cash or
     # out), dividend (left invested, landed in cash). Sparplan auto-flows are

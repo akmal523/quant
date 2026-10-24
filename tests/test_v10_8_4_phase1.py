@@ -1,7 +1,7 @@
 """test_v10_8_4_phase1.py — T1 valuation store + T7 manifest (v10.8.4, Phase 1).
 
-T1: the daily mark-to-market store is the single source; shares are reconstructed
-from the ledger (buys/sells/splits); writes are idempotent per (date, symbol).
+T1: the daily mark-to-market store is the single source; shares are the saved
+holdings tables (position_snapshots) restated by splits; the store is rebuilt.
 T7: every stage is recorded in run_manifest; an empty state names the failed
 stage; a missing NLP input yields a low-confidence score, never a silent None.
 """
@@ -10,42 +10,26 @@ from __future__ import annotations
 from datetime import date
 
 from quant.engine import manifest
-from quant.engine.mtm import (
-    reconstruct_from_rows,
-)
+from quant.engine.mtm import shares_on
 
-# ── T1: pure reconstruction ───────────────────────────────────────────────────
+# ── T1: shares from the saved holdings tables (v10.8.10) ──────────────────────
 
-def test_reconstruct_buys_and_sells_from_ledger():
-    opening = {"AAA": (date(2026, 1, 1), 10.0)}
-    trades = [
-        (date(2026, 2, 1), "AAA", "buy", 5.0),
-        (date(2026, 3, 1), "AAA", "sell", 4.0),
-    ]
-    shares = reconstruct_from_rows(opening, trades, [], date(2026, 6, 1))
-    assert shares["AAA"] == 11.0  # 10 + 5 - 4
+_SNAPS = [(date(2026, 1, 1), {"AAA": 10.0, "BBB": 3.0}),
+          (date(2026, 3, 1), {"AAA": 11.0})]           # BBB sold on the 2nd save
 
 
-def test_reconstruct_applies_split_factor():
-    opening = {"AAA": (date(2026, 1, 1), 10.0)}
-    splits = [(date(2026, 4, 1), "AAA", 2.0)]  # 2:1 split
-    shares = reconstruct_from_rows(opening, [], splits, date(2026, 6, 1))
-    assert shares["AAA"] == 20.0
+def test_shares_are_the_latest_saved_table_on_or_before_the_day():
+    assert shares_on(_SNAPS, [], date(2025, 12, 31)) == {}          # before any save
+    assert shares_on(_SNAPS, [], date(2026, 2, 1)) == {"AAA": 10.0, "BBB": 3.0}
+    assert shares_on(_SNAPS, [], date(2026, 6, 1)) == {"AAA": 11.0}  # BBB gone
 
 
-def test_reconstruct_ignores_trades_on_or_before_opening():
-    # A trade dated on the opening lot's date is already reflected in it.
-    opening = {"AAA": (date(2026, 3, 1), 10.0)}
-    trades = [(date(2026, 3, 1), "AAA", "buy", 5.0)]
-    shares = reconstruct_from_rows(opening, trades, [], date(2026, 6, 1))
-    assert shares["AAA"] == 10.0
-
-
-def test_reconstruct_excludes_future_trades():
-    opening = {"AAA": (date(2026, 1, 1), 10.0)}
-    trades = [(date(2026, 9, 1), "AAA", "buy", 100.0)]
-    shares = reconstruct_from_rows(opening, trades, [], date(2026, 6, 1))
-    assert shares["AAA"] == 10.0
+def test_shares_are_restated_by_later_splits_only():
+    splits = [(date(2026, 4, 1), "AAA", 2.0)]                       # 2:1
+    assert shares_on(_SNAPS, splits, date(2026, 2, 1))["AAA"] == 20.0
+    # a table saved after the split already counts the new shares
+    after = [(date(2026, 5, 1), {"AAA": 22.0})]
+    assert shares_on(after, splits, date(2026, 6, 1)) == {"AAA": 22.0}
 
 
 # ── T1: the store (idempotent writes) ─────────────────────────────────────────

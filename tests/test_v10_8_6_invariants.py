@@ -189,34 +189,23 @@ _V_SYMBOLS = ("EUNL.DE", "AMZN")
 
 @pytest.fixture
 def valuation_store():
-    """Seed holdings_meta + trades + splits + prices, then backfill the store."""
+    """Seed saved holdings tables + a split + prices, then backfill the store."""
     from quant.data.database import write_connection
     from quant.engine import mtm
 
     with write_connection() as conn:
-        # Hermetic: clear the ledger inputs so backfill sees ONLY this fixture's
-        # symbols (a leftover holdings_meta row from another test would otherwise
-        # be valued here too).
-        conn.execute("DELETE FROM valuation")
-        conn.execute("DELETE FROM portfolio_total")
-        conn.execute("DELETE FROM holdings_meta")
-        conn.execute("DELETE FROM trades")
-        conn.execute("DELETE FROM splits")
-        conn.execute("DELETE FROM flows")
+        # Hermetic: the store is rebuilt from position_snapshots, so only this
+        # fixture's snapshots may exist.
+        for t in ("valuation", "portfolio_total", "position_snapshots", "splits", "flows"):
+            conn.execute(f"DELETE FROM {t}")
         for sym in _V_SYMBOLS:
             conn.execute("DELETE FROM market_history WHERE Symbol = ?", [sym])
-        conn.execute(
-            "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-            "VALUES ('EUNL.DE', 10.0, ?, 1000.0)", [date(2026, 10, 1)])
-        conn.execute(
-            "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-            "VALUES ('AMZN', 4.0, ?, 200.0)", [date(2026, 10, 1)])
-        conn.execute(
-            "INSERT INTO trades (date, symbol, action, shares) "
-            "VALUES (?, 'EUNL.DE', 'buy', 5.0)", [date(2026, 10, 5)])
-        conn.execute(
-            "INSERT INTO trades (date, symbol, action, shares) "
-            "VALUES (?, 'EUNL.DE', 'sell', 3.0)", [date(2026, 10, 8)])
+        for d, table in ((date(2026, 10, 1), {"EUNL.DE": 10.0, "AMZN": 4.0}),
+                         (date(2026, 10, 5), {"EUNL.DE": 15.0, "AMZN": 4.0}),
+                         (date(2026, 10, 8), {"EUNL.DE": 12.0, "AMZN": 4.0})):
+            for sym, sh in table.items():
+                conn.execute("INSERT INTO position_snapshots (snapshot_date, symbol, "
+                             "shares) VALUES (?, ?, ?)", [d, sym, sh])
         conn.execute(
             "INSERT INTO splits (symbol, effective_date, factor) "
             "VALUES ('EUNL.DE', ?, 2.0)", [date(2026, 10, 10)])

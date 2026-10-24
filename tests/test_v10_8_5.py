@@ -109,13 +109,13 @@ def test_backfill_writes_one_point_per_trading_day():
     with write_connection() as conn:
         conn.execute("DELETE FROM valuation")
         conn.execute("DELETE FROM portfolio_total")
-        conn.execute("DELETE FROM holdings_meta")
+        conn.execute("DELETE FROM position_snapshots")
         conn.execute("DELETE FROM trades")
         conn.execute("DELETE FROM flows")
         conn.execute("DELETE FROM market_history WHERE Symbol = ?", [sym])
         conn.execute(
-            "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-            "VALUES (?, 10.0, ?, 100.0)", [sym, date(2026, 7, 1)])
+            "INSERT INTO position_snapshots (snapshot_date, symbol, shares) "
+            "VALUES (?, ?, 10.0)", [date(2026, 7, 1), sym])
         for d, close in ((date(2026, 7, 1), 10.0), (date(2026, 7, 2), 11.0),
                          (date(2026, 7, 3), 12.0)):
             conn.execute(

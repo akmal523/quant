@@ -74,7 +74,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 def seeded_down_day(tmp_path, monkeypatch):
     """A portfolio whose stored total fell from 100 to 98 (a down day).
 
-    The ledger (holdings_meta + two market bars) is seeded too, so the startup
+    The saved table (a position snapshot + two market bars) is seeded too, so the startup
     valuation catch-up reproduces the same down day whether or not it runs.
     """
     from quant import paths
@@ -88,11 +88,13 @@ def seeded_down_day(tmp_path, monkeypatch):
     with write_connection() as conn:
         conn.execute("DELETE FROM portfolio_total")
         conn.execute("DELETE FROM valuation")
-        conn.execute("DELETE FROM holdings_meta")
+        conn.execute("DELETE FROM position_snapshots")
         conn.execute("DELETE FROM market_history WHERE Symbol = ?", ["EUNL.DE"])
+        # The saved table matches the seeded totals, so a startup rebuild of the
+        # store (mtm.catch_up) reproduces them exactly.
         conn.execute(
-            "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-            "VALUES (?, ?, ?, ?)", ["EUNL.DE", 1.0, "2026-10-12", 100.0])
+            "INSERT INTO position_snapshots (snapshot_date, symbol, shares) "
+            "VALUES (?, ?, ?)", ["2026-10-12", "EUNL.DE", 1.0])
         conn.execute(
             "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
             "VALUES (?, ?, ?)", ["EUNL.DE", "2026-10-12", 100.0])

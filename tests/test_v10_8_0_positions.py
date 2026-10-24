@@ -21,7 +21,7 @@ def _seed(tmp_path, monkeypatch):
 
     database.init_db()
     with database.write_connection() as conn:
-        conn.execute("DELETE FROM holdings_meta")
+        conn.execute("DELETE FROM position_snapshots")
         conn.execute(
             "INSERT OR REPLACE INTO market_history (Date, Close, Symbol) "
             "VALUES (?, ?, ?)", ["2026-10-01", 100.0, "EUNL.DE"])

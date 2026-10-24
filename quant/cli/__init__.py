@@ -439,6 +439,11 @@ def _cmd_daily(_args: argparse.Namespace) -> int:
 
             updater_main()
 
+        # The timer may run before the app was ever opened on a new version:
+        # bring user data forward (idempotent, copy-only) first.
+        from quant.data.bootstrap import seed_user_data
+
+        seed_user_data()
         result = daily.run_daily(update_fn=_update)
         print(result.message)
         # A DB-busy failure exits nonzero quietly; the morning slot retries.

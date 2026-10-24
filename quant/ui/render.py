@@ -112,10 +112,11 @@ def render_delta_badge(eur, pct, label: str = "") -> None:
 
 
 def _last_sync_date():
-    """The newest holdings_meta sync_date, or None (v10.7.3, Part 3.2)."""
+    """The date of the last Confirm and save (newest position snapshot), or None."""
     try:
         with read_only_connection() as conn:
-            row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
+            row = conn.execute("SELECT MAX(snapshot_date) FROM position_snapshots"
+                               ).fetchone()
         return row[0] if row else None
     except Exception:  # noqa: BLE001
         return None

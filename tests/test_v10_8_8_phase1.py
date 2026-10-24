@@ -128,7 +128,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 def seeded_portfolio(tmp_path, monkeypatch):
     """A one-row portfolio whose live value differs from the typed value.
 
-    The CSV holds the typed value (110); holdings_meta + a market bar make the
+    The CSV holds the typed value (110); a saved table + a market bar make the
     live value 100, so the Entry-check row shows a ~9% delta (amber).
     """
     from quant import paths
@@ -140,11 +140,10 @@ def seeded_portfolio(tmp_path, monkeypatch):
         "EUNL.DE,100.0,110.0,10.0\n", encoding="utf-8")
     monkeypatch.setattr(paths, "DATA_PORTFOLIO", str(csv))
     with write_connection() as conn:
-        conn.execute("DELETE FROM holdings_meta")
         conn.execute("DELETE FROM market_history WHERE Symbol = ?", ["EUNL.DE"])
         conn.execute(
-            "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-            "VALUES (?, ?, ?, ?)", ["EUNL.DE", 1.0, "2099-01-01", 100.0])
+            "INSERT OR REPLACE INTO position_snapshots (snapshot_date, symbol, shares) "
+            "VALUES (?, ?, ?)", ["2099-01-01", "EUNL.DE", 1.0])
         conn.execute(
             "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
             "VALUES (?, ?, ?)", ["EUNL.DE", "2026-10-13", 100.0])

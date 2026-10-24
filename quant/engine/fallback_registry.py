@@ -76,7 +76,8 @@ FALLBACKS: dict[str, dict] = {
                                         "test_fallback_analysis_sentiment"),
     # ── valuation store (mtm) ─────────────────────────────────────────────────
     "mtm._as_date": _e("unparseable date", None, "none", "test_fallback_mtm_as_date"),
-    "mtm._trade_rows": _e("unreadable trades", [], "empty", "test_fallback_mtm_trade_rows"),
+    "mtm._snapshots": _e("unreadable position_snapshots", "the current table as today's",
+                         "none", "test_fallback_mtm_snapshots"),
     "mtm._split_rows": _e("unreadable splits", [], "empty", "test_fallback_mtm_split_rows"),
     "mtm._fx_rate": _e("FX lookup raised", 1.0, "none (currency keeps the last live "
                        "rate, so this only fires on an unexpected error)",

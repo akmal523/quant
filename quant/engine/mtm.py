@@ -10,9 +10,10 @@ of the ``valuation`` / ``portfolio_total`` stores:
   valuation(date, symbol, shares, price_eur, fx, value_eur, source)
   portfolio_total(date, value_eur, cash_eur)
 
-It is written by the daily job, by confirm & save, and by the on-demand refresh;
-it is idempotent per (date, symbol). Shares are reconstructed from the ledger
-(recorded buys/sells plus corporate-action split factors) as of each date.
+It is written by the daily job, by confirm & save, and by the on-demand refresh,
+and rebuilt from scratch each time. Shares on a day are the latest saved
+holdings table on or before it (position_snapshots), restated to today's units
+by later stock splits; value = shares x close x FX.
 
 v10.8.7 (R-C1): uninvested cash is NOT an entity. ``portfolio_total`` is the sum of
 invested position values only. The ``cash_eur`` column is frozen audit data: it is
@@ -20,8 +21,8 @@ written NULL and never read (the physical column drop is deferred). The flows->c
 computation is deleted; the ledger flows remain for audit only.
 
 Invariants:
-  - Pure helpers (reconstruct_shares) do no I/O when the rows are passed in; the
-    I/O wrappers take an explicit connection.
+  - Pure helpers (restate, shares_on) do no I/O; the I/O wrappers take an
+    explicit connection.
   - Never raises on a missing price: the symbol is skipped (its last stored value
     is untouched), never zeroed.
   - value_eur = shares * price_eur * fx, rounded to 2 decimals.
@@ -61,92 +62,61 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 # ── Ledger reconstruction (pure over rows) ────────────────────────────────────
 
-def reconstruct_from_rows(opening: dict, trades: list, splits: list,
-                          as_of: date) -> dict[str, float]:
-    """Reconstruct shares per symbol as of ``as_of``, in CURRENT share units. Pure.
+def restate(shares: float, symbol: str, since: date | None, splits: list) -> float:
+    """Shares counted at ``since``, restated to today's units by later splits. Pure.
 
-    Prices in ``market_history`` are split-adjusted to today's share basis (Yahoo
-    ``auto_adjust`` + a full refetch whenever a split appears), so every lot and
-    trade is restated to today's units: its shares are multiplied by the factor
-    of each split that took effect AFTER the lot/trade date. Shares x adjusted
-    close is then the right value on every day, before and after a split.
-
-    Args:
-        opening: ``{symbol: (base_date, base_shares)}`` — the opening lot (the
-            broker's synced position). A trade dated on or before ``base_date`` is
-            already reflected and is ignored.
-        trades: ``[(trade_date, symbol, action, shares)]`` (buy/sell).
-        splits: ``[(effective_date, symbol, factor)]`` (factor 2.0 for a 2:1).
-        as_of: the valuation date.
-
-    Returns ``{symbol: shares}`` (positive shares only).
+    Prices in ``market_history`` are split-adjusted to today's share basis, so a
+    count taken before a split is multiplied by that split's factor (2.0 for 2:1).
     """
-    later: dict[str, list[tuple[date, float]]] = {}
     for row in splits or []:
         eff, sym, factor = (list(row) + [None, None, None])[:3]
-        ed = _as_date(eff)
-        f = _num(factor, 1.0)
-        if ed is not None and f > 0:
-            later.setdefault(str(sym), []).append((ed, f))
-
-    def _restate(sym: str, when: date | None, shares: float) -> float:
-        for ed, f in later.get(sym, []):
-            if when is None or ed > when:
-                shares *= f
-        return shares
-
-    out: dict[str, tuple[date | None, float]] = {}
-    for sym, base in (opening or {}).items():
-        base_date, base_shares = base
-        bd = _as_date(base_date)
-        out[str(sym)] = (bd, _restate(str(sym), bd, _num(base_shares)))
-
-    for row in trades or []:
-        t_date, sym, action, shares = (list(row) + [None, None, None, None])[:4]
-        td = _as_date(t_date)
-        if td is None or td > as_of:
-            continue
-        sym = str(sym)
-        signed = _num(shares)
-        if str(action).lower() == "sell":
-            signed = -signed
-        elif str(action).lower() != "buy":
-            continue
-        base_date, current = out.get(sym, (None, 0.0))
-        # A trade on or before the opening lot's date is already in that lot.
-        if base_date is not None and td <= base_date:
-            continue
-        out[sym] = (base_date, current + _restate(sym, td, signed))
-
-    return {sym: round(v, 6) for sym, (_d, v) in out.items() if v > 0}
+        ed, f = _as_date(eff), _num(factor, 1.0)
+        if str(sym) == str(symbol) and ed is not None and f > 0 and (
+                since is None or ed > since):
+            shares *= f
+    return shares
 
 
-# ── Ledger reads (explicit connection) ────────────────────────────────────────
+def shares_on(snapshots: list, splits: list, day: date) -> dict[str, float]:
+    """Shares per symbol held on ``day``, in today's units. Pure.
 
-def _opening_lots(conn: Any) -> dict:
-    """The opening lot per symbol: {symbol: (sync_date, shares)}.
-
-    Source: ``holdings_meta`` (the broker CSV sync). A symbol with no row has no
-    opening lot (its shares come solely from recorded trades).
+    ``snapshots`` is ``[(snapshot_date, {symbol: shares}), ...]`` sorted by date:
+    each is the whole holdings table as saved that day (Confirm and save), so
+    the latest one on or before ``day`` is what was held. Before the first one,
+    nothing was held.
     """
-    out: dict = {}
-    try:
-        rows = conn.execute(
-            "SELECT symbol, shares, sync_date FROM holdings_meta").fetchall()
-    except Exception:  # noqa: BLE001
-        return out
-    for sym, shares, sync_date in rows:
-        out[str(sym)] = (sync_date, _num(shares))
-    return out
+    held: tuple | None = None
+    for snap_day, table in snapshots:
+        if snap_day <= day:
+            held = (snap_day, table)
+        else:
+            break
+    if held is None:
+        return {}
+    snap_day, table = held
+    return {sym: round(restate(sh, sym, snap_day, splits), 6)
+            for sym, sh in table.items() if sh > 0}
 
 
-def _trade_rows(conn: Any) -> list:
-    """Recorded trades: [(date, symbol, action, shares)]."""
+def _snapshots(conn: Any) -> list:
+    """``[(date, {symbol: shares})]`` from position_snapshots, oldest first.
+
+    No snapshot yet (nothing saved) -> the current holdings table as today's.
+    """
     try:
-        return conn.execute(
-            "SELECT date, symbol, action, shares FROM trades ORDER BY date").fetchall()
+        rows = conn.execute("SELECT snapshot_date, symbol, shares FROM position_snapshots "
+                            "ORDER BY snapshot_date").fetchall()
     except Exception:  # noqa: BLE001
-        return []
+        rows = []
+    by_day: dict = {}
+    for d, sym, sh in rows:
+        by_day.setdefault(_as_date(d), {})[str(sym)] = _num(sh)
+    if by_day:
+        return sorted(by_day.items())
+    from quant.engine.positions import positions_now
+
+    table = {p["symbol"]: p["shares"] for p in positions_now(None) if p["shares"] > 0}
+    return [(date.today(), table)] if table else []
 
 
 def _split_rows(conn: Any) -> list:
@@ -207,66 +177,54 @@ def _close_on_or_before(series: list, day: date) -> float | None:
     return series[idx][1] if idx >= 0 else None
 
 
-def _first_held_day(opening: dict, trades: list) -> date | None:
-    """The earliest day the portfolio held anything."""
-    days = [_as_date(b[0]) for b in opening.values() if b and b[0] is not None]
-    days += [_as_date(t[0]) for t in trades if t and t[0] is not None]
-    days = [d for d in days if d is not None]
-    return min(days) if days else None
-
-
 def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
              source: str = SOURCE_BACKFILL, start: date | None = None,
              end: date | None = None) -> dict:
-    """Write a valuation row for EVERY trading day the portfolio was held (T2).
+    """Rebuild the store: one valuation row per held symbol per trading day.
 
-    Shares are reconstructed from the ledger as of each day; value = shares *
-    close * fx. v10.8.7 (R-C1): cash is not tracked. The series is continuous (one
-    point per trading day, no forward-filled total) and its tail equals the latest
-    close. Idempotent per (date, symbol). Returns ``{days, rows}``. Never raises.
+    v10.8.10: shares come from the saved holdings tables (position_snapshots),
+    not from a reconstructed ledger (opening lots + diff trades), which one bad
+    row could corrupt for good. The store is rebuilt from scratch on every call
+    (small: days x holdings), so it heals itself. value = shares x close x FX.
+    Returns ``{days, rows}``. Never raises.
     """
-    opening = _opening_lots(conn)
-    trades = _trade_rows(conn)
-    splits = _split_rows(conn)
-    symbols = set(opening) | {str(t[1]) for t in trades if len(t) > 1 and t[1]}
-    if not symbols:
+    snapshots = _snapshots(conn)
+    if not snapshots:
         return {"days": 0, "rows": 0}
-
+    splits = _split_rows(conn)
+    symbols = {s for _d, table in snapshots for s in table}
     hist = _price_history(conn, symbols)
     days = sorted({d for s in hist.values() for d, _c in s})
-    if not days and callable(price_lookup):
-        base = _first_held_day(opening, trades) or date.today()
-        days = [base]
-    if not days:
+    first = snapshots[0][0]
+    if callable(price_lookup):
+        days = sorted(set(days) | {first})
+    days = [d for d in days if d >= (_as_date(start) or first)
+            and (end is None or d <= _as_date(end))]
+    try:
+        if start is None and end is None:
+            conn.execute("DELETE FROM valuation")
+            conn.execute("DELETE FROM portfolio_total")
+    except Exception:  # noqa: BLE001
         return {"days": 0, "rows": 0}
-
-    start = _as_date(start) or _first_held_day(opening, trades)
-    end = _as_date(end) or days[-1]
-    rows = 0
-    day_count = 0
+    fx_cache: dict = {}
+    rows = day_count = 0
     for d in days:
-        if start and d < start:
-            continue
-        if end and d > end:
-            continue
-        shares = reconstruct_from_rows(opening, trades, splits, d)
         total = 0.0
-        for sym, sh in shares.items():
-            if callable(price_lookup):
-                price = price_lookup(sym)
-            else:
-                price = _close_on_or_before(hist.get(sym, []), d)
+        for sym, sh in shares_on(snapshots, splits, d).items():
+            price = (price_lookup(sym) if callable(price_lookup)
+                     else _close_on_or_before(hist.get(sym, []), d))
             if price is None:
                 continue
-            fx = float(fx_lookup(sym)) if callable(fx_lookup) else _fx_rate(sym)
-            fx = fx or 1.0
-            value = round(sh * float(price) * fx, 2)
+            if sym not in fx_cache:
+                fx_cache[sym] = (float(fx_lookup(sym)) if callable(fx_lookup)
+                                 else _fx_rate(sym)) or 1.0
+            value = round(sh * float(price) * fx_cache[sym], 2)
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO valuation "
                     "(date, symbol, shares, price_eur, fx, value_eur, source) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [d, sym, sh, float(price), fx, value, str(source)])
+                    [d, sym, sh, float(price), fx_cache[sym], value, str(source)])
                 rows += 1
                 total += value
             except Exception:  # noqa: BLE001

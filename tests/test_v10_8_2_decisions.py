@@ -34,6 +34,8 @@ def test_amount_uses_thousands_separator():
 
 
 def test_no_bare_reason_line_is_always_label_plus_verb():
-    # A change_savings_plan item has no amount but still names the instrument.
-    line = format_item_line(_item("change_savings_plan", "Alpha (AAA)"))
-    assert line == "Change the savings plan for Alpha (AAA)"
+    # A plan change has no amount but still names the instrument.
+    assert (format_item_line(_item("plan_up", "Alpha (AAA)"))
+            == "Raise the savings plan for Alpha (AAA)")
+    assert (format_item_line(_item("plan_down", "Alpha (AAA)"))
+            == "Lower the savings plan for Alpha (AAA)")

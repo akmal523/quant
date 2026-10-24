@@ -72,9 +72,11 @@ def _to_date(value: Any) -> date | None:
 
 def _universe(conn: Any) -> list[str]:
     """The symbols the analysis covers: held + registry + funnel survivors."""
-    out: set[str] = set()
+    from quant import paths
+    from quant.portfolio.portfolio import load_portfolio
+
+    out: set[str] = {str(s) for s in load_portfolio(paths.DATA_PORTFOLIO).get("Symbol", [])}
     for sql in (
-        "SELECT DISTINCT symbol FROM holdings_meta",
         "SELECT symbol FROM asset_registry",
         "SELECT symbol FROM funnel_survivors",
     ):
@@ -232,7 +234,7 @@ def _fetch_stage(conn: Any, run_id: str, stage: str, table: str, col: str,
                        coverage=manifest.coverage_text((covered, total)))
     return _record(conn, run_id, stage, manifest.STATUS_MISSING,
                    coverage=manifest.coverage_text((0, total)),
-                   error="no data source available")
+                   error=f"nothing newer than {ttl} day(s); press Refresh prices")
 
 
 REGIME_META_KEY = "analysis_regime"

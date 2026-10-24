@@ -40,7 +40,7 @@ def invested_ledger():
     with write_connection() as conn:
         conn.execute("DELETE FROM valuation")
         conn.execute("DELETE FROM portfolio_total")
-        conn.execute("DELETE FROM holdings_meta")
+        conn.execute("DELETE FROM position_snapshots")
         conn.execute("DELETE FROM trades")
         conn.execute("DELETE FROM splits")
         conn.execute("DELETE FROM flows")
@@ -48,8 +48,8 @@ def invested_ledger():
             conn.execute("DELETE FROM market_history WHERE Symbol = ?", [sym])
         for sym, (shares, price) in _INVESTED.items():
             conn.execute(
-                "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-                "VALUES (?, ?, ?, ?)", [sym, shares, _DAY, shares * price])
+                "INSERT INTO position_snapshots (snapshot_date, symbol, shares) "
+                "VALUES (?, ?, ?)", [_DAY, sym, shares])
             conn.execute(
                 "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
                 "VALUES (?, ?, ?)", [sym, str(_DAY), price])

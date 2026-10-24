@@ -184,27 +184,41 @@ def test_fx_uses_the_currency_yahoo_reports(monkeypatch):
 
 # ── Stock splits ──────────────────────────────────────────────────────────────
 
-def test_ledger_shares_are_restated_to_todays_units_on_every_day():
-    from quant.engine.mtm import reconstruct_from_rows
-
-    opening = {"AAA": (date(2026, 1, 1), 10.0)}
-    trades = [(date(2026, 5, 1), "AAA", "buy", 4.0)]     # after the split
-    splits = [(date(2026, 4, 1), "AAA", 2.0)]
-    # Before the split day too: prices are adjusted, so shares must be as well.
-    assert reconstruct_from_rows(opening, trades, splits, date(2026, 3, 1)) == {"AAA": 20.0}
-    assert reconstruct_from_rows(opening, trades, splits, date(2026, 6, 1)) == {"AAA": 24.0}
-
-
 def test_value_is_continuous_across_a_split():
-    """10 shares at 100 -> 2:1 split -> adjusted closes 50: value stays 1000."""
-    from quant.engine.mtm import reconstruct_from_rows
+    """10 shares saved before a 2:1 split, adjusted closes 50: value stays 1000."""
+    from quant.engine.mtm import shares_on
 
-    opening = {"AAA": (date(2026, 1, 1), 10.0)}
+    snaps = [(date(2026, 1, 1), {"AAA": 10.0})]
     splits = [(date(2026, 4, 1), "AAA", 2.0)]
-    adjusted_close = {date(2026, 3, 31): 50.0, date(2026, 4, 1): 50.0}
-    values = {d: reconstruct_from_rows(opening, [], splits, d)["AAA"] * px
-              for d, px in adjusted_close.items()}
+    values = {d: shares_on(snaps, splits, d)["AAA"] * 50.0
+              for d in (date(2026, 3, 31), date(2026, 4, 1))}
     assert set(values.values()) == {1000.0}
+
+
+def test_store_is_rebuilt_from_snapshots_and_drops_stale_rows():
+    from quant.data.database import write_connection
+    from quant.engine import mtm
+
+    with write_connection() as conn:
+        for t in ("valuation", "portfolio_total", "position_snapshots", "splits"):
+            conn.execute(f"DELETE FROM {t}")
+        conn.execute("DELETE FROM market_history WHERE Symbol IN ('SNA', 'GHOST')")
+        conn.execute("INSERT INTO valuation (date, symbol, shares, price_eur, fx, value_eur, "
+                     "source) VALUES (?, 'GHOST', 1, 1, 1, 999, 'old')", [date(2026, 10, 2)])
+        conn.execute("INSERT INTO position_snapshots (snapshot_date, symbol, shares) "
+                     "VALUES (?, 'SNA', 4)", [date(2026, 10, 1)])
+        for d, px in ((date(2026, 10, 1), 10.0), (date(2026, 10, 2), 12.0)):
+            conn.execute("INSERT INTO market_history (Symbol, Date, Close) VALUES "
+                         "('SNA', ?, ?)", [str(d), px])
+        res = mtm.backfill(conn, fx_lookup=lambda _s: 1.0)
+        rows = conn.execute("SELECT date, symbol, value_eur FROM valuation ORDER BY date"
+                            ).fetchall()
+        conn.execute("DELETE FROM valuation")
+        conn.execute("DELETE FROM portfolio_total")
+        conn.execute("DELETE FROM position_snapshots")
+        conn.execute("DELETE FROM market_history WHERE Symbol = 'SNA'")
+    assert res == {"days": 2, "rows": 2}
+    assert rows == [(date(2026, 10, 1), "SNA", 40.0), (date(2026, 10, 2), "SNA", 48.0)]
 
 
 def test_review_diff_reads_a_split_not_a_buy():

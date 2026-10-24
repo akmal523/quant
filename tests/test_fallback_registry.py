@@ -45,6 +45,11 @@ def _triggers() -> dict[str, tuple]:
         with mock.patch("quant.engine.holdings_view.holdings_view", side_effect=_raise):
             return today_list.persist()
 
+    def _snapshots_broken():
+        # Unreadable snapshots fall back to the current table (empty here).
+        with mock.patch("quant.engine.positions.positions_now", return_value=[]):
+            return mtm._snapshots(_BrokenConn())
+
     def _fx_rate_broken():
         with mock.patch("quant.data.currency.get_fx_to_eur", side_effect=_raise):
             return mtm._fx_rate("AMZN")
@@ -88,7 +93,7 @@ def _triggers() -> dict[str, tuple]:
         "analysis._sentiment_component": (
             lambda: analysis._sentiment_component(_BrokenConn(), "X"), None),
         "mtm._as_date": (lambda: mtm._as_date("not-a-date"), None),
-        "mtm._trade_rows": (lambda: mtm._trade_rows(_BrokenConn()), []),
+        "mtm._snapshots": (_snapshots_broken, []),
         "mtm._split_rows": (lambda: mtm._split_rows(_BrokenConn()), []),
         "mtm._fx_rate": (_fx_rate_broken, 1.0),
         "mtm._price_history": (lambda: mtm._price_history(_BrokenConn(), {"X"}), {}),

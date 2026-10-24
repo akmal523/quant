@@ -123,15 +123,14 @@ def seeded_analysis(tmp_path, monkeypatch):
         "AMZN,150.0,300.0,0.0\n", encoding="utf-8")
     monkeypatch.setattr(paths, "DATA_PORTFOLIO", str(csv))
     with write_connection() as conn:
-        conn.execute("DELETE FROM holdings_meta")
         conn.execute("DELETE FROM market_history")
         conn.execute("DELETE FROM nlp_evidence")
         conn.execute("DELETE FROM valuation")
         conn.execute("DELETE FROM advice_log")
         for sym in ("EUNL.DE", "AMZN"):
             conn.execute(
-                "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-                "VALUES (?, ?, ?, ?)", [sym, 1.0, "2026-10-13", 100.0])
+                "INSERT OR REPLACE INTO position_snapshots (snapshot_date, symbol, shares) "
+                "VALUES (?, ?, ?)", ["2026-10-13", sym, 1.0])
             conn.execute(
                 "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
                 "VALUES (?, ?, ?)", [sym, "2026-10-13", 100.0])
