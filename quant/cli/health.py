@@ -2,8 +2,8 @@
 health.py — System health checks and diagnostics (v10.6.4).
 
 Intent: one read-only check that reports the common failure modes: stale market
-data, an invalid tiers file, tier allocation violations, a broken database, a
-stale signal cache, and a missing data source. No writes, no secrets.
+data, an invalid tiers file, a broken database, and a missing data source. No
+writes, no secrets.
 
 Invariants:
   - ``run_health_check`` never raises; returns

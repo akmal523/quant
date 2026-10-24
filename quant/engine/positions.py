@@ -1,7 +1,7 @@
 """positions.py — the ONE source of current positions (v10.8.0, 2.1).
 
-Intent: every page, the allocator, advice, alerts, Telegram and reports read the
-same positions. Before v10.8.0 the same holding's value came from three places
+Intent: every page, advice, alerts, Telegram and reports read the same
+positions. Before v10.8.0 the same holding's value came from three places
 (the holdings_meta estimate, the review artifact, the broker CSV), so the pages
 disagreed. This module returns one list of position dicts.
 

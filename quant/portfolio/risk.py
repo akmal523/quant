@@ -1,24 +1,27 @@
 """
-risk.py — Asymmetric downside risk quantification.
-Replaces linear correlation with empirical tail risk (VaR) and lower partial moments (Sortino).
+risk.py — tail-risk penalty for the review scoring (``quant run``).
 
-Phase 4 (2.1): The risk-free rate is now the Trade Republic cash APY (2.5% from
-16 Sep 2026; 2.25% before), converted to a daily yield. This is the REAL
-opportunity cost of capital, not the theoretical US Treasury yield.
-v10.5.1: the rate comes from quant/portfolio/cash_rate.py (dated schedule).
+Intent: penalize assets by their empirical downside tail (historical VaR) instead
+of a linear correlation measure. :func:`calculate_risk_penalty` is subtracted
+from the tactical grade in :func:`quant.main.process_asset`.
+
+Invariants: pure functions, no I/O.
 """
 import warnings
 
 import numpy as np
 import pandas as pd
 
+# Kept from the original module: importing it silences numpy RuntimeWarnings
+# (empty-slice / NaN arithmetic) process-wide, which the review pipeline's
+# per-asset math relies on for a clean log.
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 def calculate_historical_var(returns: pd.Series, confidence_level: float = 0.95) -> float:
-    """
-    Эмпирический Value at Risk (VaR).
-    Определяет максимальный ожидаемый дневной убыток на заданном интервале уверенности.
+    """Empirical Value at Risk: the daily return at the ``1 - confidence`` percentile.
+
+    Returns a negative number for a loss (0.0 when there are no returns).
     """
     clean_returns = returns.dropna()
     if clean_returns.empty:
@@ -30,9 +33,9 @@ def calculate_historical_var(returns: pd.Series, confidence_level: float = 0.95)
 
 
 def calculate_risk_penalty(returns: pd.Series, var_threshold: float = -0.05) -> float:
-    """
-    Вычисление штрафных баллов на базе экстремальных отклонений.
-    Заменяет штраф за корреляцию Пирсона в композитном скоринге.
+    """Penalty points (0-25) for a 95% VaR worse than ``var_threshold``.
+
+    Replaces the old Pearson-correlation penalty in the composite scoring.
     """
     if returns.empty:
         return 0.0
@@ -40,7 +43,7 @@ def calculate_risk_penalty(returns: pd.Series, var_threshold: float = -0.05) -> 
     var_95 = calculate_historical_var(returns, 0.95)
     penalty = 0.0
 
-    # var_95 выражен отрицательным числом. Штраф начисляется, если риск превышает порог.
+    # var_95 is negative; penalize only the part of the tail beyond the threshold.
     if var_95 < var_threshold:
         excess_risk = abs(var_95 - var_threshold)
         penalty = (excess_risk / abs(var_threshold)) * 15.0

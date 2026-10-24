@@ -30,9 +30,8 @@ def load_portfolio(filepath: str = paths.DATA_PORTFOLIO) -> pd.DataFrame:
     The user copies exactly what Trade Republic shows. Invested_EUR is derived
     (Current_Value_EUR - Broker_PnL_EUR), never guessed from price history.
 
-    Backward-compat aliases are emitted so legacy callers (briefing, tax
-    optimizer) keep working: Buy_Price=Avg_Entry_Price, Amount_EUR=
-    Current_Value_EUR, Original_Amount=Invested_EUR.
+    Backward-compat aliases are emitted for the review audit: Buy_Price=
+    Avg_Entry_Price, Amount_EUR=Current_Value_EUR, Original_Amount=Invested_EUR.
     Invariants: returns a DataFrame with Symbol + all new/legacy columns.
     """
     required_cols = ["Symbol", "Avg_Entry_Price", "Current_Value_EUR", "Broker_PnL_EUR"]
@@ -206,8 +205,8 @@ def enhanced_portfolio_audit(
     computed, time-gated by rebalance_log, and gated by fee + liquidity.
     CORE assets never get a SELL signal (see generate_signal_for_tier).
     Invariants: returns a DataFrame with Tier/Drift/Signal/Recommendation.
-    Dependencies: classify_asset, should_rebalance_asset, scoring.generate_signal_for_tier,
-    optimizer.calculate_min_trade_size / check_volume_liquidity.
+    Dependencies: classify_asset, scoring.generate_signal_for_tier,
+    trade_size.calculate_min_trade_size / check_volume_liquidity.
     """
     from quant.analytics.scoring import generate_signal_for_tier
     from quant.portfolio.trade_size import calculate_min_trade_size, check_volume_liquidity
@@ -370,7 +369,7 @@ def enhanced_portfolio_audit(
             "Horizon": horizon,
             "Recommendation": recommendation,
             "Cooldown_Until": cooldown_until,
-            # Backward-compat aliases (tax optimizer, briefing, effectiveness).
+            # Backward-compat aliases (review audit, briefing, effectiveness).
             "PnL_pct": round(real_pnl_pct, 2),
             "PnL_EUR": round(real_pnl_eur, 2),
             "Current_Price": curr_price,

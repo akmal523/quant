@@ -1,17 +1,15 @@
 """
-regime_constraints.py — Regime-Conditional Risk Limits (v10.4.0, Phase 3).
+regime_constraints.py — the market-regime vocabulary (v10.4.0; v10.8.10).
 
-Intent: risk limits must depend on the market regime. In a Bear/Chop regime the
-system hard-codes a 2% max single-stock weight and forbids leverage; in a Bull
-regime the normal caps apply. This prevents the optimizer from concentrating
-into volatile names exactly when the regime is hostile.
+Intent: one place maps an HMM bull probability to a regime key and normalises
+the two label vocabularies in use (engine keys bull/bear/chop; the review's
+human words rising/falling/mixed), so every consumer (advice, alerts, the ONE
+list) recognises a bear market the same way.
 
 Invariants:
   - regime_from_bull_prob returns one of {bull, bear, chop}.
-  - constraints_for_regime returns a dict with max_single_weight, max_leverage.
+  - regime_key / is_bear accept a label or a regime dict in either vocabulary.
   - Pure functions (no I/O).
-
-Dependencies: config.REGIME_CONSTRAINTS.
 """
 from __future__ import annotations
 
@@ -24,8 +22,8 @@ BEAR_THRESHOLD = 0.40
 def regime_from_bull_prob(bull_prob: float) -> str:
     """Map an HMM bull probability to a discrete regime label.
 
-    Intent: translate the continuous regime signal into the discrete keys used by
-    REGIME_CONSTRAINTS. Invariants: returns one of {bull, bear, chop}.
+    Intent: translate the continuous regime signal into a discrete key.
+    Invariants: returns one of {bull, bear, chop}.
     """
     if bull_prob is None:
         return "chop"
