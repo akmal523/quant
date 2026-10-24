@@ -17,7 +17,6 @@ DB_PATH = paths.DB_FILE
 CONNECT_TIMEOUT = 15.0
 _local = threading.local()
 
-
 def _connect_with_timeout(timeout: float = CONNECT_TIMEOUT) -> duckdb.DuckDBPyConnection:
     """Open the DB read-write, but never block longer than ``timeout`` seconds.
 
@@ -47,7 +46,6 @@ def _connect_with_timeout(timeout: float = CONNECT_TIMEOUT) -> duckdb.DuckDBPyCo
         raise error[0]
     return result[0]
 
-
 def connect_with_retry(
     attempts: int = 6,
     delay: float = 0.5,
@@ -74,7 +72,6 @@ def connect_with_retry(
     assert last is not None
     raise last
 
-
 # ── v10.7.2 (Part 1.2): short writer transactions with a bounded retry ────────
 # Every writer opens ONE connection through write_connection(), yields, and
 # closes it in ``finally``. On a DuckDB lock/IO error it retries up to 5 attempts
@@ -92,14 +89,12 @@ def _is_lock_error(exc: Exception) -> bool:
     return any(token in text for token in
                ("lock", "conflicting", "io error", "busy", "transaction"))
 
-
 def _write_backoff(attempts: int, total_seconds: float) -> list[float]:
     """Evenly spaced delays so the retry budget totals about ``total_seconds``."""
     sleeps = max(0, attempts - 1)
     if sleeps == 0:
         return []
     return [total_seconds / sleeps] * sleeps
-
 
 @contextmanager
 def write_connection(
@@ -147,7 +142,6 @@ def write_connection(
     if last is not None:
         raise last
 
-
 @contextmanager
 def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     """Short-lived read-only DuckDB connection. Always closed on exit.
@@ -194,7 +188,6 @@ def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     if last is not None:
         raise last
 
-
 def get_connection() -> duckdb.DuckDBPyConnection:
     """Provides thread-local DuckDB connection (pipeline writers only).
 
@@ -205,7 +198,6 @@ def get_connection() -> duckdb.DuckDBPyConnection:
         # DuckDB allows concurrent reads, strictly one write process.
         _local.conn = _connect_with_timeout()
     return _local.conn
-
 
 def use_connection(conn: duckdb.DuckDBPyConnection) -> None:
     """Bind ``conn`` as this thread's connection (pipeline writers)."""
@@ -218,7 +210,6 @@ def migrate_registry_display_name(conn: duckdb.DuckDBPyConnection) -> None:
     the migration safe on both old and fresh schemas.
     """
     conn.execute("ALTER TABLE asset_registry ADD COLUMN IF NOT EXISTS display_name VARCHAR")
-
 
 def init_db() -> None:
     """Initializes unified OLAP schemas.
@@ -340,25 +331,6 @@ def init_db() -> None:
             score DOUBLE,
             confidence VARCHAR,
             retrieved_at TIMESTAMP DEFAULT now()
-        )
-    """)
-
-    # Point-in-time fundamentals history (Pillar 1.3 — no lookahead bias).
-    # as_of_date: the date the fundamentals are valid for.
-    # published_date: when the market actually knew them.
-    # Backtests must filter published_date <= scoring_date to avoid lookahead.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS fundamentals_history (
-            symbol VARCHAR,
-            as_of_date DATE,
-            published_date DATE,
-            pe DOUBLE,
-            peg DOUBLE,
-            roe DOUBLE,
-            debt_to_equity DOUBLE,
-            ebit DOUBLE,
-            interest_expense DOUBLE,
-            PRIMARY KEY (symbol, as_of_date)
         )
     """)
 
@@ -491,28 +463,9 @@ def init_db() -> None:
         )
     """)
 
-    # ── v10.4.0 (Phase 2): Trade log for Transaction Cost Analysis (TCA) ──────
-    # Records the signal price/time vs the actual fill price/time so the
-    # Implementation Shortfall (slippage in bps) can be measured per trade.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS trade_log (
-            ts TIMESTAMP DEFAULT now(),
-            symbol VARCHAR,
-            side VARCHAR,
-            signal_price DOUBLE,
-            signal_ts TIMESTAMP,
-            fill_price DOUBLE,
-            fill_ts TIMESTAMP,
-            slippage_bps DOUBLE,
-            fee_eur DOUBLE
-        )
-    """)
-
     # ── v10.7.6 (Part 2): Tax ledger (Sparerpauschbetrag tracking) ────────────
-    # A SEPARATE ledger from trade_log (which is TCA: signal vs fill slippage).
     # One row per buy, sell, or dividend, with the realized PnL for sells. The
-    # tax summary reads this table; trade_log is never renamed or touched, so
-    # TCA and the weekly-trade guardrail keep working unchanged.
+    # tax summary and the valuation backfill read this table.
     conn.execute("CREATE SEQUENCE IF NOT EXISTS trades_id_seq START 1")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS trades (
@@ -526,20 +479,6 @@ def init_db() -> None:
             fee_eur DOUBLE DEFAULT 0,
             realized_pnl_eur DOUBLE,
             created_at TIMESTAMP DEFAULT now()
-        )
-    """)
-
-    # ── v10.4.0 (Phase 2): Daily theoretical portfolio snapshot ───────────────
-    # The reconciliation engine diffs this against the Trade Republic CSV export
-    # to detect divergence (missing dividend, unexecuted limit order).
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio_snapshot (
-            snapshot_date DATE,
-            symbol VARCHAR,
-            shares DOUBLE,
-            price_eur DOUBLE,
-            value_eur DOUBLE,
-            PRIMARY KEY (snapshot_date, symbol)
         )
     """)
 
@@ -583,15 +522,6 @@ def init_db() -> None:
             symbol VARCHAR,
             note VARCHAR,
             created_at TIMESTAMP DEFAULT now()
-        )
-    """)
-
-    # ── v10.7.0: Invested value series (shares * close, written by the daily job)
-    # The Overview chart reads THIS table, never a series that includes cash.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio_value_history (
-            date DATE PRIMARY KEY,
-            invested_eur DOUBLE
         )
     """)
 
@@ -720,18 +650,6 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS meta (
             key VARCHAR PRIMARY KEY,
             value VARCHAR
-        )
-    """)
-
-    # ── v10.7.0: Monthly savings-plan decisions (Section 8) ──────────────────
-    # One row per month: the budget, the approved legs (JSON), and the dates.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS monthly_plans (
-            month VARCHAR PRIMARY KEY,
-            budget_eur DOUBLE,
-            legs_json VARCHAR,
-            approved_date DATE,
-            execution_date DATE
         )
     """)
 

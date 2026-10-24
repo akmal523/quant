@@ -10,9 +10,8 @@ Rules (Germany 2026):
   - Sparerpauschbetrag: 1000 EUR single, 2000 EUR married, per year.
   - Realized losses offset realized gains within the same year.
 
-The ledger is the ``trades`` table (a separate table from ``trade_log``, which is
-TCA). This module is the single source of truth for realized gains and losses;
-``quant.portfolio.tax_optimizer`` reads them through the helpers here.
+The ledger is the ``trades`` table (written by Confirm and save). This module is
+the single source of truth for the yearly tax summary shown on History.
 
 Invariants:
   - ``calculate_yearly_tax_summary`` returns a dict with non-negative taxable

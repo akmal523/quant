@@ -71,31 +71,6 @@ def _save_to_cache(symbol: str, data: dict) -> None:
     )
 
 
-def save_fundamentals_history(symbol: str, data: dict, as_of_date: str,
-                              published_date: str | None = None) -> None:
-    """Persist a point-in-time fundamentals snapshot.
-
-    Intent: enable no-lookahead backtests. published_date defaults to as_of_date
-    (assume data known same day); set explicitly when a lag is known.
-    Invariants: one row per (symbol, as_of_date); INSERT OR REPLACE.
-    """
-    conn = get_connection()
-    conn.execute(
-        """INSERT OR REPLACE INTO fundamentals_history
-           (symbol, as_of_date, published_date, pe, peg, roe, debt_to_equity,
-            ebit, interest_expense)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        [
-            symbol,
-            as_of_date,
-            published_date or as_of_date,
-            data.get("PE"), data.get("PEG"), data.get("ROE"),
-            data.get("DebtToEquity"),
-            data.get("EBIT"), data.get("InterestExpense"),
-        ]
-    )
-
-
 # ── ICR Computation ───────────────────────────────────────────────────────────
 
 def _compute_icr(data: dict) -> float | None:
@@ -251,14 +226,6 @@ def get_fundamentals(symbol: str) -> dict:
 
     if data:
         _save_to_cache(symbol, data)
-        # v10.4.0 (Phase 1): persist a bitemporal PIT snapshot so future backtests
-        # can replay what was known on a given date. Live fetch => published today.
-        try:
-            import datetime as _dt
-            today = _dt.date.today().isoformat()
-            save_fundamentals_history(symbol, data, as_of_date=today, published_date=today)
-        except Exception:
-            pass
         data["ICR"] = _compute_icr(data)
         return data
 

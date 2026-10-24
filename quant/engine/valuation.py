@@ -161,15 +161,6 @@ def unpriceable_symbols(conn: Any, price_lookup: Any) -> list[str]:
     return out
 
 
-def write_value_history(conn: Any, as_of: date, invested_eur: float) -> None:
-    """Upsert one row into portfolio_value_history (invested pool only)."""
-    conn.execute(
-        "INSERT OR REPLACE INTO portfolio_value_history (date, invested_eur) "
-        "VALUES (?, ?)",
-        [as_of, float(invested_eur)],
-    )
-
-
 def _last_sync_date(conn) -> date | None:
     """The most recent holdings_meta sync date, or None."""
     try:

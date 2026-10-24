@@ -258,7 +258,7 @@ def run_daily(
     except Exception:  # noqa: BLE001
         pass
 
-    # Revalue holdings and write the invested value series.
+    # Revalue holdings (holdings_meta shares x latest close) for the run summary.
     invested = None
     try:
         from quant.engine import valuation
@@ -266,7 +266,6 @@ def run_daily(
         values = valuation.revalue_holdings(conn, lambda s: _latest_close(conn, s))
         if values:
             invested = sum(values.values())
-            valuation.write_value_history(conn, today, invested)
     except Exception:  # noqa: BLE001
         pass
 
