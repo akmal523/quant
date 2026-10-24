@@ -262,3 +262,65 @@ def test_offline_fx_uses_the_last_live_rate_not_one(tmp_path, monkeypatch):
     currency._save_last_rate(1.16)
     monkeypatch.setattr(currency, "_eur_rate_cache", None)
     assert currency.get_eur_rate() == 1.16
+
+
+# ── Stock splits ──────────────────────────────────────────────────────────────
+
+def test_ledger_shares_are_restated_to_todays_units_on_every_day():
+    from quant.engine.mtm import reconstruct_from_rows
+
+    opening = {"AAA": (date(2026, 1, 1), 10.0)}
+    trades = [(date(2026, 5, 1), "AAA", "buy", 4.0)]     # after the split
+    splits = [(date(2026, 4, 1), "AAA", 2.0)]
+    # Before the split day too: prices are adjusted, so shares must be as well.
+    assert reconstruct_from_rows(opening, trades, splits, date(2026, 3, 1)) == {"AAA": 20.0}
+    assert reconstruct_from_rows(opening, trades, splits, date(2026, 6, 1)) == {"AAA": 24.0}
+
+
+def test_value_is_continuous_across_a_split():
+    """10 shares at 100 -> 2:1 split -> adjusted closes 50: value stays 1000."""
+    from quant.engine.mtm import reconstruct_from_rows
+
+    opening = {"AAA": (date(2026, 1, 1), 10.0)}
+    splits = [(date(2026, 4, 1), "AAA", 2.0)]
+    adjusted_close = {date(2026, 3, 31): 50.0, date(2026, 4, 1): 50.0}
+    values = {d: reconstruct_from_rows(opening, [], splits, d)["AAA"] * px
+              for d, px in adjusted_close.items()}
+    assert set(values.values()) == {1000.0}
+
+
+def test_review_diff_reads_a_split_not_a_buy():
+    from quant.engine.diff import diff_tables
+
+    old = [{"Symbol": "AAA", "Avg_Entry_Price": 100.0, "Current_Value_EUR": 1200.0,
+            "Broker_PnL_EUR": 200.0}]
+    new = [{"Symbol": "AAA", "Avg_Entry_Price": 50.0, "Current_Value_EUR": 1210.0,
+            "Broker_PnL_EUR": 210.0}]
+    changes = diff_tables(old, new)["changes"]
+    assert changes == [{"kind": "Split", "symbol": "AAA", "ratio": 2.0}]
+    # A real buy moves money and stays a buy.
+    bought = [{"Symbol": "AAA", "Avg_Entry_Price": 100.0, "Current_Value_EUR": 2400.0,
+               "Broker_PnL_EUR": 400.0}]
+    assert diff_tables(old, bought)["changes"][0]["kind"] == "Bought"
+
+
+def test_sale_records_proceeds_when_prices_are_passed():
+    from quant.engine.diff import diff_tables
+
+    old = [{"Symbol": "AAA", "Avg_Entry_Price": 100.0, "Current_Value_EUR": 1200.0,
+            "Broker_PnL_EUR": 200.0}]
+    sold = diff_tables(old, [], prices={"AAA": 120.0})["changes"][0]
+    assert sold["kind"] == "Sold" and sold["amount_eur"] == 1200.0
+    assert sold["realized_eur"] == 200.0
+
+
+def test_yahoo_split_events_are_read_from_the_history_frame():
+    import pandas as pd
+
+    from quant.data.data_updater import _split_events
+
+    idx = pd.to_datetime(["2026-03-31", "2026-04-01", "2026-04-02"])
+    df = pd.DataFrame({"Close": [50.0, 50.0, 51.0], "Stock Splits": [0.0, 2.0, 0.0]},
+                      index=idx)
+    assert _split_events(df) == [("2026-04-01", 2.0)]
+    assert _split_events(df.drop(columns="Stock Splits")) == []

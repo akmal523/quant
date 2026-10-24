@@ -63,7 +63,13 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 def reconstruct_from_rows(opening: dict, trades: list, splits: list,
                           as_of: date) -> dict[str, float]:
-    """Reconstruct shares per symbol as of ``as_of``. Pure; no I/O.
+    """Reconstruct shares per symbol as of ``as_of``, in CURRENT share units. Pure.
+
+    Prices in ``market_history`` are split-adjusted to today's share basis (Yahoo
+    ``auto_adjust`` + a full refetch whenever a split appears), so every lot and
+    trade is restated to today's units: its shares are multiplied by the factor
+    of each split that took effect AFTER the lot/trade date. Shares x adjusted
+    close is then the right value on every day, before and after a split.
 
     Args:
         opening: ``{symbol: (base_date, base_shares)}`` — the opening lot (the
@@ -75,10 +81,25 @@ def reconstruct_from_rows(opening: dict, trades: list, splits: list,
 
     Returns ``{symbol: shares}`` (positive shares only).
     """
+    later: dict[str, list[tuple[date, float]]] = {}
+    for row in splits or []:
+        eff, sym, factor = (list(row) + [None, None, None])[:3]
+        ed = _as_date(eff)
+        f = _num(factor, 1.0)
+        if ed is not None and f > 0:
+            later.setdefault(str(sym), []).append((ed, f))
+
+    def _restate(sym: str, when: date | None, shares: float) -> float:
+        for ed, f in later.get(sym, []):
+            if when is None or ed > when:
+                shares *= f
+        return shares
+
     out: dict[str, tuple[date | None, float]] = {}
     for sym, base in (opening or {}).items():
         base_date, base_shares = base
-        out[str(sym)] = (_as_date(base_date), _num(base_shares))
+        bd = _as_date(base_date)
+        out[str(sym)] = (bd, _restate(str(sym), bd, _num(base_shares)))
 
     for row in trades or []:
         t_date, sym, action, shares = (list(row) + [None, None, None, None])[:4]
@@ -95,21 +116,9 @@ def reconstruct_from_rows(opening: dict, trades: list, splits: list,
         # A trade on or before the opening lot's date is already in that lot.
         if base_date is not None and td <= base_date:
             continue
-        out[sym] = (base_date, current + signed)
+        out[sym] = (base_date, current + _restate(sym, td, signed))
 
-    shares = {sym: value for sym, (_d, value) in out.items()}
-
-    for row in splits or []:
-        eff, sym, factor = (list(row) + [None, None, None])[:3]
-        ed = _as_date(eff)
-        factor = _num(factor, 1.0)
-        if ed is None or ed > as_of or factor <= 0:
-            continue
-        sym = str(sym)
-        if sym in shares:
-            shares[sym] *= factor
-
-    return {sym: round(v, 6) for sym, v in shares.items() if v > 0}
+    return {sym: round(v, 6) for sym, (_d, v) in out.items() if v > 0}
 
 
 # ── Ledger reads (explicit connection) ────────────────────────────────────────

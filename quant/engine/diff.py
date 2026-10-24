@@ -12,6 +12,9 @@ Invariants:
     counts as unchanged (rounding).
   - A sell's realized gain is an estimate; Trade Republic's tax report is the
     authority. Proceeds use the latest EUR price when known.
+  - A trade moves money: when the invested amount is unchanged but the share
+    count changed by a stock-split ratio, the change is a ``Split`` and nothing
+    is recorded in the ledger (v10.8.10; the valuation restates old lots itself).
 """
 from __future__ import annotations
 
@@ -58,6 +61,22 @@ def _shares_unchanged(prev: dict, d_shares: float) -> bool:
             or abs(d_shares) * max(prev["entry"], 1.0) < TOL_INVESTED_EUR)
 
 
+def _split_ratio(prev: dict, p: dict) -> float | None:
+    """The split ratio when the money is unchanged and the shares jumped by one."""
+    from quant.data.corporate_actions import REVERSE_RATIOS, SPLIT_RATIOS
+
+    if prev["shares"] <= 0 or p["shares"] <= 0:
+        return None
+    if abs(p["invested"] - prev["invested"]) > max(
+            TOL_INVESTED_EUR, TOL_SHARE_FRAC * abs(prev["invested"])):
+        return None
+    observed = p["shares"] / prev["shares"]
+    for r in SPLIT_RATIOS + REVERSE_RATIOS:
+        if abs(observed - r) / r <= 0.02:
+            return r
+    return None
+
+
 def _matches_plan(symbol: str, amount: float, plans: dict | None) -> bool:
     """True when a buy amount matches the saved monthly plan (v10.8.2, B6)."""
     if not plans:
@@ -80,7 +99,7 @@ def diff_tables(old_rows: list[dict] | None, new_rows: list[dict] | None,
     """Diff the new table against the last saved one. Pure; no I/O.
 
     Returns ``{changes: [...], summary: {...}}`` where each change is one of
-    ``Bought`` / ``Sold`` / ``Market move``. A buy that matches the saved plan
+    ``Bought`` / ``Sold`` / ``Split`` / ``Market move``. A buy that matches the saved plan
     (``plans``: {symbol: EUR/month}) carries ``savings_plan: True``.
     """
     prices = prices or {}
@@ -105,6 +124,10 @@ def diff_tables(old_rows: list[dict] | None, new_rows: list[dict] | None,
             # Same shares: a value/profit move is a market move (no record).
             if abs(p["value"] - prev["value"]) >= TOL_INVESTED_EUR:
                 changes.append({"kind": "Market move", "symbol": sym})
+            continue
+        ratio = _split_ratio(prev, p)
+        if ratio is not None:
+            changes.append({"kind": "Split", "symbol": sym, "ratio": ratio})
             continue
         if d_shares > 0:
             amount = p["invested"] - prev["invested"]

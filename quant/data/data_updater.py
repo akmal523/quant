@@ -34,12 +34,27 @@ def get_last_dates(conn: Any) -> dict[str, str]:
         return {}
 
 
+def _split_events(df: pd.DataFrame) -> list[tuple[str, float]]:
+    """Yahoo's own split events in a history frame: [(YYYY-MM-DD, factor)]."""
+    if df is None or "Stock Splits" not in df.columns:
+        return []
+    col = pd.to_numeric(df["Stock Splits"], errors="coerce").fillna(0.0)
+    return [(pd.Timestamp(d).strftime("%Y-%m-%d"), float(v))
+            for d, v in col[col > 0].items() if float(v) != 1.0]
+
+
 def fetch_single(sym: str, name: str, sector: str,
                  last_date: str | None = None) -> pd.DataFrame | None:
     """Fetch a single ticker's history. Incremental if last_date provided.
 
     Intent: avoid re-downloading 5y every run. Fetch only data after last_date
     (minus overlap) and append. Drops trailing NaN rows (e.g. future dates).
+
+    Splits (v10.8.10): prices are split-adjusted (``auto_adjust``) to TODAY's
+    share basis, so a split inside an incremental window would leave the older
+    stored rows on the old basis. Then the full history is refetched and the
+    frame is marked ``attrs["replace"]`` (the caller rewrites the symbol's rows).
+    Yahoo's split events are returned in ``attrs["splits"]``.
     Invariants: returns df with Symbol/Sector columns, Date index, no NaN Close.
     Dependencies: yfinance, pandas, taxonomy (broker registry).
     """
@@ -68,6 +83,18 @@ def fetch_single(sym: str, name: str, sector: str,
         if df.empty:
             reporter.detail(f" [!] Empty history for {sym} (via {fetch_ticker})")
             return None
+
+        replace = not last_date
+        splits = _split_events(df)
+        if last_date and splits:
+            full = history_with_timeout(fetch_ticker, period="5y", auto_adjust=True)
+            if full is None or full.empty:
+                reporter.detail(f" [!] {sym}: split found but the full refetch failed")
+                return None
+            df, replace = full, True
+            splits = _split_events(df)
+            reporter.detail(f" [CA] {sym}: split {splits[-1][0]} x{splits[-1][1]:g}; "
+                            "history refetched on the new share basis")
 
         # Drop rows with NaN Close (future dates, non-trading days, etc.)
         valid = df.dropna(subset=['Close'])
@@ -148,6 +175,8 @@ def fetch_single(sym: str, name: str, sector: str,
         from quant.data.assertions import run_assertions
         run_assertions(df, sym, split_dates=split_dates)
 
+        df.attrs["splits"] = splits
+        df.attrs["replace"] = replace
         return df
     except DataAssertionError:
         # Hard gate: propagate so main() aborts the whole run.
@@ -155,6 +184,15 @@ def fetch_single(sym: str, name: str, sector: str,
     except Exception as e:
         reporter.detail(f" [!] Error {sym}: {e}")
         return None
+
+
+def _held_symbols() -> set[str]:
+    """The symbols in the user's holdings table (load_portfolio never raises)."""
+    from quant import paths
+    from quant.portfolio.portfolio import load_portfolio
+
+    df = load_portfolio(paths.DATA_PORTFOLIO)
+    return {str(s) for s in df["Symbol"]} if "Symbol" in df.columns else set()
 
 
 def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
@@ -260,6 +298,11 @@ def main() -> int:
     init_db()
     last_dates = get_last_dates(conn)
     incremental = bool(last_dates)
+    # Held symbols always get the full (split-adjusted) history: a handful of
+    # requests that guarantee the valuation never mixes share bases.
+    held = _held_symbols()
+    for sym in held:
+        last_dates.pop(sym, None)
     reporter.detail(f"Fetching {total} tickers with {MAX_WORKERS} workers "
                     f"({'INCREMENTAL' if incremental else 'FULL 5y'} mode)")
 
@@ -267,6 +310,8 @@ def main() -> int:
     # the overall wait so a pathological stall cannot hang the run forever.
     overall_timeout = max(120.0, (total / max(MAX_WORKERS, 1)) * 60.0)
 
+    split_rows: list[tuple[str, str, float]] = []
+    replace_syms: set[str] = set()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(fetch_single, sym, name, sector, last_dates.get(sym)): sym
@@ -286,6 +331,10 @@ def main() -> int:
                     return 1
                 if result is not None:
                     all_data.append(result)
+                    sym_done = str(result["Symbol"].iloc[0])
+                    split_rows += [(sym_done, d, f) for d, f in result.attrs.get("splits", [])]
+                    if result.attrs.get("replace"):
+                        replace_syms.add(sym_done)
                 reporter.progress(f"  fetched {i}/{total}")
         except TimeoutError:
             reporter.end_progress()
@@ -318,7 +367,10 @@ def main() -> int:
     insert_select = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, "
                      "Sector, Instrument_Class, ingested_at FROM final_df")
     if incremental:
-        # INSERT OR REPLACE dedups on PRIMARY KEY (Symbol, Date).
+        # A full (re)fetch replaces the symbol's rows: older rows may be on a
+        # pre-split share basis. INSERT OR REPLACE dedups on (Symbol, Date).
+        for sym in sorted(replace_syms):
+            conn.execute("DELETE FROM market_history WHERE Symbol = ?", [sym])
         conn.execute(
             f"INSERT OR REPLACE INTO market_history ({insert_cols}) {insert_select}"
         )
@@ -327,6 +379,11 @@ def main() -> int:
         conn.execute(
             f"INSERT INTO market_history ({insert_cols}) {insert_select}"
         )
+
+    # Yahoo's split events feed the valuation's share restatement (mtm).
+    for sym, day, factor in split_rows:
+        conn.execute("INSERT OR REPLACE INTO splits (symbol, effective_date, factor) "
+                     "VALUES (?, ?, ?)", [sym, day, factor])
 
     # ── v10.4.0 (Phase 4): structured telemetry + EDA event ─────────────
     # Publish market_close_data_ready so subscribers (scoring) can react

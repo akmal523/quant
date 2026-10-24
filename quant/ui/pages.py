@@ -333,6 +333,14 @@ def _open_advice_items(holdings: list[dict]) -> list[dict]:
     return items
 
 
+def _eur_prices(symbols: list[str]) -> dict:
+    """The latest EUR price per symbol (symbols without a price are left out)."""
+    from quant.data.currency import price_in_eur
+
+    prices = {sym: price_in_eur(sym) for sym in symbols if sym}
+    return {sym: p for sym, p in prices.items() if p}
+
+
 def page_update() -> None:
     """Update holdings: broker table + live read-only columns (T2)."""
     st.title("Update holdings")
@@ -362,7 +370,10 @@ def page_update() -> None:
 
         old = portfolio.to_dict("records") if not portfolio.empty else []
         new = edited.drop(columns=_DERIVED_COLS, errors="ignore").to_dict("records")
-        result = diff_tables(old, new)
+        # v10.8.10: a sale's proceeds and realized gain need the EUR price; without
+        # it every sale was recorded at 0 EUR (and the return math broke).
+        result = diff_tables(old, new, prices=_eur_prices(
+            [str(r.get("Symbol") or "") for r in old]))
         st.session_state["_diff"] = result
 
     result = st.session_state.get("_diff")
@@ -376,6 +387,7 @@ def page_update() -> None:
                      f"realized {summary['realized_eur']:+.2f} EUR.")
             for ch in result["changes"]:
                 label = (C.DIFF_BOUGHT_SAVINGS if ch.get("savings_plan")
+                         else f"Split {ch['ratio']:g}:1" if ch["kind"] == "Split"
                          else ch["kind"])
                 st.caption(f"{label} {ch['symbol']}")
         c1, c2 = st.columns(2)
