@@ -220,3 +220,21 @@ if __name__ == "__main__":
     result = run_funnel(pool)
     print(f"Stage1 survivors: {result['stage1']} | Stage2 top-N: {result['stage2']}")
     print("Survivors:", result["survivors"])
+
+
+SURVIVOR_TTL_DAYS = 7
+
+
+def survivors_age_days(conn=None) -> float | None:
+    """Days since the survivors were last saved; None when there are none."""
+    import time
+
+    from quant.data.database import get_connection
+
+    # The caller (build_fetch_list) reports a failure as "funnel failed".
+    row = (conn or get_connection()).execute(
+        "SELECT MAX(updated_at) FROM funnel_survivors").fetchone()
+    if not row or row[0] is None:
+        return None
+    return (time.time() - float(row[0])) / 86400.0
+

@@ -200,14 +200,12 @@ def _held_symbols() -> set[str]:
 
 
 def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
-    """Build the ticker fetch list: CORE ETFs + ACTIVE + portfolio + funnel.
+    """Build the ticker fetch list: broad ETFs + registry + holdings + survivors.
 
-    Intent (Plan 3, Phase 1): the broad 1000+ universe is filtered by funnel.py
-    to the top survivors. data_updater fetches FULL 5y history only for those
-    survivors plus always-tracked CORE ETFs, ACTIVE registry, and portfolio.
-    Phase 5 (v10.2): DELISTED symbols are excluded (stop retrying forever).
-    v10.5.0: returns (tickers, meta) where meta carries universe/survivor counts
-    for the terse aggregate line.
+    The broad 1000+ universe is filtered by funnel.py to the top survivors, at
+    most once per ``SURVIVOR_TTL_DAYS``; the registry (``asset_registry``) is
+    the working universe the app tracks. Returns (tickers, meta) where meta
+    carries universe/survivor counts for the terse aggregate line.
     Invariants: returns list of (symbol, name, sector); deduplicated by symbol.
     """
     meta = {"universe": 0, "survivors": 0}
@@ -221,7 +219,7 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
     for name, sym in BROAD_ETFS.items():
         tickers[sym] = (name, "Broad ETFs")
 
-    # 2. ACTIVE universe from asset_registry (exclude DELISTED).
+    # 2. The registry (the working universe; rows default to ACTIVE).
     try:
         conn = get_connection()
         rows = conn.execute(
@@ -250,8 +248,25 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
     # fresh DB it is empty -> the funnel would silently return 0 survivors and
     # the scan universe would collapse to CORE + portfolio only. Build on demand.
     try:
-        from quant.data.funnel import run_funnel, save_survivors
+        from quant.data.funnel import (
+            SURVIVOR_TTL_DAYS,
+            load_survivors,
+            run_funnel,
+            save_survivors,
+            survivors_age_days,
+        )
         from quant.data.universe_builder import build_universe_master, load_universe_master
+        age = survivors_age_days()
+        if age is not None and age < SURVIVOR_TTL_DAYS:
+            # v10.8.10: the funnel (about 26 batched downloads over 1000+
+            # symbols) re-ranks weekly, not on every refresh.
+            survivors = load_survivors()
+            meta["survivors"] = len(survivors)
+            reporter.detail(f"  [FUNNEL] reusing {len(survivors)} survivors "
+                            f"({age:.1f} days old)")
+            for sym in survivors:
+                tickers.setdefault(sym, (sym, "Funnel"))
+            return [(s, n, sec) for s, (n, sec) in tickers.items()], meta
         pool = load_universe_master()
         if not pool:
             reporter.detail("  [UNIVERSE] universe_master empty - building broad 1000+ pool...")
@@ -261,8 +276,6 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
         reporter.detail(f"  [FUNNEL] input pool: {len(pool)} symbols")
         if pool:
             result = run_funnel(pool)
-            # Persist survivors so main.py reuses them instead of re-running the
-            # 1000+ symbol funnel (keeps the 2-step flow: data_updater -> main).
             save_survivors(result["survivors"])
             meta["survivors"] = len(result["survivors"])
             reporter.detail(f"  [FUNNEL] {result['input']} -> {result['stage1']} -> "

@@ -26,7 +26,6 @@ import pandas as pd
 
 from quant import paths
 from quant.config import (
-    DEFAULT_TIER,
     TIER_CONSTRAINTS,
     VALID_TIERS,
 )
@@ -189,25 +188,6 @@ def validate_tiers_csv(
                         )
 
     return (len(errors) == 0), errors
-
-
-def repair_tiers_csv(
-    tiers_df: pd.DataFrame,
-    portfolio_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Repair common tiers.csv issues.
-
-    Intent (v10.6.3): drop duplicate symbols (keep first), drop orphan symbols
-    (not in the portfolio), and default invalid tiers to ALPHA. Invariants:
-    returns a canonical tiers frame; never raises.
-    """
-    out = _normalize(tiers_df)
-    out = out.drop_duplicates(subset=["symbol"], keep="first")
-    if portfolio_df is not None and not portfolio_df.empty and "Symbol" in portfolio_df.columns:
-        portfolio_symbols = {str(s) for s in portfolio_df["Symbol"].astype(str)}
-        out = out[out["symbol"].isin(portfolio_symbols)]
-    out["tier"] = out["tier"].apply(lambda t: t if t in VALID_TIERS else DEFAULT_TIER)
-    return out.reset_index(drop=True)
 
 
 # ── v10.6.4: Safe load and corruption repair ──────────────────────────────────

@@ -37,24 +37,6 @@ def test_validate_tiers_csv_corrupted():
     assert any("Duplicate" in e for e in errors)
 
 
-def test_repair_tiers_csv():
-    """Duplicates and orphans are removed; invalid tiers default to ALPHA."""
-    from quant.portfolio.tier_manager import repair_tiers_csv
-
-    portfolio_df = pd.DataFrame({
-        "Symbol": ["AAPL", "MSFT"], "Current_Value_EUR": [1000, 2000],
-    })
-    tiers_df = pd.DataFrame({
-        "symbol": ["AAPL", "AAPL", "MSFT", "ORPHAN"],
-        "tier": ["FORTRESS", "INVALID", "ALPHA", "SPECULATIVE"],
-        "last_updated": ["", "", "", ""], "notes": ["", "", "", ""],
-    })
-    repaired = repair_tiers_csv(tiers_df, portfolio_df)
-    assert len(repaired) == 2
-    assert set(repaired["symbol"]) == {"AAPL", "MSFT"}
-    assert repaired[repaired["symbol"] == "AAPL"]["tier"].iloc[0] == "FORTRESS"
-
-
 def test_tier_allocation_exceeds_limit():
     """A SPECULATIVE allocation above 2 percent is reported."""
     from quant.portfolio.tier_manager import validate_tiers_csv

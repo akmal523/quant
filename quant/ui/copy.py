@@ -53,10 +53,6 @@ ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open.
 DB_BUSY_RETRY = ("Database is busy: another quant process is writing. The run "
                  "will retry; if this persists, close other quant windows and "
                  "rerun.")
-ERROR_REFRESH_FAILED = "Refresh failed. Open View log for details, or try again."
-ERROR_ALREADY_RUNNING = "A review is already running in another tab."
-# H3.8 (M8): own-session copy is operation-agnostic (refresh or review).
-ERROR_RUNNING = "An operation is already running."
 
 # ── Helper texts (spec 3.2) ───────────────────────────────────────────────────
 # A5: the add-holding affordance states what it does and what to do next.
