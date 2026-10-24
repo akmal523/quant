@@ -101,6 +101,33 @@ FALLBACKS: dict[str, dict] = {
                                "test_fallback_advice_state_insert"),
     "artifacts._analysis_regime": _e("unreadable meta table", {}, "empty",
                                      "test_fallback_artifacts_analysis_regime"),
+    "advice_state._as_date": _e("unparseable date", None, "none",
+                                "test_fallback_advice_state_as_date"),
+    "advice_state.mark_done": _e("unwritable advice_log", False, "none",
+                                 "test_fallback_advice_state_mark_done"),
+    "advice_state._query": _e("unreadable advice_log", [], "empty",
+                              "test_fallback_advice_state_query"),
+    # ── analysis chain: a missing component scores SCORE_MISSING_PENALTY and
+    #    lowers the confidence tier (the surfaced marker) ──────────────────────
+    "analysis._to_date": _e("unparseable date", None, "none",
+                            "test_fallback_analysis_to_date"),
+    "analysis._technical_from_prices": _e("unreadable market_history", None,
+                                          "confidence",
+                                          "test_fallback_analysis_technical"),
+    "analysis._fundamentals_row": _e("unreadable fundamentals", None, "confidence",
+                                     "test_fallback_analysis_fundamentals"),
+    "analysis._sentiment_component": _e("unreadable nlp_evidence", None, "confidence",
+                                        "test_fallback_analysis_sentiment"),
+    # ── valuation store (mtm) ─────────────────────────────────────────────────
+    "mtm._as_date": _e("unparseable date", None, "none", "test_fallback_mtm_as_date"),
+    "mtm._trade_rows": _e("unreadable trades", [], "empty", "test_fallback_mtm_trade_rows"),
+    "mtm._split_rows": _e("unreadable splits", [], "empty", "test_fallback_mtm_split_rows"),
+    "mtm._fx_rate": _e("FX lookup raised", 1.0, "none (currency keeps the last live "
+                       "rate, so this only fires on an unexpected error)",
+                       "test_fallback_mtm_fx_rate"),
+    "mtm._price_history": _e("unreadable market_history", {}, "empty",
+                             "test_fallback_mtm_price_history"),
+    "mtm._query": _e("unreadable valuation store", [], "empty", "test_fallback_mtm_query"),
 }
 
 

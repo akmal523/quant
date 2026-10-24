@@ -19,7 +19,15 @@ tier_s_modules = [
     "quant/portfolio/risk.py",
     "quant/portfolio/portfolio.py",
     "quant/portfolio/account.py",
-    "quant/portfolio/cash_rate.py",
+    # v10.8.10: the ONE list and the valuation store feed every on-screen decision.
+    "quant/engine/today_list.py",
+    "quant/engine/action_taxonomy.py",
+    "quant/engine/pairing.py",
+    "quant/engine/weights.py",
+    "quant/engine/invest_plan.py",
+    "quant/engine/advice_state.py",
+    "quant/engine/mtm.py",
+    "quant/engine/analysis.py",
     # Loaders feeding the math core (explicit listing, not dataflow inference).
     "quant/portfolio/tier_manager.py",
 ]

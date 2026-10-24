@@ -40,7 +40,9 @@ def _triggers() -> dict[str, tuple]:
         advice,
         advice_state,
         alerts,
+        analysis,
         flows,
+        mtm,
         news_pillar,
         notify,
         sizing,
@@ -53,6 +55,10 @@ def _triggers() -> dict[str, tuple]:
     def _persist_broken():
         with mock.patch("quant.engine.holdings_view.holdings_view", side_effect=_raise):
             return today_list.persist()
+
+    def _fx_rate_broken():
+        with mock.patch("quant.data.currency.get_fx_to_eur", side_effect=_raise):
+            return mtm._fx_rate("AMZN")
 
     def _analysis_regime_broken():
         with mock.patch("quant.data.database.read_only_connection", side_effect=_raise):
@@ -123,6 +129,22 @@ def _triggers() -> dict[str, tuple]:
         "advice_state._insert": (
             lambda: advice_state._insert(_BrokenConn(), {}, date.today()), None),
         "artifacts._analysis_regime": (_analysis_regime_broken, {}),
+        "advice_state._as_date": (lambda: advice_state._as_date("not-a-date"), None),
+        "advice_state.mark_done": (lambda: advice_state.mark_done(_BrokenConn(), 1), False),
+        "advice_state._query": (lambda: advice_state._query(_BrokenConn(), "SELECT 1"), []),
+        "analysis._to_date": (lambda: analysis._to_date("not-a-date"), None),
+        "analysis._technical_from_prices": (
+            lambda: analysis._technical_from_prices(_BrokenConn(), "X"), None),
+        "analysis._fundamentals_row": (
+            lambda: analysis._fundamentals_row(_BrokenConn(), "X"), None),
+        "analysis._sentiment_component": (
+            lambda: analysis._sentiment_component(_BrokenConn(), "X"), None),
+        "mtm._as_date": (lambda: mtm._as_date("not-a-date"), None),
+        "mtm._trade_rows": (lambda: mtm._trade_rows(_BrokenConn()), []),
+        "mtm._split_rows": (lambda: mtm._split_rows(_BrokenConn()), []),
+        "mtm._fx_rate": (_fx_rate_broken, 1.0),
+        "mtm._price_history": (lambda: mtm._price_history(_BrokenConn(), {"X"}), {}),
+        "mtm._query": (lambda: mtm._query(_BrokenConn(), "SELECT 1"), []),
     }
 
 

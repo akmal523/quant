@@ -1,6 +1,11 @@
 """
 currency.py — FX helpers: dynamic rate fetching, OHLCV normalisation to EUR.
-Graceful degradation: falls back to cached or 1.0 rate rather than crashing.
+
+Graceful degradation: when both live sources fail, the last successfully
+fetched EUR/USD rate (persisted in the data folder) is used; 1.0 is the last
+resort only on an install that has never been online. v10.8.10: before, any
+offline run used 1.0, and the valuation backfill rewrote the whole stored
+history of USD holdings at that rate.
 """
 from __future__ import annotations
 
@@ -15,6 +20,37 @@ from quant.cli.output import reporter
 
 # Module-level EUR/USD rate cache (fetched once per process).
 _eur_rate_cache: float | None = None
+_LAST_RATE_FILE = "fx_eurusd_last.json"
+
+
+def _last_rate_path() -> str:
+    import os
+
+    from quant import paths
+
+    return os.path.join(str(paths.OUTPUTS_DIR), _LAST_RATE_FILE)
+
+
+def _save_last_rate(rate: float) -> None:
+    """Persist a live EUR/USD rate for offline runs. Never raises."""
+    import os
+
+    try:
+        os.makedirs(os.path.dirname(_last_rate_path()), exist_ok=True)
+        with open(_last_rate_path(), "w", encoding="utf-8") as f:
+            json.dump({"eurusd": rate}, f)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _load_last_rate() -> float | None:
+    """The last persisted live EUR/USD rate, or None."""
+    try:
+        with open(_last_rate_path(), encoding="utf-8") as f:
+            rate = float(json.load(f)["eurusd"])
+        return rate if 0.8 < rate < 1.5 else None
+    except Exception:  # noqa: BLE001
+        return None
 
 def get_eur_rate() -> float:
     """
@@ -34,24 +70,37 @@ def get_eur_rate() -> float:
             rate = float(df["Close"].iloc[-1])
             if 0.8 < rate < 1.5:
                 _eur_rate_cache = rate
+                _save_last_rate(rate)
                 reporter.detail(f"  [FX] Live Rate (Yahoo) EUR/USD = {rate:.4f}")
                 return rate
     except Exception:
         pass
 
-    # Method 2: Frankfurter API (ECB)
+    # Method 2: Frankfurter API (ECB). v10.8.10: the old api.frankfurter.app URL
+    # redirects here, and Cloudflare answers 403 to urllib's default User-Agent,
+    # so this fallback silently never worked before.
     try:
-        req = urllib.request.urlopen(
-            "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=5)
+        req = urllib.request.urlopen(urllib.request.Request(
+            "https://api.frankfurter.dev/v1/latest?from=EUR&to=USD",
+            headers={"User-Agent": "quant-ai"}), timeout=5)
         data = json.loads(req.read())
         rate = float(data["rates"]["USD"])
+        if not 0.8 < rate < 1.5:
+            raise ValueError(f"implausible EUR/USD {rate}")
         _eur_rate_cache = rate
+        _save_last_rate(rate)
         reporter.detail(f"  [FX] Live Rate (ECB API) EUR/USD = {rate:.4f}")
         return rate
     except Exception:
         pass
 
-    # Graceful fallback: warn but don't crash
+    # Offline: the last live rate, never a silent 1.0 when one is known.
+    last = _load_last_rate()
+    if last is not None:
+        reporter.detail(f"  [FX] WARNING: live EUR/USD unavailable; using the last "
+                        f"live rate {last:.4f}.")
+        _eur_rate_cache = last
+        return last
     reporter.detail("  [FX] WARNING: could not fetch live EUR/USD rate; using fallback 1.0.")
     _eur_rate_cache = 1.0
     return _eur_rate_cache

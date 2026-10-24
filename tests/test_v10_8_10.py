@@ -242,3 +242,23 @@ def test_since_first_purchase_does_not_count_deposits_as_gain():
     first_day = [{"date": date(2026, 1, 1), "type": "buy", "amount_eur": 1000.0}]
     assert round(since_first_return(series, first_day), 4) == 0.6
     assert since_first_return(series[:1], []) is None
+
+
+def test_offline_fx_uses_the_last_live_rate_not_one(tmp_path, monkeypatch):
+    """An offline run must not value USD holdings at EUR/USD = 1.0."""
+    from quant import paths
+    from quant.data import currency
+
+    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
+    monkeypatch.setattr(currency, "_eur_rate_cache", None)
+
+    def offline(*_a, **_k):
+        raise OSError("offline")
+
+    monkeypatch.setattr(currency.yf, "Ticker", offline)
+    monkeypatch.setattr(currency.urllib.request, "urlopen", offline)
+    assert currency.get_eur_rate() == 1.0          # never online: last resort
+
+    currency._save_last_rate(1.16)
+    monkeypatch.setattr(currency, "_eur_rate_cache", None)
+    assert currency.get_eur_rate() == 1.16
