@@ -47,7 +47,7 @@ def _triggers() -> dict[str, tuple]:
         today_list,
         valuation,
     )
-    from quant.portfolio import account, cash_rate, portfolio, tier_manager
+    from quant.portfolio import account, portfolio, tier_manager
     from quant.reporting import artifacts
 
     def _persist_broken():
@@ -100,8 +100,6 @@ def _triggers() -> dict[str, tuple]:
             lambda: valuation.record_snapshot(_BrokenConn()), 0),
         "account.load_account": (
             lambda: account.load_account("/nonexistent/account.yaml").loaded, False),
-        "cash_rate.fetch_live_cash_apy": (
-            lambda: cash_rate.fetch_live_cash_apy(fetcher=_raise, parser=lambda _h: None), None),
         "portfolio.load_portfolio": (
             lambda: portfolio.load_portfolio("/nonexistent/portfolio.csv").empty, True),
         "portfolio.portfolio_issues": (

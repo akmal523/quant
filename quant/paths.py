@@ -75,7 +75,6 @@ DB_FILE: str = str(PROJECT_ROOT / "quant_cache.duckdb")
 # Static inputs (data/ under the writable root; seeded on first run when absent).
 DATA_PORTFOLIO: str = str(DATA_DIR / "portfolio.csv")
 DATA_BROKER_REGISTRY: str = str(DATA_DIR / "broker_registry.csv")
-DATA_WATCHLIST: str = str(DATA_DIR / "watchlist.csv")
 # v10.5.0: account-level inputs (cash, risk profile, base currency). Single
 # source of truth for cash; replaces the account_state DuckDB table.
 DATA_ACCOUNT: str = str(DATA_DIR / "account.yaml")

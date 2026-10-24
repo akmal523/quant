@@ -35,21 +35,6 @@ def test_no_cash_floor_remains():
         assert len(limits) == 3
 
 
-def test_invested_only_bucket_limits():
-    assert config.LONG_TERM_MIN == 0.40
-    assert config.ACTIVE_MAX == 0.50
-    assert config.BETS_MAX == 0.02
-
-
-def test_monthly_allocator_and_sizing_constants():
-    assert config.MONTHLY_LONG_TERM_SHARE == 0.70
-    assert config.SELL_MIN_EUR == 25.0
-    assert config.SELL_ROUND_STEP_EUR == 5.0
-    assert config.BUY_ROUND_STEP_EUR == 10.0
-    assert config.UNTOUCHABLE_POSITION_EUR == 100.0
-    assert config.SYNC_REMINDER_DAYS == 35
-
-
 def test_risk_profile_descriptions_are_plain_and_invested():
     for name in config.RISK_PROFILES:
         desc = config.RISK_PROFILE_DESCRIPTIONS[name]
@@ -77,13 +62,6 @@ def test_status_dictionary_has_no_forbidden_tokens():
         assert token not in C.STATUS_WAITING
 
 
-def test_section_titles_use_new_vocabulary():
-    assert C.SEC_TIERS == "How your money is split"
-    assert C.SEC_EMERGENCY == "If you need cash now"
-    assert C.SEC_TAX_LOSS == "Losses you can use to lower tax"
-    assert C.SEC_STEPS == "Your steps this week"
-
-
 def test_forbidden_tokens_cover_section_11():
     required = {
         "Trim", "On track", "Waiting until", "Current_Value_EUR",
@@ -91,3 +69,12 @@ def test_forbidden_tokens_cover_section_11():
         "Tax-loss harvesting", "SECTOR", "SATELLITE",
     }
     assert required.issubset(set(C.FORBIDDEN_TOKENS))
+
+
+def test_sizing_constants():
+    assert config.BETS_MAX == 0.02
+    assert config.SELL_MIN_EUR == 25.0
+    assert config.SELL_ROUND_STEP_EUR == 5.0
+    assert config.BUY_ROUND_STEP_EUR == 10.0
+    assert config.UNTOUCHABLE_POSITION_EUR == 100.0
+

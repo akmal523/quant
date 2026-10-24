@@ -10,16 +10,9 @@ load_dotenv()
 
 # ── Currency ──────────────────────────────────────────────────────────────────
 BASE_CURRENCY  = "EUR"
-CONVERT_TO_EUR = True
 
 # ── FinBERT ───────────────────────────────────────────────────────────────────
 FINBERT_MODEL         = "ProsusAI/finbert"
-FINBERT_MAX_HEADLINES = 32
-FINBERT_DEVICE        = -1    # -1 = CPU; 0 = first CUDA GPU
-
-# ── NER ───────────────────────────────────────────────────────────────────────
-NER_ENABLED     = True
-NER_SPACY_MODEL = "en_core_web_sm"
 
 # ── Data Sources ──────────────────────────────────────────────────────────────
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
@@ -27,24 +20,11 @@ ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
 # ── Async I/O ─────────────────────────────────────────────────────────────────
 MAX_ASYNC_WORKERS = 10
 
-# ── Scanning ──────────────────────────────────────────────────────────────────
-HIST_PERIOD    = "5y"
-TOP_PER_SECTOR = 3
-TOP_GLOBAL     = 3
-
 # ── Scoring Weights (must sum to 100) ─────────────────────────────────────────
-WEIGHT_FUNDAMENTALS = 30
 WEIGHT_STEWARDSHIP  = 30
 WEIGHT_TECHNICAL    = 15
-WEIGHT_SENTIMENT    = 25
-
-# ── Position Sizing ───────────────────────────────────────────────────────────
-KELLY_FRACTION    = 0.25
-TARGET_VOLATILITY = 0.15
-MAX_POSITION_PCT  = 0.10
 
 # ── Backtest ──────────────────────────────────────────────────────────────────
-BACKTEST_PERIOD_DAYS = 365
 COMMISSION_SLIPPAGE  = 0.0015
 WFO_IS_DAYS   = 365
 WFO_OOS_DAYS  = 90
@@ -58,30 +38,7 @@ ACTIVE_TRADE_FEE_EUR = 1.0
 SPARPLAN_BUY_FEE_EUR = 0.0
 SPARPLAN_SELL_FEE_EUR = 1.0
 
-# ── Cash as Risk-Free Baseline (Phase 4) ──────────────────────────────────────
-# TR pays 2.5% APY on uninvested cash (from 16 Sep 2026; 2.25% before). This is
-# the REAL risk-free rate (R_f), not the theoretical US Treasury yield.
-# v10.5.1: the dated schedule lives in quant/portfolio/cash_rate.py; this
-# constant is the fallback. Consumers should call current_cash_apy().
-BROKER_CASH_APY = 0.025
-
 # ── v10.7.0: The three money pools (root fix) ─────────────────────────────────
-# The system keeps exactly three separate pools. Mixing them made every
-# percentage lie (the 92 percent cash donut, "invest from cash" advice).
-#
-#   Pool 1 INVESTED          Everything held at the broker. The ONLY pool that is
-#                            scored, weighted, charted, and advised. All targets
-#                            and limits below apply to this pool only.
-#   Pool 2 SAVINGS BUDGET    A monthly amount the user decides from salary. A
-#                            FLOW into Invested, not a balance. Sparplan buys
-#                            cost 0 EUR on the buy side.
-#   Pool 3 OPERATIONAL CASH  Daily-life money at the broker. Earns the cash yield.
-#                            NEVER an investment buffer: never in weights, never
-#                            in the donut, never a source of forced trades.
-#
-# Invested-only limits (fractions of the INVESTED pool):
-LONG_TERM_MIN = 0.40   # long-term (FORTRESS) at least 40 percent of invested
-ACTIVE_MAX    = 0.50   # active (ALPHA) at most 50 percent of invested
 BETS_MAX      = 0.02   # small bets (SPECULATIVE) at most 2 percent of invested
 # max single position is per risk profile (see RISK_PROFILES below).
 
@@ -107,29 +64,18 @@ RISK_PROFILE_DESCRIPTIONS = {
                    "at most 65 percent in active positions."),
 }
 
-# ── v10.7.0: Monthly allocator (Section 8) ────────────────────────────────────
-MONTHLY_LONG_TERM_SHARE = 0.70   # long base = 70 percent of the monthly budget
-
 # ── v10.7.0: Alert thresholds (level-triggered, Section 5) ────────────────────
 ALERT_STRUCTURAL_FLOOR = 40.0        # structural grade below this -> alert
 ALERT_STRUCTURAL_DROP = 20.0         # dropped >= 20 points since last monthly decision
 ALERT_TACTICAL_DROP = 25.0           # tactical grade dropped >= 25 points within window
-ALERT_TACTICAL_WINDOW_DAYS = 7
 ALERT_POSITION_CRASH = 0.15          # holding value down >= 15 percent within window
-ALERT_POSITION_CRASH_DAYS = 7
 ALERT_SPECULATIVE_STOP = -0.50       # SPECULATIVE down 50 percent from recorded entry
 
 # ── v10.7.0: Scheduler slots (local time, Section 3) ──────────────────────────
 SCHEDULE_DAILY_SLOT = "18:45"        # full daily job after market close
-SCHEDULE_MORNING_SLOT = "07:45"      # lightweight morning packaging slot
+SCHEDULE_MORNING_SLOT = "07:45"      # second daily run (catches a missed evening)
 
 # ── v10.7.2: Runner lock thresholds (Part 1) ──────────────────────────────────
-# A laptop that sleeps mid-run and runs an app plus a timer plus manual commands
-# makes lock collisions a weekly event. The runner lock carries pid, started_at,
-# and command. Below STALE_LOCK_MINUTES a live owner is respected (retry, then
-# abort gracefully); above HARD_LOCK_MINUTES a live owner is assumed runaway and
-# taken over with a warning. A dead pid is always taken over immediately.
-STALE_LOCK_MINUTES = 90
 HARD_LOCK_MINUTES = 240
 # Retry budget while a live owner holds the lock below the stale threshold.
 LOCK_RETRY_ATTEMPTS = 5
@@ -143,28 +89,6 @@ SELL_MIN_EUR = 25.0                  # below this, no sell advice (fee relevance
 SELL_ROUND_STEP_EUR = 5.0            # round sell amounts down to 5 EUR steps
 BUY_ROUND_STEP_EUR = 10.0            # round buy amounts to 10 EUR steps
 UNTOUCHABLE_POSITION_EUR = 100.0     # never sell a position below this value
-SYNC_REMINDER_DAYS = 35              # gentle broker-sync reminder threshold
-
-# ── Signal Routing (Phase 4) ──────────────────────────────────────────────────
-# Structural grade threshold for long-term hold -> route to Sparplan.
-# Tactical grade threshold for immediate breakout -> route to Active Trade.
-SPARPLAN_STRUCT_MIN = 75.0
-ACTIVE_TACT_MIN     = 70.0
-
-# ── Universe Graduation (Phase 4) ─────────────────────────────────────────────
-WATCHLIST_LOOKBACK_DAYS = 5      # discovery.py: only fetch last 5 days
-WATCHLIST_VOLUME_MULT   = 3.0    # volume > 3x 20-day avg -> graduate
-WATCHLIST_52W_HIGH_DAYS = 252    # cross 52-week high -> graduate
-ACTIVE_DEMOTE_MONTHS    = 6      # no signals for 6 months -> demote to watchlist
-
-# ── Universe State Machine (Phase 5 / v10.2) ──────────────────────────────────
-# New graduates get a grace period before the demotion check can age them out.
-# This prevents the graduate-then-demote-in-same-run contradiction.
-GRADUATION_GRACE_MONTHS = 3
-# Data health: a price older than this many days is flagged as stale.
-STALE_DATA_DAYS = 3
-# Consecutive fetch failures before a symbol is marked DELISTED.
-MAX_FETCH_FAILURES = 3
 
 # ── Plan 3 (Phase 1): Multi-Stage Funnel thresholds ───────────────────────────
 # Stage 1 (liquidity/viability): filter the 1000+ universe_master down to a
@@ -210,8 +134,8 @@ TARGET_WEIGHTS = {
 
 # ── v10.7.3 (Part 5.1): ONE invested-pool target map ──────────────────────────
 # The single source of per-symbol targets for the invested pool. build_advice,
-# the allocator, the split reason lines, and the drift computations all read
-# this map, so two screens can never give opposite advice. Seeded from the
+# the ONE list and the drift computations all read this map (via
+# quant.engine.weights.target_weight), so two screens can never disagree. Seeded from the
 # legacy tier map normalized to the invested pool; overridable per symbol by an
 # optional target_pct column in data/tiers.csv.
 TARGET_WEIGHTS_INVESTED = {
@@ -224,7 +148,6 @@ TARGET_WEIGHTS_INVESTED = {
 # Rebalancing thresholds & frequencies.
 REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
 MIN_TRADE_SIZE_EUR = 50.0          # minimum trade to clear the 2 EUR round-trip
-REBALANCE_FIRST_RUN = False        # True = force rebalance to targets on first run
 
 # v10.8.0 (2.3): ONE tier vocabulary. The legacy 4-tier keys (CORE/SATELLITE/
 # ACTIVE/SECTOR) are gone; legacy values are carried over through
@@ -257,10 +180,11 @@ PLAN_CHANGE_GAP = 0.10        # under-target gap that triggers a plan change
 # A watched (non-held) symbol with a composite at or above this floor becomes an
 # Idea and flows into Research, swap candidates, the invest plan and This month.
 IDEA_FLOOR = 55.0
-# The documented neutral penalty applied per missing scoring component (R-C2).
+# The score a missing component contributes (R-C2): deliberately below neutral,
+# so a symbol with prices only cannot reach IDEA_FLOOR.
 SCORE_MISSING_PENALTY = 12.0
 # Component weights for the composite (must sum to 1.0). Technical is always
-# present (prices); the others degrade to the neutral penalty when missing.
+# present (prices); the others fall back to SCORE_MISSING_PENALTY when missing.
 SCORE_COMPONENT_WEIGHTS = {
     "technical": 0.40,
     "fundamental": 0.30,
@@ -271,22 +195,12 @@ SCORE_COMPONENT_WEIGHTS = {
 CONFIDENCE_HIGH_RATIO = 0.8
 CONFIDENCE_MEDIUM_RATIO = 0.5
 
-# ── Optional email reporting ──────────────────────────────────────────────────
-SMTP_USER     = os.getenv("SMTP_USER",     "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-REPORT_TO     = os.getenv("REPORT_TO",     "")
-
-# ── Strategy ──────────────────────────────────────────────────────────────────
-STRATEGY_NAME = "High_Efficiency_Growth"
-
 # ── Fast Filter / Screener Thresholds ─────────────────────────────────────────
 FILTER_MAX_PE  = 25.0
 FILTER_MIN_ROE = 0.20
 
 # ── Fundamental Grade Thresholds ──────────────────────────────────────────────
-STRUCT_MAX_PE  = 20.0
 STRUCT_MAX_PEG = 1.5
-STRUCT_MIN_ROE = 0.15
 
 # ── Stewardship (Non-Financials) ──────────────────────────────────────────────
 STW_GEN_MAX_DE  = 0.5
@@ -309,42 +223,10 @@ MIN_TACT_GRADE_FOR_BUY   = 70
 # This penalty reduces the tactical grade to prevent false BUY signals.
 SENTIMENT_NO_DATA_PENALTY = 15.0  # max points deducted when NLP data is missing
 
-# ── v10.4.0: Bitemporal PIT (Phase 1) ─────────────────────────────────────────
-# Reporting lag: a fundamental with as_of_date D is only known to the market at
-# D + REPORTING_LAG_DAYS. Backtests must never see it earlier (no lookahead).
-REPORTING_LAG_DAYS = 45
-
 # ── v10.4.0: Data Quality Assertions (Phase 1) ────────────────────────────────
 # Hard CI/CD gate. A violation aborts the pipeline (unlike the soft repair in
 # data_quality.py). A >50% one-day drop without a split flag is corruption.
 ASSERT_MAX_DAILY_DROP = 0.50
-
-# ── v10.4.0: Mean-CVaR Optimization (Phase 3) ─────────────────────────────────
-# Optimize the average loss in the worst CVAR_ALPHA tail (Expected Shortfall).
-CVAR_ALPHA = 0.05
-
-# ── v10.4.0: Hard Circuit Breakers / Kill Switch (Phase 3) ────────────────────
-# If the portfolio breaches either limit, emit LIQUIDATE TO CASH and pause the
-# scanner. These are hard stops, not advisory statuses.
-MAX_DAILY_DRAWDOWN = 0.03        # 3% single-day drawdown -> kill switch
-VOL_KILL_MULTIPLIER = 2.0        # realized vol > 2x target -> kill switch
-
-# ── v10.4.0: Regime-Conditional Constraints (Phase 3) ─────────────────────────
-# Tie risk limits to the HMM regime. Bear/Chop caps single-stock weight at 2%
-# and forbids leverage; Bull uses the normal caps.
-REGIME_CONSTRAINTS = {
-    "bull": {"max_single_weight": MAX_POSITION_PCT, "max_leverage": 1.0},
-    "bear": {"max_single_weight": 0.02, "max_leverage": 0.0},
-    "chop": {"max_single_weight": 0.02, "max_leverage": 0.0},
-}
-
-# ── v10.4.0: Execution Reality / TCA (Phase 2) ────────────────────────────────
-# Volatility-aware minimum trade size: the fixed 1 EUR fee must be amortized over
-# a notional large enough relative to the asset's volatility. Higher vol -> larger
-# floor, because the expected edge is noisier.
-MIN_TRADE_VOL_MULT = 2.0
-# Default participation cap for TCA slippage estimation (fraction of ADV).
-TCA_PARTICIPATION_CAP = 0.01
 
 # ── v10.6.2: Three-Tier Architecture (FORTRESS / ALPHA / SPECULATIVE) ────────
 # Ruling R-TIER-1: the legacy 4-tier system (CORE/SATELLITE/ACTIVE/SECTOR) is
@@ -399,40 +281,8 @@ TIER_CONSTRAINTS = {
     },
 }
 
-# Fortress: never sell unless the structural grade collapses below this floor
-# for FORTRESS_GRADE_FLOOR_MONTHS consecutive months.
-FORTRESS_GRADE_FLOOR = 30.0
-FORTRESS_GRADE_FLOOR_MONTHS = 6
-FORTRESS_SPARPLAN_INCREASE_GRADE = 70.0
 
-# Alpha: weekly rebalancing, max 2 trades per week (overtrading cooldown).
-MAX_ALPHA_TRADES_PER_WEEK = 2
 ALPHA_CONVICTION_HIGH = 75.0
 ALPHA_CONVICTION_MEDIUM = 60.0
 
-# Speculative: hard 2 percent cap, momentum/volume only.
-SPECULATIVE_MAX_ALLOCATION = 0.02
-SPECULATIVE_MOMENTUM_BUY = 50.0     # 3-month momentum percent
-SPECULATIVE_MOMENTUM_SELL = -30.0
-SPECULATIVE_VOLUME_SURGE = 3.0
-SPECULATIVE_STOP_LOSS = -0.50       # cut losses at -50 percent
 SPECULATIVE_TAKE_PROFIT = 1.00      # take profit at +100 percent
-
-# ── v10.6.2: Conviction score weights (must sum to 1.0) ──────────────────────
-CONVICTION_WEIGHT_STRUCTURAL = 0.30
-CONVICTION_WEIGHT_TACTICAL = 0.40
-CONVICTION_WEIGHT_NLP = 0.30
-
-# ── v10.6.2: Weekly risk (5-day VaR) ─────────────────────────────────────────
-WEEKLY_VAR_HORIZON_DAYS = 5
-
-# ── v10.6.2: Deflated Sharpe Ratio (Bailey & Lopez de Prado) ─────────────────
-DSR_NUM_TRIALS = 1          # multiple-comparison count; raise when many strategies tried
-
-# ── v10.6.2: Emergency liquidity scoring ─────────────────────────────────────
-LIQUIDITY_VOLUME_REF_EUR = 100_000.0   # 100k EUR/day -> volume score 100
-LIQUIDITY_LOW_VOLUME_EUR = 50_000.0    # below -> 30 point time penalty
-LIQUIDITY_MED_VOLUME_EUR = 200_000.0   # below -> 15 point time penalty
-LIQUIDITY_VOLUME_WEIGHT = 0.40
-LIQUIDITY_SPREAD_WEIGHT = 0.40
-LIQUIDITY_FORTRESS_SCORE = 20.0        # Fortress assets are never recommended for sale

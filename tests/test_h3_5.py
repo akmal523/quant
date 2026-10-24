@@ -12,7 +12,7 @@ import duckdb
 from quant.data.database import get_connection
 from quant.execution.taxonomy import classify_instrument
 from quant.ui.cards import explore_card_fields
-from quant.ui.copy import DISCOVERY_NOT_TRACKED, NOT_TRACKED_LABEL
+from quant.ui.copy import NOT_TRACKED_LABEL
 from quant.ui.search import discovery_candidates, label_for
 
 
@@ -80,16 +80,14 @@ def test_explore_card_prefers_registry_over_csv():
             conn.execute("DELETE FROM asset_registry WHERE symbol=?", [sym])
 
 
-def test_discovery_candidates_and_sentence():
+def test_discovery_candidates_and_not_tracked_label():
     conn = get_connection()
     conn.execute("DELETE FROM universe_master WHERE symbol='ZZAAPL'")
     conn.execute("INSERT INTO universe_master (symbol, name) VALUES ('ZZAAPL','ZZAAPL')")
     try:
         cands = discovery_candidates("zzaapl")
         assert any(c["symbol"] == "ZZAAPL" for c in cands)
-        assert DISCOVERY_NOT_TRACKED.format(label="ZZAAPL") == (
-            "ZZAAPL is in the discovery universe but not tracked. "
-            "Add it in My holdings to track it.")
         assert NOT_TRACKED_LABEL.format(label="X (X)") == "X (X) - not tracked yet"
     finally:
         conn.execute("DELETE FROM universe_master WHERE symbol='ZZAAPL'")
+

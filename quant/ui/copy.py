@@ -16,7 +16,7 @@ Dependencies: datetime only.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 # v10.8.7 (A1): the ONE class-word map lives in quant.ui.terminology. These are
 # re-exported here for the existing `C.CLASS_LABELS` callers.
@@ -43,17 +43,11 @@ ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Ad
                          "registry again.")
 
 # ── v10.6.2 / v10.7.0: Three-tier dashboard, cash, tax-loss ──────────────────
-# v10.7.0 naming dictionary (Section 11): plain words, invested pool only.
-SEC_TIERS = "How your money is split"
-SEC_EMERGENCY = "If you need cash now"
-SEC_TAX_LOSS = "Losses you can use to lower tax"
 TIER_FORTRESS = "Long-term (never sell)"
 TIER_ALPHA = "Active (may sell)"
 # v10.8.7 (A1): the canonical word is "Speculative"; the descriptive form is
 # "Speculative (high risk)". "Small bets" is banned by a lint test.
 TIER_SPECULATIVE = "Speculative (high risk)"
-TAX_LOSS_NONE = "No positions with an unrealized loss."
-TAX_LOSS_LINE = "{symbol}: {pnl} EUR unrealized loss"
 
 # ── Errors (spec 3.2) ─────────────────────────────────────────────────────────
 ERROR_DB_BUSY = ("The database is busy because another Quant-AI session is open. "
@@ -70,8 +64,6 @@ ERROR_ALREADY_RUNNING = "A review is already running in another tab."
 ERROR_RUNNING = "An operation is already running."
 
 # ── Helper texts (spec 3.2) ───────────────────────────────────────────────────
-HELP_CASH_APY = ("Uninvested cash earns {apy} percent per year at Trade Republic "
-                 "(from {date}).")
 # A5: the add-holding affordance states what it does and what to do next.
 PLACEHOLDER_ADD_HOLDING = "Type a name, symbol or ISIN to add a holding"
 HELP_ADD_ROW = "Now fill value and profit or loss from your broker."
@@ -150,8 +142,6 @@ HOLDINGS_ALERTS_HEADER = "Alerts"
 # ── Formatting helpers (spec 3.3) ─────────────────────────────────────────────
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday",
-             "Friday", "Saturday", "Sunday"]
 
 
 def fmt_eur(value: float | None) -> str:
@@ -265,13 +255,9 @@ def regime_word(regime: str) -> str:
 
 # ── v10.5.3 (spec v4): state machines, charts, feedback, calendar ─────────────
 
-NEEDS_ATTENTION_ISIN = "ISIN missing for {symbol}. Repair it in Settings."
 
 # Charts (spec 3)
 CHART_BUILDING = "The value chart builds up after a few reviews."
-CHART_SINCE = "{sign}{pct}% since {date} ({amount} EUR)"
-# H3.8 (M3): Growth mode annotation is percent-only.
-CHART_SINCE_PCT = "{sign}{pct}% since {date}"
 LABEL_RANGE = "Range"
 LABEL_VIEW = "View"
 VALUE = "Value"
@@ -305,16 +291,7 @@ BACKUP_LAST = "Last backup: {date}"
 BACKUP_OLD = "Last backup {n} days ago. Use Back up now in Settings."
 BACKUP_NEVER = "No backup yet. Use Back up now in Settings."
 
-# H3.5: discovery-universe loop closure (Explore zero-match + Portfolio add).
-DISCOVERY_NOT_TRACKED = ("{label} is in the discovery universe but not tracked. "
-                         "Add it in My holdings to track it.")
 NOT_TRACKED_LABEL = "{label} - not tracked yet"
-
-
-# Calendar (spec 7)
-SAVINGS_COUNTDOWN = ("Savings plan executes in {days} days ({date}); additions before "
-                     "that date apply this month.")
-SAVINGS_TODAY = "Savings plan executes today."
 
 
 def _days_in_month(year: int, month: int) -> int:
@@ -325,74 +302,9 @@ def _days_in_month(year: int, month: int) -> int:
     return 30 if month in (4, 6, 9, 11) else 31
 
 
-def savings_plan_line(today: date, day: int) -> str:
-    """Exact Today sentence for the savings-plan day (R8). Pure, no I/O.
-
-    Invariants: day in 1..31; a day beyond the month's length clamps to that
-    month's last day. Same day -> SAVINGS_TODAY; otherwise the countdown
-    sentence. The date carries its weekday (audit rule: every rendered date
-    uses fmt_weekday_date).
-    """
-    if day == today.day:
-        return SAVINGS_TODAY
-    y, m = today.year, today.month
-    if day > today.day:
-        target = date(y, m, min(day, _days_in_month(y, m)))
-    else:
-        m += 1
-        if m > 12:
-            m, y = 1, y + 1
-        target = date(y, m, min(day, _days_in_month(y, m)))
-    # v10.8.0 (2.5): a broker executes on the next trading day, so a weekend
-    # target is shown as the following Monday.
-    while target.weekday() >= 5:
-        target = target + timedelta(days=1)
-    days = (target - today).days
-    return SAVINGS_COUNTDOWN.format(days=days, date=fmt_weekday_date(target))
-
-# News outage (spec 6.3)
-HEALTH_NEWS_OUTAGE = ("News source unreachable since {since}. Scores use price history "
-                      "and fundamentals only.")
-
-
 def status_word(universe_status: str) -> str:
     """Map a universe_status enum to its human word."""
     return STATUS_WORDS.get(str(universe_status).upper(), "Watching")
-
-
-def _parse_dt(value: date | datetime | str | None) -> datetime | None:
-    """Parse ISO-8601 (with offset) or RFC-2822 into a datetime; None on failure.
-
-    H3.6 (N2): the live news cache stores RFC-2822 ("Mon, 14 Sep 2026 14:41:24
-    +0000"); the formatter must never return a raw timestamp.
-    """
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
-    if not isinstance(value, str):
-        return None
-    s = value.strip()
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError:
-        pass
-    try:
-        from email.utils import parsedate_to_datetime
-
-        return parsedate_to_datetime(s)
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def fmt_weekday_date(value: date | datetime | str | None) -> str:
-    """Format a date as 'Friday 11 Sep 2026'. Empty on bad input (H3.6, N2)."""
-    dt = _parse_dt(value)
-    if dt is None:
-        return ""
-    return f"{_WEEKDAYS[dt.weekday()]} {fmt_date(dt)}"
 
 
 def status_for(
@@ -443,8 +355,8 @@ TIER_WORDS = {
     "SPECULATIVE": TIER_SPECULATIVE,
 }
 
-SEC_STEPS = "Your steps this week"
 # v10.8.0 (Phase 1, redesign 3.2): the ONE decision list, three groups.
+NEEDS_ATTENTION_ISIN = "ISIN missing for {symbol}. Repair it in Settings."
 DECISION_GROUP_INPUT = "Needs your input"
 DECISION_GROUP_RECOMMENDED = "Recommended"
 DECISION_GROUP_OPTIONAL = "Optional"
@@ -492,29 +404,9 @@ MARKET_NEWS_OFF = ("News sentiment is off. Install the 'news' extra to enable it
 SEC_ALERTS = "Alerts"
 
 
-SPARPLAN = "savings plan"
-
-
-OPERATIONAL_CASH_LINE = ("Operational cash: {amount} EUR, as of {date}. For daily "
-                         "life, not for investing. Earns {apy} percent per year. "
-                         "Dividends land here.")
-INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR, cash yield about "
-               "{cash_yield} EUR (estimate).")
-ESTIMATED_LABEL = "estimated, as of {date}"
-
-# Performance line (Section 7.3): deposits do not count as profit.
-PERFORMANCE_LINE = ("Since {date}: {change} EUR. Of that: you added {added} EUR, "
-                    "market moved {market} EUR. Return: {ret} percent.")
-
-SPLIT_RULE_ACTIVE = "at most {max} percent"
-SPLIT_RULE_BETS = "at most {max} percent"
-SPLIT_OK = "OK."
-
 NOTHING_URGENT = "Nothing urgent this week."
 MONITORING_GAP = ("Monitoring gap: no runs for {n} days; conditions evaluated on "
                   "the latest data.")
-SYNC_REMINDER = ("Last broker sync was {n} days ago. Export a fresh CSV from Trade "
-                 "Republic when convenient.")
 
 # Alerts (Section 2, exact phrasing template).
 ALERT_ACTION_HEADER = "ACTION FOR TOMORROW"
@@ -525,16 +417,6 @@ ALERT_REASON = "Reason: {reason}."
 ALERT_FEE = "Fee: {fee} EUR {side}. Reply in app: done / declined with reason."
 ALERT_DETAILS_IN_APP = "details in app"
 
-# Advice self-scoring ledger (Section 5).
-ADVICE_RECORD = ("Advice record, last 12 months: {n} actions, {correct} correct, "
-                 "{wrong} wrong.")
-
-
-MONTHLY_CASH_LEG_LINE = "Keep {amount} EUR in cash."
-MONTHLY_EXECUTE_STEP = "Execute the approved plan in Trade Republic"
-MONTHLY_ENTER_ACTUALS_STEP = ("Enter what you bought (one line), so the math "
-                              "stays honest.")
-MONTHLY_MAKE_DECISION_STEP = "Make this month's decision"
 
 # ── v10.7.1: One advice pipeline (Part 1) ─────────────────────────────────────
 ADVICE_SELL_PART = "Sell part"
@@ -575,25 +457,8 @@ REJECT_FEE_HURDLE = ("expected alpha {alpha} bps on {amount} EUR does not clear 
 SPEC_TAKE_PROFIT = "consider taking profit; bets are double-or-nothing by design"
 SPEC_CAP_VIOLATION = ("bets are {pct} percent of invested, above the 2 percent cap; "
                       "consider trimming or reclassifying")
-SPLIT_RULE_ACTIVE = "at most {max} percent"
-SPLIT_RULE_BETS = "at most {max} percent"
-SPLIT_OK = "OK."
-TAX_LOSS_LINE = "{name}: {pnl} EUR unrealized loss. Selling it can reduce tax on gains."
-TAX_LOSS_NONE = "No positions with unrealized losses."
 
 # ── v10.7.3 (Part 1): UI truth pass — exact new strings ───────────────────────
-BROKER_STATEMENT_AS_OF = "broker statement, as of {date}"
-# Overview income line (Block A).
-INCOME_LINE = ("Income last 12 months: dividends {dividends} EUR from flows, cash "
-               "yield about {cash_yield} EUR at {apy} percent.")
-# Sync reminder mentions pending positions explicitly.
-SYNC_REMINDER_PENDING = ("Last broker sync was {n} days ago. You have positions "
-                         "recorded since then; export a fresh CSV from Trade "
-                         "Republic when convenient.")
-# v10.7.4 (R7): the reminder lists the pending positions by name.
-SYNC_REMINDER_PENDING_NAMES = ("Last broker sync was {n} days ago. Positions "
-                               "recorded since then: {names}. Export a fresh CSV "
-                               "from Trade Republic when convenient.")
 
 # Forbidden tokens (Section 11): the OLD vocabulary. The copy test fails if any
 # of these appears in rendered pages or the briefing.

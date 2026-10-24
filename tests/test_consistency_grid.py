@@ -14,7 +14,6 @@ from datetime import date
 from quant.data.database import get_connection
 from quant.engine import valuation
 from quant.engine.advice import build_advice
-from quant.ui.copy import BROKER_STATEMENT_AS_OF
 
 AS_OF = date(2026, 10, 2)
 
@@ -71,7 +70,3 @@ def test_revalue_holdings_is_the_value_source():
         "VALUES ('EUNL.DE', 10.0, ?, 1000.0)", [AS_OF])
     values = valuation.revalue_holdings(conn, {"EUNL.DE": 110.0})
     assert values["EUNL.DE"] == 1100.0
-
-
-def test_broker_statement_label():
-    assert "broker statement" in BROKER_STATEMENT_AS_OF.format(date="1 Oct 2026")

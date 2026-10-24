@@ -12,23 +12,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from quant.portfolio.cash_rate import current_cash_apy
-
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
-def daily_risk_free_rate(apy: float | None = None) -> float:
-    """Convert broker cash APY to a daily risk-free rate.
-
-    Intent: the daily hurdle an active trade must beat after fees & volatility.
-    Formula: daily_rf = (1 + APY)^(1/365) - 1.
-    Invariants: returns float in [0, 1); pure function (no I/O).
-    """
-    if apy is None:
-        apy = current_cash_apy()
-    if apy <= 0:
-        return 0.0
-    return float((1.0 + apy) ** (1.0 / 365.0) - 1.0)
 
 def calculate_historical_var(returns: pd.Series, confidence_level: float = 0.95) -> float:
     """

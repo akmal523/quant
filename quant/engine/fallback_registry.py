@@ -75,9 +75,6 @@ FALLBACKS: dict[str, dict] = {
                                "fallback", "test_fallback_account_load_account"),
     "account.write_account_fields": _e("unwritable account.yaml", False, "none",
                                        "test_fallback_account_write_fields"),
-    # ── cash_rate ─────────────────────────────────────────────────────────────
-    "cash_rate.fetch_live_cash_apy": _e("live fetch failed", None, "fallback",
-                                        "test_fallback_cash_rate_fetch"),
     # ── portfolio ─────────────────────────────────────────────────────────────
     "portfolio.load_portfolio": _e("portfolio CSV unreadable", "empty frame",
                                    "empty", "test_fallback_portfolio_load"),
@@ -87,7 +84,6 @@ FALLBACKS: dict[str, dict] = {
                                      "test_fallback_portfolio_broker_data"),
     "portfolio.get_last_rebalance": _e("unreadable rebalance_log", None, "none",
                                        "test_fallback_portfolio_last_rebalance"),
-    # ── risk ──────────────────────────────────────────────────────────────────
     # ── tier_manager ──────────────────────────────────────────────────────────
     "tier_manager.load_tiers": _e("tiers.csv unreadable", "empty frame", "empty",
                                   "test_fallback_tier_manager_load_tiers"),

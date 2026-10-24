@@ -29,7 +29,6 @@ _TEMPLATES: dict[str, str] = {
     ),
     "isin_curated.csv": "symbol,isin,verified_by,verified_at\n",
     "names_curated.csv": "symbol,display_name\n",
-    "watchlist.csv": "Symbol\n",
     # v10.6.2 (R-TIER-1): 3-tier assignments. Header only; the migration script
     # (scripts/migrate_tiers.py) populates it from the existing portfolio.
     "tiers.csv": "symbol,tier,last_updated,notes\n",

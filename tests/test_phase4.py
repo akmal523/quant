@@ -11,19 +11,6 @@ _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 import unittest
 
 from quant.execution.taxonomy import classify_instrument, resolve_broker
-from quant.portfolio.risk import (
-    daily_risk_free_rate,
-)
-
-
-class TestCashRiskFreeRate(unittest.TestCase):
-    def test_daily_rf_positive_small(self):
-        rf = daily_risk_free_rate(0.0225)
-        self.assertGreater(rf, 0)
-        self.assertLess(rf, 0.001)  # ~6e-5
-
-    def test_daily_rf_zero_apy(self):
-        self.assertEqual(daily_risk_free_rate(0), 0.0)
 
 
 class TestTaxonomy(unittest.TestCase):

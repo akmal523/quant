@@ -34,7 +34,6 @@ LEGACY_FILES: tuple[str, ...] = (
     "isin_curated.csv",
     "names_curated.csv",
     "themes.csv",
-    "watchlist.csv",
 )
 LEGACY_TOP_FILES: tuple[str, ...] = (
     "quant_cache.duckdb",
