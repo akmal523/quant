@@ -93,30 +93,6 @@ def test_invest_plan_zero_amount_is_empty():
     assert propose_by_class(0.0, _holdings())["orders"] == []
 
 
-# ── C. timed ONE list ─────────────────────────────────────────────────────────
-
-def test_timed_items_tags_horizon_class_direction():
-    from quant.engine.decisions import timed_items
-    from quant.ui import copy as C
-
-    holdings = [{"symbol": "AMZN", "tier": "ALPHA"}]
-    advice = [
-        {"kind": "sell_part", "symbol": "AMZN", "company_name": "Amazon",
-         "eur": 50.0, "why": "above target", "source": "drift"},
-        {"kind": "buy", "symbol": "AMZN", "company_name": "Amazon",
-         "eur": 100.0, "why": "below target", "source": "drift"},
-        {"kind": "keep", "symbol": "AMZN", "company_name": "Amazon",
-         "eur": None, "why": "fine", "source": "monitor"},
-    ]
-    items = timed_items(holdings, advice)
-    assert len(items) == 2  # keep is not actionable
-    sell = next(i for i in items if i["direction"] == C.DIRECTION_SELL)
-    buy = next(i for i in items if i["direction"] == C.DIRECTION_BUY)
-    assert sell["horizon"] == C.HORIZON_TODAY
-    assert buy["horizon"] == C.HORIZON_MONTH
-    assert sell["class"] == "ALPHA"
-
-
 # ── G. editable history ledger ────────────────────────────────────────────────
 
 def test_replace_trades_updates_inserts_and_deletes():

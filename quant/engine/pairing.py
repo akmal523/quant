@@ -49,7 +49,7 @@ def largest_underweight(holdings: list[dict], exclude: str = "") -> dict | None:
     best_gap = 0.0
     for h in holdings or []:
         sym = str(h.get("symbol") or "")
-        if not sym or sym == exclude:
+        if not sym or sym == exclude or h.get("target_weight") is None:
             continue
         current = _num(h.get("current_weight"))
         target = _num(h.get("target_weight"))

@@ -102,7 +102,7 @@ def test_finished_advice_is_closed_and_logged():
         still_open = advice_state.open_items(conn)
         log = advice_state.history(conn)
     assert [i for i in still_open if i["symbol"] == "EUNL.DE"] == []
-    assert any(r["symbol"] == "EUNL.DE" and r["status"] == "done" for r in log)
+    assert any(r["symbol"] == "EUNL.DE" and r["status"] == advice_state.STATUS_CLOSED for r in log)
 
 
 def test_mark_done_stops_repetition():
@@ -113,10 +113,15 @@ def test_mark_done_stops_repetition():
         items = advice_state.sync(conn, [_item()], as_of=date(2026, 5, 1))
         rid = items[0]["id"]
         assert advice_state.mark_done(conn, rid) is True
-        # The same item re-synced starts a NEW open object (the done one stays done).
-        again = advice_state.sync(conn, [_item()], as_of=date(2026, 5, 3))
+        conn.execute("UPDATE advice_log SET done_at = ? WHERE id = ?",
+                     [date(2026, 5, 2), rid])
+        # v10.8.10: within a week the done item stays hidden, even if produced...
+        assert advice_state.sync(conn, [_item()], as_of=date(2026, 5, 3)) == []
+        assert advice_state.annotate([_item()], as_of=date(2026, 5, 3), conn=conn) == []
+        # ...after that it starts a NEW open object (the done one stays done).
+        again = advice_state.sync(conn, [_item()], as_of=date(2026, 5, 12))
         assert again[0]["id"] != rid
-        assert again[0]["open_since"] == date(2026, 5, 3)
+        assert again[0]["open_since"] == date(2026, 5, 12)
 
 
 # ── T4: the savings-plan reminder lifecycle ───────────────────────────────────

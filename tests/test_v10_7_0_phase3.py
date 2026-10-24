@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from quant.data.database import get_connection
-from quant.engine import alerts, daily, notify, scheduler, sizing
+from quant.engine import daily, notify, scheduler, sizing
 
 # ── Sizing laws (Section 6) ───────────────────────────────────────────────────
 
@@ -39,101 +38,7 @@ def test_small_positions_untouchable():
     assert sizing.can_sell("ALPHA", 50.0, 200.0) is None
 
 
-# ── Alert conditions (Section 5) ──────────────────────────────────────────────
-
-def _clear_alerts():
-    conn = get_connection()
-    conn.execute("DELETE FROM alerts")
-    return conn
-
-
-def test_structural_break_fires():
-    conn = _clear_alerts()
-    created = alerts.evaluate_alerts(
-        conn, [{"symbol": "AMZN", "name": "Amazon.com", "tier": "ALPHA",
-                "value_eur": 500.0, "structural": 35.0}], today=date(2026, 10, 1))
-    assert any(a["kind"] == alerts.KIND_STRUCTURAL for a in created)
-
-
-def test_tactical_collapse_fires():
-    conn = _clear_alerts()
-    created = alerts.evaluate_alerts(
-        conn, [{"symbol": "AMZN", "tier": "ALPHA", "value_eur": 500.0,
-                "tactical": 40.0, "prev_tactical_7d": 70.0}], today=date(2026, 10, 1))
-    assert any(a["kind"] == alerts.KIND_TACTICAL for a in created)
-
-
-def test_position_crash_fires():
-    conn = _clear_alerts()
-    created = alerts.evaluate_alerts(
-        conn, [{"symbol": "AMZN", "tier": "ALPHA", "value_eur": 800.0,
-                "prev_value_7d": 1000.0}], today=date(2026, 10, 1))
-    assert any(a["kind"] == alerts.KIND_CRASH for a in created)
-
-
-def test_regime_flip_fires_once():
-    conn = _clear_alerts()
-    created = alerts.evaluate_alerts(
-        conn, [], regime="bear", prev_regime="bull", today=date(2026, 10, 1))
-    assert any(a["kind"] == alerts.KIND_REGIME for a in created)
-    # A second evaluation does not duplicate the open market-level alert.
-    again = alerts.evaluate_alerts(
-        conn, [], regime="bear", prev_regime="bull", today=date(2026, 10, 2))
-    assert not any(a["kind"] == alerts.KIND_REGIME for a in again)
-
-
-def test_speculative_stop_loss_fires():
-    conn = _clear_alerts()
-    created = alerts.evaluate_alerts(
-        conn, [{"symbol": "MEME", "tier": "SPECULATIVE", "value_eur": 40.0,
-                "entry_price": 100.0, "current_price": 40.0}], today=date(2026, 10, 1))
-    assert any(a["kind"] == alerts.KIND_SPECULATIVE for a in created)
-
-
-def test_level_triggered_no_duplicate_open_alert():
-    conn = _clear_alerts()
-    holding = [{"symbol": "AMZN", "tier": "ALPHA", "value_eur": 500.0,
-                "structural": 30.0}]
-    first = alerts.evaluate_alerts(conn, holding, today=date(2026, 10, 1))
-    second = alerts.evaluate_alerts(conn, holding, today=date(2026, 10, 2))
-    assert len(first) == 1
-    assert second == []
-
-
-def test_resolve_alert_closes_it():
-    conn = _clear_alerts()
-    alerts.evaluate_alerts(
-        conn, [{"symbol": "AMZN", "tier": "ALPHA", "value_eur": 500.0,
-                "structural": 30.0}], today=date(2026, 1, 1))
-    open_now = alerts.open_alerts(conn)
-    assert open_now
-    alert_id = open_now[0]["id"]
-    assert alerts.resolve_alert(conn, alert_id, "done", "sold", 100.0,
-                                today=date(2026, 1, 2))
-    assert all(a["id"] != alert_id for a in alerts.open_alerts(conn))
-
-
 # ── Notifications (Section 4) ─────────────────────────────────────────────────
-
-def test_alert_payload_has_no_totals_or_token():
-    text = notify.format_alert({
-        "symbol": "AMZN", "name": "Amazon.com", "action": "sell",
-        "amount_eur": 75.0, "fee_eur": 1.0,
-        "message": "tactics fell from 71 to 38 in 7 days.",
-    })
-    assert "ACTION FOR TOMORROW" in text
-    assert "Amazon.com" in text
-    assert "75" in text
-    lowered = text.lower()
-    assert "portfolio" not in lowered
-    assert "total" not in lowered
-    assert "token" not in lowered
-
-
-def test_send_alert_failure_is_silent():
-    # channel none -> no send, no raise.
-    assert notify.send_alert({"symbol": "X", "action": "hold", "message": "m"},
-                             {"channel": "none"}) is False
 
 
 def test_notify_status_line_off():

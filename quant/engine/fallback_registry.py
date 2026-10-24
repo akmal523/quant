@@ -23,42 +23,14 @@ def _e(failure: str, default: Any, marker: str, test: str) -> dict:
 
 
 FALLBACKS: dict[str, dict] = {
-    # ── advice ────────────────────────────────────────────────────────────────
-    "advice._spec_change": _e("non-numeric pnl_pct", None, "none",
-                              "test_fallback_advice_spec_change"),
-    "advice._tier_lookup": _e("unreadable tiers frame", {}, "empty",
-                              "test_fallback_advice_tier_lookup"),
-    "advice._as_date": _e("unparseable date", None, "none",
-                          "test_fallback_advice_as_date"),
-    # ── alerts ────────────────────────────────────────────────────────────────
-    "alerts._num": _e("non-numeric value", None, "none",
-                      "test_fallback_alerts_num"),
-    "alerts.has_open_alert": _e("unreadable alerts table", False, "none",
-                                "test_fallback_alerts_has_open_alert"),
-    "alerts._has_unrearmed_dismissal": _e("unreadable alerts table", False, "none",
-                                          "test_fallback_alerts_unrearmed"),
-    "alerts.open_alerts": _e("unreadable alerts table", [], "empty",
-                             "test_fallback_alerts_open_alerts"),
-    "alerts.resolve_alert": _e("unwritable alerts table", False, "none",
-                               "test_fallback_alerts_resolve_alert"),
     # ── flows ─────────────────────────────────────────────────────────────────
     "flows.load_flows": _e("unreadable flows table", [], "empty",
                            "test_fallback_flows_load_flows"),
-    # ── news_pillar ───────────────────────────────────────────────────────────
     # ── sizing ────────────────────────────────────────────────────────────────
     "sizing.is_untouchable": _e("non-numeric position value", True, "none",
                                 "test_fallback_sizing_is_untouchable"),
     "sizing.sell_amount": _e("non-numeric drift or value", None, "none",
                              "test_fallback_sizing_sell_amount"),
-    "sizing.passes_fee_hurdle": _e("non-numeric alpha or amount", True, "none",
-                                   "test_fallback_sizing_passes_fee_hurdle"),
-    # ── valuation ─────────────────────────────────────────────────────────────
-    "valuation._lookup": _e("price lookup raised", None, "none",
-                            "test_fallback_valuation_lookup"),
-    "valuation._last_sync_date": _e("unreadable holdings_meta", None, "none",
-                                    "test_fallback_valuation_last_sync_date"),
-    "valuation._meta_get": _e("unreadable meta table", None, "none",
-                              "test_fallback_valuation_meta_get"),
     # ── account ───────────────────────────────────────────────────────────────
     "account.load_account": _e("missing or invalid account.yaml",
                                "AccountState(EUR, None, balanced, loaded=False)",

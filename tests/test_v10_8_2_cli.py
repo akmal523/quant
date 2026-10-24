@@ -9,7 +9,7 @@ USER_COMMANDS = {"dash", "refresh", "daily", "upgrade", "backup", "doctor"}
 HIDDEN = {"run", "all",
           "validate-tiers", "repair-tiers", "health-check",
           "schedule",
-          "notify-setup", "ack"}
+          "notify-setup"}
 
 
 def test_help_lists_only_the_six_user_commands():

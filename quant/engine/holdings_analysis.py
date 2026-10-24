@@ -27,9 +27,12 @@ _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 # Verb -> plain word for the Reason cell (the ONE list's verbs).
 _VERB_WORDS = {
-    "sell_part": "Sell part", "sell": "Sell", "buy": "Buy",
-    "rebalance": "Rebalance", "threat": "Review", "swap": "Swap",
-    "plan_change": "Plan change", "trim": "Sell part", "hold": "Hold",
+    "sell_part": "Sell part", "buy": "Buy", "threat": "Review", "swap": "Swap",
+    "plan_up": "Raise savings plan", "plan_down": "Lower savings plan",
+    # verbs written to the advice log by older versions (History shows them)
+    "sell": "Sell", "rebalance": "Rebalance", "plan_change": "Plan change",
+    "change_savings_plan": "Change savings plan", "trim": "Sell part",
+    "top_up": "Buy", "hold": "Hold",
 }
 
 
@@ -55,7 +58,8 @@ def _fmt_date(value: Any) -> str:
         return str(value)
 
 
-def _verb_word(verb: Any) -> str:
+def verb_word(verb: Any) -> str:
+    """The plain word for an advice verb (P2: never a raw key)."""
     v = str(verb or "").strip()
     if v in _VERB_WORDS:
         return _VERB_WORDS[v]
@@ -72,7 +76,7 @@ def _open_for(symbol: str, open_advice: list[dict] | None) -> dict | None:
 
 
 def reason_cell(symbol: str, open_advice: list[dict] | None,
-                drift: float = 0.0, target: float = 0.0) -> str:
+                drift: float | None = 0.0, target: float | None = 0.0) -> str:
     """The derived Reason cell (R-P2). Never "held".
 
     With open advice: "<Verb> ~<amount> EUR, open since <date>". Otherwise:
@@ -80,11 +84,13 @@ def reason_cell(symbol: str, open_advice: list[dict] | None,
     """
     item = _open_for(symbol, open_advice)
     if item is not None:
-        verb = _verb_word(item.get("verb"))
+        verb = verb_word(item.get("verb"))
         amount = _num(item.get("amount_eur"), 0.0)
         since = _fmt_date(item.get("open_since"))
         tail = f", open since {since}" if since else ""
         return f"{verb} ~{amount:.0f} EUR{tail}"
+    if target is None:
+        return "no open advice; no target set"
     return (f"no open advice; drift {_num(drift) * 100:+.1f} pp vs "
             f"{_num(target) * 100:.0f}% target")
 

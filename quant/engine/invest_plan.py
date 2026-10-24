@@ -40,7 +40,7 @@ HOW_NEW_POSITION = "New position"
 # The classes that receive one-off money; FORTRESS is a savings plan (EUR/m).
 _ACTIVE_CLASSES = ("ALPHA", "SPECULATIVE")
 # Advice verbs that block a buy into the same instrument (T3).
-_BLOCKING_VERBS = {"sell_part", "trim", "swap", "threat", "rebalance"}
+_BLOCKING_VERBS = {"sell_part", "swap", "threat"}
 
 
 def _num(value, default: float = 0.0) -> float:
@@ -50,8 +50,21 @@ def _num(value, default: float = 0.0) -> float:
         return default
 
 
-def _class_targets(strategy: str) -> dict[str, float]:
-    """The target fraction of invested per class, from the strategy's bounds."""
+def _class_targets(strategy: str, holdings: list[dict] | None = None) -> dict[str, float]:
+    """The target fraction of invested per class.
+
+    v10.8.10: when the holdings carry per-holding targets (tiers.csv), the class
+    targets are their sums, so the invest block and the ONE list read the same
+    targets; the risk profile's bounds are only the fallback.
+    """
+    sums = {c: 0.0 for c in CLASS_ORDER}
+    for h in holdings or []:
+        tier = str(h.get("tier", "")).upper()
+        if h.get("target_weight") is not None and tier in sums:
+            sums[tier] += _num(h.get("target_weight"))
+    if sum(sums.values()) > 0:
+        total = sum(sums.values())
+        return {c: v / total for c, v in sums.items()}
     long_min, _active_max, _max_pos = RISK_PROFILES.get(
         strategy, RISK_PROFILES[DEFAULT_RISK_PROFILE])
     spec = BETS_MAX
@@ -62,13 +75,11 @@ def _class_targets(strategy: str) -> dict[str, float]:
 
 def _distribute(class_buy: float, members: list[dict], new_pool: float) -> list[tuple]:
     """Split class_buy across members by their underweight gap, else equally."""
-    from quant.engine.weights import target_weight
-
     if class_buy <= 0 or not members:
         return []
     gaps = []
     for h in members:
-        tw = target_weight(str(h.get("symbol")))
+        tw = _num(h.get("target_weight"))
         gap = max(0.0, tw * new_pool - _num(h.get("value_eur")))
         gaps.append((gap, h))
     total_gap = sum(g for g, _ in gaps)
@@ -130,7 +141,7 @@ def propose_by_class(
 
     invested = sum(_num(h.get("value_eur")) for h in holdings)
     new_pool = invested + amount
-    targets = _class_targets(strategy)
+    targets = _class_targets(strategy, holdings)
     now = class_weights(holdings)  # fractions of the invested pool (R-C3)
     now_value = {c: now.get(c, 0.0) * invested for c in CLASS_ORDER}
 

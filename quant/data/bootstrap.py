@@ -49,9 +49,10 @@ def seed_user_data() -> list[str]:
     """
     paths.ensure_dirs()
     try:
-        from quant.data.user_data import migrate_legacy_user_data
+        from quant.data.user_data import migrate_legacy_user_data, migrate_targets_into_tiers
 
         migrate_legacy_user_data()
+        migrate_targets_into_tiers()
     except Exception:  # noqa: BLE001
         pass
     data = Path(paths.DATA_DIR)

@@ -14,13 +14,14 @@ and :func:`quant.engine.advice.build_advice`.
 Invariants:
   - Pure read: no writes.
   - Never raises; returns [] on failure.
-  - ``current_weight`` and ``target_weight`` are fractions of the invested pool.
+  - ``current_weight`` and ``target_weight`` are fractions of the invested pool;
+    ``target_weight`` (and ``drift``) is None when no target is set.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from quant.engine.weights import instrument_weights, target_weight
+from quant.engine.weights import instrument_weights
 
 DEFAULT_TIER = "ALPHA"
 
@@ -34,20 +35,22 @@ def _display_name(symbol: str) -> str:
         return symbol
 
 
-def _tier_map() -> dict:
+def _tiers() -> tuple[dict, dict]:
+    """``({symbol: tier}, {symbol: target fraction})`` from data/tiers.csv."""
     try:
-        from quant.portfolio.tier_manager import load_tiers_safe, tier_map
+        from quant.portfolio.tier_manager import load_tiers_safe, target_map, tier_map
 
-        return tier_map(load_tiers_safe()[0])
+        df = load_tiers_safe()[0]
+        return tier_map(df), target_map(df)
     except Exception:  # noqa: BLE001
-        return {}
+        return {}, {}
 
 
 def holdings_view(conn: Any = None) -> list[dict]:
     """The live holdings, one dict per position.
 
     Fields: symbol, name, tier, value_eur, shares, cost_per_share, profit_eur,
-    current_weight, target_weight, drift, estimated, as_of.
+    invested_eur, pnl_pct, current_weight, target_weight, drift, estimated, as_of.
     """
     from quant.engine.positions import positions_now
 
@@ -58,7 +61,7 @@ def holdings_view(conn: Any = None) -> list[dict]:
     if not positions:
         return []
 
-    tmap = _tier_map()
+    tmap, targets = _tiers()
     out: list[dict] = []
     for p in positions:
         sym = str(p.get("symbol") or "")
@@ -72,6 +75,8 @@ def holdings_view(conn: Any = None) -> list[dict]:
             "shares": float(p.get("shares") or 0),
             "cost_per_share": float(p.get("entry_eur") or 0),
             "profit_eur": float(p.get("profit_eur") or 0),
+            "invested_eur": float(p.get("invested_eur") or 0),
+            "pnl_pct": p.get("pnl_pct"),
             "estimated": bool(p.get("estimated")),
             "as_of": p.get("as_of"),
         })
@@ -79,6 +84,8 @@ def holdings_view(conn: Any = None) -> list[dict]:
     weights = instrument_weights(out)
     for h in out:
         h["current_weight"] = weights.get(h["symbol"], 0.0)
-        h["target_weight"] = target_weight(h["symbol"])
-        h["drift"] = h["current_weight"] - h["target_weight"]
+        # No target set -> None (no drift advice), never 0% (v10.8.10).
+        h["target_weight"] = targets.get(h["symbol"])
+        h["drift"] = (None if h["target_weight"] is None
+                      else h["current_weight"] - h["target_weight"])
     return out

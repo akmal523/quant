@@ -331,60 +331,11 @@ COST_BASIS_HINT = ("The average you paid per share, including fees "
 # v10.8.2: the news-sentiment stack is an optional extra.
 MARKET_NEWS_OFF = ("News sentiment is off. Install the 'news' extra to enable it; "
                    "everything else works without it.")
-SEC_ALERTS = "Alerts"
 
 
-NOTHING_URGENT = "Nothing urgent this week."
 MONITORING_GAP = ("Monitoring gap: no runs for {n} days; conditions evaluated on "
                   "the latest data.")
 
-# Alerts (Section 2, exact phrasing template).
-ALERT_ACTION_HEADER = "ACTION FOR TOMORROW"
-ALERT_ACTION_LINE = "{name}: {action} about {amount} EUR."
-ALERT_ACTION_FOOTER = ("Place the order tonight or tomorrow; it executes at market "
-                       "open.")
-ALERT_REASON = "Reason: {reason}."
-ALERT_FEE = "Fee: {fee} EUR {side}. Reply in app: done / declined with reason."
-ALERT_DETAILS_IN_APP = "details in app"
-
-
-# ── v10.7.1: One advice pipeline (Part 1) ─────────────────────────────────────
-ADVICE_SELL_PART = "Sell part"
-ADVICE_BUY = "Buy"
-ADVICE_FROM_CASH = "cash"
-ADVICE_FROM_SAVINGS = "savings plan"
-ADVICE_FROM_POSITION = "position"
-# Rejected notes ("Not this week"): the system showing its work.
-REJECT_TOO_SMALL = "position {value} EUR; the 2 EUR fee makes any sale pointless"
-REJECT_COOLDOWN = "cooldown until {date}; sells wait, buys do not"
-REJECT_BELOW_MIN = "the move is below the 25 EUR minimum after rounding"
-REJECT_FORTRESS = "long-term assets are never sold"
-# v10.7.4 (Part 3.1): a system-wide lockdown pauses non-emergency sells.
-REJECT_LOCKDOWN = "system-wide lockdown; non-emergency sells are paused"
-# v10.7.3 (Part 4.2): the ONE top-up sentence, shared by quant run and Overview.
-# {label} is the "Name (TICKER)" form (label_for), so the ticker is never doubled.
-STEP_TOP_UP = ("Top up the savings plan for {label}: it is {pct} percent "
-               "of invested vs {target} percent target.")
-# v10.7.4 (R2-R5): classification-grid copy.
-# R2: a FORTRESS holding far OVER target gets a plan-change note, never a sell.
-FORTRESS_OVER_LEG = ("Consider lowering or pausing the savings-plan leg for {label}; "
-                     "it is {pct} percent of invested vs {target} percent target.")
-# R3: an ALPHA holding under target with MEDIUM conviction is a considered buy.
-REJECT_MEDIUM_CONVICTION = "conviction MEDIUM, needs HIGH for a buy"
-# R9: a HIGH-conviction buy suppressed by the bear regime (regime override).
-REJECT_BEAR_REGIME = ("{name} buy considered (conviction HIGH); suppressed by bear "
-                      "regime; new active money goes to cash.")
-# R4: the untouchable law applies to ACTIVE buys too (savings-plan legs exempt).
-REJECT_BUY_TOO_SMALL = ("position below 100 EUR; the 1 EUR fee makes small buys "
-                        "inefficient")
-REJECT_BUY_BELOW_MIN = "the move is below the 10 EUR minimum after rounding"
-# R1/Part 2.1: the expected alpha must clear the fee.
-REJECT_FEE_HURDLE = ("expected alpha {alpha} bps on {amount} EUR does not clear "
-                     "the {fee} EUR fee")
-# R5: SPECULATIVE advisories are notes, never forced sells.
-SPEC_TAKE_PROFIT = "consider taking profit; bets are double-or-nothing by design"
-SPEC_CAP_VIOLATION = ("bets are {pct} percent of invested, above the 2 percent cap; "
-                      "consider trimming or reclassifying")
 
 # ── v10.7.3 (Part 1): UI truth pass — exact new strings ───────────────────────
 

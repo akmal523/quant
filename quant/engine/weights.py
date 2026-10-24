@@ -12,8 +12,6 @@ Invariants:
 """
 from __future__ import annotations
 
-from quant.config import TARGET_WEIGHTS_INVESTED
-
 CLASS_ORDER = ("FORTRESS", "ALPHA", "SPECULATIVE")
 
 
@@ -55,8 +53,3 @@ def class_weights(holdings: list[dict] | None = None,
         if tier in out:
             out[tier] += _num(h.get("value_eur"))
     return {c: v / total for c, v in out.items()}
-
-
-def target_weight(symbol: str) -> float:
-    """The per-symbol target fraction (the ONE target map). Pure."""
-    return _num(TARGET_WEIGHTS_INVESTED.get(str(symbol), 0.0))

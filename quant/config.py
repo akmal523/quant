@@ -8,8 +8,6 @@ BASE_CURRENCY  = "EUR"
 
 # ── Trade Republic Execution Reality (Phase 4) ────────────────────────────────
 ACTIVE_TRADE_FEE_EUR = 1.0
-SPARPLAN_BUY_FEE_EUR = 0.0
-SPARPLAN_SELL_FEE_EUR = 1.0
 
 # ── v10.7.0: The three money pools (root fix) ─────────────────────────────────
 BETS_MAX      = 0.02   # small bets (SPECULATIVE) at most 2 percent of invested
@@ -36,13 +34,6 @@ RISK_PROFILE_DESCRIPTIONS = {
     "aggressive": ("At least 30 percent of your invested money in long-term assets, "
                    "at most 65 percent in active positions."),
 }
-
-# ── v10.7.0: Alert thresholds (level-triggered, Section 5) ────────────────────
-ALERT_STRUCTURAL_FLOOR = 40.0        # structural grade below this -> alert
-ALERT_STRUCTURAL_DROP = 20.0         # dropped >= 20 points since last monthly decision
-ALERT_TACTICAL_DROP = 25.0           # tactical grade dropped >= 25 points within window
-ALERT_POSITION_CRASH = 0.15          # holding value down >= 15 percent within window
-ALERT_SPECULATIVE_STOP = -0.50       # SPECULATIVE down 50 percent from recorded entry
 
 # ── v10.7.0: Scheduler slots (local time, Section 3) ──────────────────────────
 SCHEDULE_DAILY_SLOT = "18:45"        # full daily job after market close
@@ -74,17 +65,6 @@ FUNNEL_MAX_WORKERS = 10
 
 
 # ── v10.7.3 (Part 5.1): ONE invested-pool target map ──────────────────────────
-# The single source of per-symbol targets for the invested pool. build_advice,
-# the ONE list and the drift computations all read this map (via
-# quant.engine.weights.target_weight), so two screens can never disagree. Seeded from the
-# legacy tier map normalized to the invested pool; overridable per symbol by an
-# optional target_pct column in data/tiers.csv.
-TARGET_WEIGHTS_INVESTED = {
-    "EUNL.DE": 0.50,
-    "SXRV.DE": 0.20,
-    "AMZN": 0.20,
-    "5J50.DE": 0.10,
-}
 
 # Rebalancing thresholds & frequencies.
 REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
@@ -92,13 +72,13 @@ REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
 
 # ── v10.8.7 (T4): decision-taxonomy thresholds (ONE config module) ────────────
 # Every verb threshold lives here; no magic numbers in the UI or the engine.
-THREAT_DRAWDOWN = 0.20        # 20% below entry -> Threat
+THREAT_DRAWDOWN = 0.20        # 20% below what was paid -> Threat
+THREAT_CRASH_7D = 0.15        # 15% fall within 7 trading days -> Threat
 SCORE_FLOOR = 40.0            # composite below this -> Threat
 SPEC_STOP = -0.50             # Speculative stop-loss
 SPEC_TAKE = 1.00              # Speculative take-profit
 SWAP_HURDLE = 0.05            # 5 points after fees/tax/confidence -> Swap
-PLAN_CHANGE_MONTHS = 3        # Long-term under target for K plan runs -> Plan change
-PLAN_CHANGE_GAP = 0.10        # under-target gap that triggers a plan change
+PLAN_CHANGE_GAP = 0.10        # Long-term off target by this -> raise/lower the plan
 
 # ── v10.8.7 (T2): scoring + ideas ─────────────────────────────────────────────
 # A watched (non-held) symbol with a composite at or above this floor becomes an
@@ -140,9 +120,3 @@ TIER_CONSTRAINTS = {
         "max_allocation": 0.02,
     },
 }
-
-
-ALPHA_CONVICTION_HIGH = 75.0
-ALPHA_CONVICTION_MEDIUM = 60.0
-
-SPECULATIVE_TAKE_PROFIT = 1.00      # take profit at +100 percent

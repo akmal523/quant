@@ -88,18 +88,22 @@ def test_clean_name_never_embeds_the_ticker():
 
 # ── Entry-check amber case (pure) ─────────────────────────────────────────────
 
-def test_entry_check_amber_on_10pct_mistype():
+def test_entry_check_amber_on_10pct_mistype(monkeypatch):
     """Acceptance: a 10% mistyped Value yields the delta, shares and amber flag."""
+    from quant.data import currency
     from quant.ui import render as R
 
-    # typed 100 vs live 90 -> Delta % = (100 - 90) / 100 * 100 = 10.0
-    portfolio = pd.DataFrame([{"Symbol": "EUNL.DE", "Current_Value_EUR": 100.0}])
-    live = {"EUNL.DE": {"shares": 5.0, "value_eur": 90.0}}
-    rows = R._entry_check_rows(portfolio, live)
+    # 5 shares (500 invested / 100 cost) at a live 18 EUR = 90; typed 100 -> +10%.
+    monkeypatch.setattr(currency, "price_in_eur", lambda _sym, *_a, **_k: 18.0)
+    portfolio = pd.DataFrame([{"Symbol": "EUNL.DE", "Avg_Entry_Price": 100.0,
+                               "Current_Value_EUR": 100.0, "Broker_PnL_EUR": -400.0}])
+    rows = R._entry_check_rows(portfolio)
     assert len(rows) == 1
     row = rows[0]
     assert row["Shares"] == 5.0
-    assert abs(row["Delta"] - 10.0) < 1e-6
+    assert row["Typed"] == 100.0
+    assert row["Live"] == 90.0
+    assert row["Delta"] == pytest.approx(10.0)
     assert R._is_amber(row["Delta"]) is True
 
 

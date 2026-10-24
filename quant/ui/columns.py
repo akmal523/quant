@@ -114,6 +114,15 @@ CHECK_COLUMNS: list[ColumnSpec] = [
 
 CHECK_MAX_COLUMNS = 5
 
+# v10.8.10: class + target per holding (saved to tiers.csv). An empty target
+# means "no target": the holding gets no drift advice.
+TARGET_COLUMNS: list[ColumnSpec] = [
+    ColumnSpec("Holding", "Holding", "", False, "medium"),
+    ColumnSpec("Class", "Class", "", True, "small"),
+    ColumnSpec("Target %", "Target %", "", True, "small", numeric=True, fmt="%.0f"),
+]
+TARGET_MAX_COLUMNS = 3
+
 
 def editor_headers() -> list[str]:
     """The editor grid's display headers, in order (the contract)."""
@@ -234,6 +243,7 @@ HOME_HOLDINGS_MAX_COLUMNS = 8
 TABLE_SPECS: list[TableSpec] = [
     TableSpec("editor", EDITOR_COLUMNS, EDITOR_MAX_COLUMNS),
     TableSpec("entry_check", CHECK_COLUMNS, CHECK_MAX_COLUMNS),
+    TableSpec("targets", TARGET_COLUMNS, TARGET_MAX_COLUMNS),
     TableSpec("research", RESEARCH_COLUMNS, RESEARCH_MAX_COLUMNS),
     TableSpec("holdings_analysis", HOLDINGS_ANALYSIS_COLUMNS,
               HOLDINGS_ANALYSIS_MAX_COLUMNS),

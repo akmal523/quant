@@ -1,11 +1,13 @@
 """
 daily.py — the daily job body, catch-up, and last-run marker (v10.7.0, Section 3).
 
-Intent: merely owning a powered-on laptop is enough. The daily job is idempotent
-and guarded by the existing runner lock. It skips weekends, backfills missed
-bars (the range fetch does that), revalues holdings, recomputes scores, evaluates
-level-triggered alerts, writes artifacts, and dispatches notifications. Silence
-is the default: if no condition fires, it says nothing to the user.
+Intent: merely owning a powered-on laptop is enough. The systemd timer runs
+``quant daily`` at 18:45 and 07:45. Each run is idempotent and guarded by the
+runner lock; weekends are skipped. A run: refresh (prices with missed days,
+fundamentals, news), the analysis chain (regime, scores), the valuation store,
+the ONE list (persisted to the advice log), the day's digest written to
+``outputs/daily_<date>.md``, and, from the morning slot, the digest sent to
+Telegram once per price date.
 
 Catch-up: if the previous run was more than one trading day ago, the run is a
 catch-up; every summary artifact gains the exact line
@@ -21,7 +23,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -37,11 +39,10 @@ class DailyResult:
 
     status: str  # "ok" | "skipped" | "error"
     message: str
-    alerts_created: int = 0
-    alerts_notified: int = 0
+    items: int = 0
     gap_days: int | None = None
     invested_eur: float | None = None
-    new_alerts: list = field(default_factory=list)
+    digest_sent: bool = False
 
 
 def marker_path() -> str:
@@ -153,67 +154,18 @@ def gap_line(gap_days: int | None) -> str | None:
     return ui_copy.MONITORING_GAP.format(n=gap_days)
 
 
-def _latest_close(conn, symbol: str) -> float | None:
-    """Latest close for a symbol in EUR (v10.8.0, 2.2); None when absent."""
-    from quant.data.currency import price_in_eur
-
-    return price_in_eur(symbol, conn=conn)
-
-
-def _default_holdings(conn) -> list[dict]:
-    """Build holding dicts from the broker CSV + tiers (no heavy scoring)."""
-    try:
-        from quant.portfolio.portfolio import load_portfolio
-        from quant.portfolio.tier_manager import load_tiers_safe, tier_map
-
-        df = load_portfolio()
-        tiers_df, _ = load_tiers_safe()
-        tmap = tier_map(tiers_df)
-    except Exception:  # noqa: BLE001
-        return []
-    out: list[dict] = []
-    if df is None or getattr(df, "empty", True):
-        return out
-    for _, row in df.iterrows():
-        symbol = str(row.get("Symbol", "")).strip()
-        if not symbol:
-            continue
-        value = float(row.get("Current_Value_EUR", 0) or 0)
-        entry = float(row.get("Avg_Entry_Price", 0) or 0)
-        out.append({
-            "symbol": symbol,
-            "name": symbol,
-            "tier": str(tmap.get(symbol, "ALPHA")).upper(),
-            "value_eur": value,
-            "entry_price": entry,
-            "current_price": _latest_close(conn, symbol),
-        })
-    return out
-
-
-def _write_daily_artifact(today: date, result: DailyResult, alerts: list[dict]) -> str:
-    """Write a minimal daily markdown artifact. Returns the path."""
-    from quant.ui import copy as ui_copy
-
+def _write_daily_artifact(today: date, result: DailyResult, digest: str) -> str:
+    """Write the day's digest (with the gap line when catching up). Returns the path."""
     path = os.path.join(str(paths.OUTPUTS_DIR), f"daily_{today.isoformat()}.md")
     lines = [f"# Daily {today.isoformat()}", ""]
     gap = gap_line(result.gap_days)
     if gap:
-        lines.append(gap)
-        lines.append("")
-    if alerts:
-        lines.append(f"## {ui_copy.SEC_ALERTS}")
-        lines.append("")
-        for alert in alerts:
-            lines.append(f"- {alert.get('message', '')}")
-        lines.append("")
-    else:
-        lines.append(ui_copy.NOTHING_URGENT)
-        lines.append("")
+        lines += [gap, ""]
+    lines.append(digest)
     try:
         os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+            f.write("\n".join(lines) + "\n")
     except Exception:  # noqa: BLE001
         pass
     return path
@@ -223,16 +175,13 @@ def run_daily(
     today: date | None = None,
     *,
     update_fn: Callable[[], Any] | None = None,
-    holdings_fn: Callable[[Any], list[dict]] | None = None,
-    regime: str | None = None,
-    prev_regime: str | None = None,
     notify: bool = True,
     conn: Any = None,
 ) -> DailyResult:
     """Run the daily job. Idempotent; never raises.
 
-    update_fn: the market-data updater (default: none, for tests).
-    holdings_fn: builds holding dicts (default: broker CSV + tiers).
+    update_fn: the market-data refresh (default: none, for tests).
+    notify: send the morning digest (it still sends at most once per price date).
     """
     today = today or date.today()
     if not is_trading_day(today):
@@ -258,20 +207,8 @@ def run_daily(
     except Exception:  # noqa: BLE001
         pass
 
-    # Revalue holdings (holdings_meta shares x latest close) for the run summary.
-    invested = None
-    try:
-        from quant.engine import valuation
-
-        values = valuation.revalue_holdings(conn, lambda s: _latest_close(conn, s))
-        if values:
-            invested = sum(values.values())
-    except Exception:  # noqa: BLE001
-        pass
-
-    # v10.8.7 (T2): run the analysis chain (prices -> fundamentals -> nlp ->
-    # regime -> scoring -> optimization), each stage writing a run_manifest row;
-    # then the mark-to-market valuation store (idempotent).
+    # v10.8.7 (T2): the analysis chain (regime, scores, run manifest), then the
+    # mark-to-market valuation store (idempotent).
     try:
         from quant.engine import analysis, mtm
         from quant.engine import manifest as manifest_mod
@@ -286,46 +223,32 @@ def run_daily(
     except Exception:  # noqa: BLE001
         pass
 
-    # Evaluate alerts.
-    new_alerts: list[dict] = []
-    try:
-        from quant.engine import alerts as alerts_mod
-
-        holdings = (holdings_fn(conn) if holdings_fn else _default_holdings(conn))
-        new_alerts = alerts_mod.evaluate_alerts(
-            conn, holdings, regime=regime, prev_regime=prev_regime, today=today)
-    except Exception:  # noqa: BLE001
-        new_alerts = []
-
-    # v10.8.10 (R-C4): persist the ONE list (advice log) from the fresh data.
-    from quant.engine.today_list import persist
+    # The ONE list from the fresh data: persisted (advice log), written to the
+    # daily artifact, and sent as the morning digest (v10.8.10).
+    from quant.engine import notify as notify_mod
+    from quant.engine.holdings_view import holdings_view
+    from quant.engine.mtm import latest_total
+    from quant.engine.today_list import build_items, persist
+    from quant.reporting.artifacts import read_regime
 
     persist(conn)
-
+    holdings = holdings_view(conn)
+    items = build_items(holdings, regime=read_regime())
+    total = latest_total(conn)
     result = DailyResult(
         status="ok",
-        message="daily run complete",
-        alerts_created=len(new_alerts),
+        message=f"daily run complete: {len(items)} item(s) on the list",
+        items=len(items),
         gap_days=gap,
-        invested_eur=invested,
-        new_alerts=new_alerts,
+        invested_eur=total.get("value_eur") if total else None,
     )
-
-    # Write the artifact (with the gap line when catching up).
-    _write_daily_artifact(today, result, new_alerts)
-
-    # Dispatch notifications for new, unnotified alerts.
-    if notify and new_alerts:
-        try:
-            from quant.engine import notify as notify_mod
-
-            sent = 0
-            for alert in new_alerts:
-                if notify_mod.send_alert(alert):
-                    sent += 1
-            result.alerts_notified = sent
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        snap = notify_mod.digest_snapshot(conn, items, holdings, today)
+        _write_daily_artifact(today, result, notify_mod.build_digest(snap))
+    except Exception:  # noqa: BLE001
+        _write_daily_artifact(today, result, "")
+    if notify:
+        result.digest_sent = notify_mod.send_daily_digest(conn, items, holdings, today)
 
     write_last_daily_run(today)
     clear_last_failed_run()

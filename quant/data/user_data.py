@@ -142,3 +142,42 @@ def _write_marker() -> None:
             f.write("migrated\n")
     except Exception:  # noqa: BLE001
         pass
+
+
+# v10.8.10: per-symbol targets moved from source code (config) into the user's
+# tiers.csv. These are the values the code used to hardcode; they seed the new
+# target_pct column once, only where no target is set yet.
+LEGACY_TARGETS_PCT = {"EUNL.DE": 50.0, "SXRV.DE": 20.0, "AMZN": 20.0, "5J50.DE": 10.0}
+
+
+def migrate_targets_into_tiers() -> list[str]:
+    """Seed ``target_pct`` in tiers.csv from the old hardcoded map. Once.
+
+    Only symbols in the holdings table, only when the file has no target at all
+    (so a user who cleared a target is never overridden). Returns the symbols
+    seeded. Never raises.
+    """
+    try:
+        import pandas as pd
+
+        from quant.portfolio.portfolio import load_portfolio
+        from quant.portfolio.tier_manager import load_tiers, save_tiers
+
+        tiers = load_tiers()
+        if not tiers.empty and tiers["target_pct"].notna().any():
+            return []
+        held = set(load_portfolio(paths.DATA_PORTFOLIO).get("Symbol", []))
+        seed = {s: t for s, t in LEGACY_TARGETS_PCT.items() if s in held}
+        if not seed:
+            return []
+        known = set(tiers["symbol"]) if not tiers.empty else set()
+        new = [{"symbol": s, "tier": "ALPHA", "target_pct": None, "last_updated": "",
+                "notes": ""} for s in seed if s not in known]
+        tiers = pd.concat([tiers, pd.DataFrame(new)], ignore_index=True) if new else tiers
+        tiers["target_pct"] = [seed.get(s, t) for s, t in
+                               zip(tiers["symbol"], tiers["target_pct"], strict=True)]
+        save_tiers(tiers)
+        return sorted(seed)
+    except Exception:  # noqa: BLE001
+        return []
+

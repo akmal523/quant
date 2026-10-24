@@ -84,24 +84,6 @@ def test_class_now_sums_to_100_percent():
     assert abs(now_sum - 100.0) < 1e-6, f"class Now sums to {now_sum}"
 
 
-def test_no_advice_mentions_a_cash_percentage():
-    """T1 acceptance: no advice mentions a cash percentage."""
-    from quant.engine.advice import build_advice
-
-    holdings = [
-        {"symbol": "EUNL.DE", "name": "MSCI World", "tier": "FORTRESS",
-         "value_eur": 500.0, "current_weight": 0.46, "target_weight": 0.50,
-         "entry_price": 100.0, "current_price": 100.0},
-        {"symbol": "SXRV.DE", "name": "Nasdaq 100", "tier": "ALPHA",
-         "value_eur": 200.0, "current_weight": 0.19, "target_weight": 0.20,
-         "entry_price": 100.0, "current_price": 100.0},
-    ]
-    advice, rejected = build_advice(holdings=holdings, regime="bull")
-    blob = " ".join(str(a.get("why") or "") for a in advice)
-    blob += " " + " ".join(str(n.get("plain_reason") or "") for n in rejected)
-    assert "cash" not in blob.lower(), f"advice mentions cash: {blob}"
-
-
 def test_invest_remainder_line_is_neutral_and_grammatical():
     """T1: the remainder line has correct singular/plural and no doubled currency."""
     from quant.ui import copy as C

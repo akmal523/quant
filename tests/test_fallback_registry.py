@@ -23,9 +23,6 @@ class _BrokenConn:
     def execute(self, *_a, **_k):
         raise RuntimeError("db down")
 
-class _BrokenLookup:
-    def get(self, _k):
-        raise RuntimeError("lookup down")
 
 def _raise(*_a, **_k):
     raise RuntimeError("boom")
@@ -34,15 +31,12 @@ def _triggers() -> dict[str, tuple]:
     """Map each registry key to (trigger callable, expected default)."""
     from quant.data import user_data
     from quant.engine import (
-        advice,
         advice_state,
-        alerts,
         analysis,
         flows,
         mtm,
         sizing,
         today_list,
-        valuation,
     )
     from quant.portfolio import account, portfolio, tier_manager
     from quant.reporting import artifacts
@@ -60,22 +54,9 @@ def _triggers() -> dict[str, tuple]:
             return artifacts._analysis_regime()
 
     return {
-        "advice._spec_change": (lambda: advice._spec_change({"pnl_pct": "bad"}), None),
-        "advice._tier_lookup": (lambda: advice._tier_lookup("bad"), {}),
-        "advice._as_date": (lambda: advice._as_date("not-a-date"), None),
-        "alerts._num": (lambda: alerts._num("bad"), None),
-        "alerts.has_open_alert": (lambda: alerts.has_open_alert(_BrokenConn(), "X", "k"), False),
-        "alerts._has_unrearmed_dismissal": (
-            lambda: alerts._has_unrearmed_dismissal(_BrokenConn(), "X", "k"), False),
-        "alerts.open_alerts": (lambda: alerts.open_alerts(_BrokenConn()), []),
-        "alerts.resolve_alert": (lambda: alerts.resolve_alert(_BrokenConn(), 1, "done"), False),
         "flows.load_flows": (lambda: flows.load_flows(_BrokenConn()), []),
         "sizing.is_untouchable": (lambda: sizing.is_untouchable("bad"), True),
         "sizing.sell_amount": (lambda: sizing.sell_amount("bad", 100.0), None),
-        "sizing.passes_fee_hurdle": (lambda: sizing.passes_fee_hurdle("bad", "bad", 1.0), True),
-        "valuation._lookup": (lambda: valuation._lookup(_BrokenLookup(), "X"), None),
-        "valuation._last_sync_date": (lambda: valuation._last_sync_date(_BrokenConn()), None),
-        "valuation._meta_get": (lambda: valuation._meta_get(_BrokenConn(), "k"), None),
         "account.load_account": (
             lambda: account.load_account("/nonexistent/account.yaml").loaded, False),
         "portfolio.load_portfolio": (

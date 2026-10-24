@@ -9,18 +9,13 @@ Laws:
   2. Sell amount = min(drift, value - 1 EUR), rounded DOWN to 5 EUR steps.
      Below 25 EUR, no advice (fee relevance).
   3. A position below 100 EUR is untouchable (never emit a sell advice).
-  4. Cooldown blocks sells only; it never blocks savings-plan buys, new-money
-     buys, or alert-driven sells.
-  5. Buy amounts round to 10 EUR steps; active buys show the 1 EUR fee,
-     savings-plan legs show 0 EUR.
-  6. An active buy needs HIGH conviction; otherwise the money goes to cash.
+  4. Buy amounts round to 10 EUR steps.
 
 Invariants: pure functions, no I/O.
 """
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from quant.config import (
     BUY_ROUND_STEP_EUR,
@@ -36,7 +31,9 @@ def round_down(value: float, step: float) -> float:
     """Round ``value`` down to the nearest ``step`` (never above value)."""
     if step <= 0:
         return float(value)
-    return math.floor(float(value) / step) * step
+    # Round the quotient first: 0.6 - 0.4 is 0.19999... in floating point, and
+    # 20% of 1000 EUR must round to 200, not 195.
+    return math.floor(round(float(value) / step, 9)) * step
 
 
 def is_untouchable(position_value_eur: float) -> bool:
@@ -82,20 +79,3 @@ def can_sell(tier: str, position_value_eur: float, drift_eur: float) -> float | 
 def round_buy(amount_eur: float) -> float:
     """Round a buy amount to 10 EUR steps (down)."""
     return round_down(amount_eur, BUY_ROUND_STEP_EUR)
-
-
-def passes_fee_hurdle(expected_alpha_bps: Any, amount_eur: Any, fee_eur: Any) -> bool:
-    """True when the expected alpha clears the fee (v10.7.4, Part 2.1).
-
-    expected profit = expected_alpha_bps / 10000 * amount_eur. A buy is allowed
-    when the expected profit is at least the fee (the boundary is inclusive, so
-    50 bps on 200 EUR clears a 1 EUR fee). A missing alpha means no hurdle, so
-    legacy callers keep working.
-    """
-    if expected_alpha_bps is None:
-        return True
-    try:
-        expected = float(expected_alpha_bps) / 10000.0 * float(amount_eur)
-        return expected >= float(fee_eur)
-    except (TypeError, ValueError):
-        return True

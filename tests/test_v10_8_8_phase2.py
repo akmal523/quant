@@ -51,8 +51,7 @@ def test_reason_cell_ignores_other_symbols_advice():
 
 def test_alert_count_matches_the_advice_state():
     """R-P2: the Alerts count is the open Threat-verb triggers; 0 when none."""
-    holdings = [{"symbol": "X", "tier": "SPECULATIVE", "entry_price": 100.0,
-                 "current_price": 40.0}]
+    holdings = [{"symbol": "X", "tier": "SPECULATIVE", "pnl_pct": -0.6}]
     assert HA.alert_count("X", holdings) == 1   # stop-loss hit
     assert HA.alert_count("Y", holdings) == 0   # truly zero
 
@@ -113,7 +112,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 
 @pytest.fixture
 def seeded_analysis(tmp_path, monkeypatch):
-    """EUNL.DE has news + SEC + open advice; AMZN has none."""
+    """EUNL.DE has news + open advice; AMZN has none."""
     from quant import paths
     from quant.data.database import write_connection
 
@@ -127,6 +126,7 @@ def seeded_analysis(tmp_path, monkeypatch):
         conn.execute("DELETE FROM holdings_meta")
         conn.execute("DELETE FROM market_history")
         conn.execute("DELETE FROM nlp_evidence")
+        conn.execute("DELETE FROM valuation")
         conn.execute("DELETE FROM advice_log")
         for sym in ("EUNL.DE", "AMZN"):
             conn.execute(

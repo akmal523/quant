@@ -74,23 +74,6 @@ def _persist_today_list() -> None:
         pass
 
 
-def _print_open_alerts() -> None:
-    """Print the ALERTS section before anything else (v10.7.0, Section 4.4)."""
-    try:
-        from quant.data.database import read_only_connection
-        from quant.engine import alerts as alerts_mod
-
-        with read_only_connection() as conn:
-            open_now = alerts_mod.open_alerts(conn)
-    except Exception:  # noqa: BLE001
-        return
-    if not open_now:
-        return
-    print("ALERTS")
-    for alert in open_now:
-        print(f"  {alert.get('message', '')}")
-
-
 def _cmd_run(_args: argparse.Namespace) -> int:
     """Run the analysis chain on the stored data, then persist the ONE list.
 
@@ -215,19 +198,13 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"portfolio issues: unreadable ({e})")
     try:
         from quant.data.database import read_only_connection
-        from quant.engine import valuation
+        from quant.portfolio.portfolio import load_portfolio
 
+        held = list(load_portfolio(paths.DATA_PORTFOLIO).get("Symbol", []))
         with read_only_connection() as conn:
-            def _price(sym: str):
-                try:
-                    row = conn.execute(
-                        "SELECT Close FROM market_history WHERE Symbol = ? "
-                        "ORDER BY Date DESC LIMIT 1", [sym]).fetchone()
-                    return float(row[0]) if row and row[0] is not None else None
-                except Exception:  # noqa: BLE001
-                    return None
-
-            unpriceable = valuation.unpriceable_symbols(conn, _price)
+            priced = {r[0] for r in conn.execute(
+                "SELECT DISTINCT Symbol FROM market_history").fetchall()}
+        unpriceable = [s for s in held if s not in priced]
         if unpriceable:
             print(f"unpriceable: {sorted(unpriceable)}")
     except Exception as e:  # noqa: BLE001
@@ -330,18 +307,13 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
               f"not used, safe to delete after checking): {', '.join(leftover)}")
 
     try:
-        from quant.engine.valuation import days_since_last_sync
-
         with read_only_connection() as conn:
-            sync_days = days_since_last_sync(conn)
-            _row = conn.execute("SELECT MAX(sync_date) FROM holdings_meta").fetchone()
+            _row = conn.execute("SELECT MAX(snapshot_date) FROM position_snapshots"
+                                ).fetchone()
         _last = _row[0] if _row else None
-        if sync_days is None:
-            print("last broker sync: never (run quant run to sync)")
-        else:
-            print(f"last broker sync: {sync_days} days ago ({_last})")
+        print(f"last confirm and save: {_last or 'never'}")
     except Exception as e:  # noqa: BLE001
-        print(f"last broker sync: unreadable ({e})")
+        print(f"last confirm and save: unreadable ({e})")
 
     try:
         from quant.engine.scheduler import status_line
@@ -524,17 +496,6 @@ def _cmd_daily(_args: argparse.Namespace) -> int:
         lock_mod.release()
 
 
-def _cmd_ack(args: argparse.Namespace) -> int:
-    """Resolve an alert: quant ack <id> --status done|declined --reason ..."""
-    from quant.data.database import get_connection
-    from quant.engine import alerts
-
-    ok = alerts.resolve_alert(
-        get_connection(), int(args.id), args.status, getattr(args, "reason", None))
-    print("alert resolved" if ok else "alert not found")
-    return 0 if ok else 1
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Construct the ``quant`` argument parser."""
     from quant import __version__
@@ -578,10 +539,6 @@ def build_parser() -> argparse.ArgumentParser:
     sched.add_argument("--off", action="store_true")
     sched.add_argument("--status", action="store_true")
     sub.add_parser("notify-setup", help=hidden)
-    ack = sub.add_parser("ack", help=hidden)
-    ack.add_argument("id")
-    ack.add_argument("--status", choices=["done", "declined"], required=True)
-    ack.add_argument("--reason", default=None)
 
     # argparse lists every subparser in --help; keep only the six user commands
     # (hidden subparsers remain dispatachable, used by the scheduler and tests).
@@ -681,7 +638,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "schedule": _cmd_schedule,
         "notify-setup": _cmd_notify_setup,
         "daily": _cmd_daily,
-        "ack": _cmd_ack,
     }
     try:
         return dispatch[args.command](args)

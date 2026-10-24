@@ -173,26 +173,28 @@ def _clean_name(symbol: str) -> str:
     return name
 
 
-def _entry_check_rows(portfolio, live) -> list[dict]:
-    """The read-only Entry-check rows (v10.8.8, R-P1).
+def _entry_check_rows(portfolio, live=None) -> list[dict]:
+    """The read-only Entry-check rows (v10.8.8, R-P1; v10.8.10).
 
-    The ONLY place live and typed meet: Shares are derived from the MTM store,
-    the typed value is the user's current input, the live value is the store's
-    value, and Delta % = (typed - live) / typed * 100.
+    Catches a mistyped row BEFORE it is saved: per typed row, shares = (value -
+    profit) / average cost, live value = shares x the latest EUR price, and
+    Delta % = (typed - live) / typed * 100. Independent of the ledger, so it
+    checks exactly what is on screen. ``live`` is unused (kept for callers).
     """
-    live = live or {}
+    from quant.data.currency import price_in_eur
+
     if portfolio is None or getattr(portfolio, "empty", True):
         return []
     rows: list[dict] = []
     for _, r in portfolio.iterrows():
         sym = str(r.get("Symbol", ""))
-        h = live.get(sym)
         typed = _num(r.get("Current_Value_EUR"))
-        shares = _num(h.get("shares")) if h else None
-        live_v = _num(h.get("value_eur")) if h else None
-        delta = None
-        if typed and live_v is not None:
-            delta = (typed - live_v) / typed * 100.0
+        entry = _num(r.get("Avg_Entry_Price"))
+        invested = (typed or 0.0) - (_num(r.get("Broker_PnL_EUR")) or 0.0)
+        shares = invested / entry if entry else None
+        price = price_in_eur(sym) if sym and shares else None
+        live_v = round(shares * price, 2) if price else None
+        delta = (typed - live_v) / typed * 100.0 if typed and live_v is not None else None
         rows.append({"Symbol": sym, "Shares": shares, "Typed": typed,
                      "Live": live_v, "Delta": delta})
     return rows

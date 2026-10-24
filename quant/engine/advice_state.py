@@ -9,8 +9,10 @@ against the ``advice_log`` table:
   - an item not yet open is inserted with ``open_since = today``;
   - an item already open keeps its original ``open_since`` (so the UI can say
     "open since <date>");
-  - an item no longer produced is closed (status ``done``), so the list stops
-    repeating it and History shows the advice log.
+  - an item no longer produced is closed (status ``closed``), so the list stops
+    repeating it and History shows the advice log;
+  - an item the user marks done (status ``done``, ``done_at``) stays hidden for
+    ``SNOOZE_DAYS`` even if the rules still produce it.
 
 Identity is ``(verb, symbol, horizon)``: the same recommendation for the same
 thing in the same time bucket is one open object.
@@ -30,7 +32,11 @@ from datetime import date
 from typing import Any
 
 STATUS_OPEN = "open"
-STATUS_DONE = "done"
+STATUS_DONE = "done"          # the user marked it done
+STATUS_CLOSED = "closed"      # no longer advised (the rules stopped producing it)
+# v10.8.10: an item the user marked done stays hidden this long, even if the
+# rules still produce it (it used to reappear on the very next render).
+SNOOZE_DAYS = 7
 
 _KEY_FIELDS = ("verb", "symbol", "horizon")
 
@@ -66,6 +72,8 @@ def sync(conn: Any, items: list[dict] | None, as_of: date | None = None) -> list
             "WHERE status = ?", [STATUS_OPEN]).fetchall()
     except Exception:  # noqa: BLE001
         return items
+    snoozed = _recently_done(conn, as_of)
+    items = [i for i in items if _key(i) not in snoozed]
     open_by_key: dict = {}
     for rid, verb, symbol, horizon, open_since in existing:
         open_by_key[(str(verb or ""), str(symbol or ""), str(horizon or ""))] = (
@@ -104,10 +112,20 @@ def sync(conn: Any, items: list[dict] | None, as_of: date | None = None) -> list
             try:
                 conn.execute(
                     "UPDATE advice_log SET status = ? WHERE id = ?",
-                    [STATUS_DONE, rid])
+                    [STATUS_CLOSED, rid])
             except Exception:  # noqa: BLE001
                 pass
     return out
+
+
+def _recently_done(conn: Any, as_of: date) -> set:
+    """Keys the user marked done within the last ``SNOOZE_DAYS`` days."""
+    from datetime import datetime, timedelta
+
+    since = datetime.combine(as_of - timedelta(days=SNOOZE_DAYS), datetime.min.time())
+    rows = _query(conn, "SELECT verb, symbol, horizon FROM advice_log WHERE status = ? "
+                        "AND done_at >= ?", [STATUS_DONE, since])
+    return {(str(v or ""), str(s or ""), str(h or "")) for v, s, h in rows}
 
 
 def annotate(items: list[dict] | None, as_of: date | None = None,
@@ -116,12 +134,16 @@ def annotate(items: list[dict] | None, as_of: date | None = None,
 
     Enriches each item with the ``id`` / ``open_since`` of its open log row; an
     item the writers have not persisted yet gets ``id=None`` and
-    ``open_since=as_of``. Never writes, never raises.
+    ``open_since=as_of``; an item marked done within ``SNOOZE_DAYS`` is dropped.
+    Never writes, never raises.
     """
     as_of = as_of or date.today()
     open_by_key = {_key(r): r for r in open_items(conn)}
+    snoozed = _recently_done(conn, as_of)
     out: list[dict] = []
     for item in items or []:
+        if _key(item) in snoozed:
+            continue
         found = open_by_key.get(_key(item))
         enriched = dict(item)
         enriched["id"] = found["id"] if found else None
@@ -161,7 +183,7 @@ def mark_done(conn: Any, advice_id: int | None) -> bool:
     if conn is None or advice_id is None:
         return False
     try:
-        conn.execute("UPDATE advice_log SET status = ? WHERE id = ?",
+        conn.execute("UPDATE advice_log SET status = ?, done_at = now() WHERE id = ?",
                      [STATUS_DONE, int(advice_id)])
         return True
     except Exception:  # noqa: BLE001

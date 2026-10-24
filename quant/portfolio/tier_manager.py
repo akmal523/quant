@@ -1,11 +1,11 @@
 """
 tier_manager.py — 3-tier classification (FORTRESS / ALPHA / SPECULATIVE).
 
-Intent (v10.6.2, R-TIER-1): the legacy 4-tier system (CORE / SATELLITE /
-ACTIVE / SECTOR) is replaced by the 3-tier system. Tier assignments live in a
-user-editable ``data/tiers.csv`` (``symbol,tier,last_updated,notes``);
-``data/portfolio.csv`` stays broker-synced and untouched. An unlisted symbol
-defaults to ALPHA (the safest active tier).
+Per holding the user sets a class and a target in ``data/tiers.csv``
+(``symbol,tier,target_pct,last_updated,notes``; edited on Update holdings).
+``target_pct`` is a percent of the invested money; an empty target means "no
+target" (no drift advice), never 0%. ``data/portfolio.csv`` stays the broker
+numbers only. An unlisted symbol defaults to ALPHA.
 
 Invariants:
   - ``load_tiers`` never raises; returns an empty frame on any failure.
@@ -31,7 +31,7 @@ from quant.config import (
     VALID_TIERS,
 )
 
-_COLUMNS = ["symbol", "tier", "last_updated", "notes"]
+_COLUMNS = ["symbol", "tier", "target_pct", "last_updated", "notes"]
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
@@ -48,6 +48,7 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     out["tier"] = out["tier"].astype(str).str.strip().str.upper()
     out["last_updated"] = out["last_updated"].astype(str).str.strip()
     out["notes"] = out["notes"].fillna("").astype(str)
+    out["target_pct"] = pd.to_numeric(out["target_pct"], errors="coerce")
     out = out[out["symbol"] != ""]
     return out.reset_index(drop=True)
 
@@ -107,6 +108,17 @@ def tier_map(tiers_df: pd.DataFrame | None = None) -> dict[str, str]:
         for _, r in tiers_df.iterrows()
         if str(r["tier"]).upper() in VALID_TIERS
     }
+
+
+def target_map(tiers_df: pd.DataFrame | None = None) -> dict[str, float]:
+    """Return ``{symbol: target fraction}`` for symbols with a target set."""
+    if tiers_df is None:
+        tiers_df = load_tiers()
+    if tiers_df is None or tiers_df.empty:
+        return {}
+    return {str(r["symbol"]): float(r["target_pct"]) / 100.0
+            for _, r in tiers_df.iterrows()
+            if pd.notna(r["target_pct"]) and float(r["target_pct"]) >= 0}
 
 
 # ── v10.6.3: Unclassified detection, validation, repair ───────────────────────

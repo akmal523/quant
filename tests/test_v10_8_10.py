@@ -15,8 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from quant.engine import action_taxonomy as T
-from quant.engine import advice_state, today_list
+from quant.engine import advice_state
 from quant.ui import copy as C
 
 DASHBOARD = str(Path(__file__).resolve().parents[1] / "quant" / "dashboard.py")
@@ -80,73 +79,6 @@ def test_mark_item_done_logs_an_unpersisted_item():
         assert advice_state.mark_item_done(conn, item) is True
         rows = conn.execute("SELECT symbol, status FROM advice_log").fetchall()
     assert rows == [("MID", advice_state.STATUS_DONE)]
-
-
-# ── T4: plan change / swap / threat ───────────────────────────────────────────
-
-def test_plan_change_uses_config_and_per_symbol_months():
-    from quant.config import PLAN_CHANGE_MONTHS
-
-    h = [_h("LT", "FORTRESS", cur=0.30, tgt=0.60)]
-    assert T.plan_change_items(h, {"LT": PLAN_CHANGE_MONTHS - 1}) == []
-    items = T.plan_change_items(h, {"LT": PLAN_CHANGE_MONTHS})
-    assert [i["symbol"] for i in items] == ["LT"]
-
-
-def test_months_under_target_reads_month_ends_from_the_store():
-    from quant.data.database import write_connection
-
-    with write_connection() as conn:
-        conn.execute("DELETE FROM valuation")
-        # Three month-ends with LT at 20% of the total, then one at 70%.
-        for d, lt in ((date(2026, 3, 31), 70.0), (date(2026, 4, 30), 20.0),
-                      (date(2026, 5, 29), 20.0), (date(2026, 6, 30), 20.0)):
-            for sym, v in (("LT", lt), ("OT", 100.0 - lt)):
-                conn.execute("INSERT INTO valuation (date, symbol, shares, price_eur, "
-                             "fx, value_eur, source) VALUES (?, ?, 1, ?, 1, ?, 't')",
-                             [d, sym, v, v])
-        months = today_list.months_under_target(
-            [_h("LT", "FORTRESS", tgt=0.60)], conn=conn)
-        conn.execute("DELETE FROM valuation")
-    assert months == {"LT": 3}
-
-
-def test_swap_only_for_active_or_speculative_scored_holdings():
-    ideas = [{"symbol": "IDEA", "name": "Idea", "score": 90.0}]
-    holdings = [_h("LT", "FORTRESS"), _h("ODD", ""), _h("ACT", "ALPHA"),
-                _h("UNS", "SPECULATIVE")]
-    scores = {"LT": {"composite": 10}, "ODD": {"composite": 10},
-              "ACT": {"composite": 10}}
-    swaps = T.swap_items(holdings, ideas, scores)
-    assert [s["symbol"] for s in swaps] == ["ACT"]  # UNS is unscored
-
-
-def test_a_swap_symbol_has_no_standalone_buy_or_sell():
-    holdings = [_h("ACT", "ALPHA", cur=0.9, tgt=0.1, value=900.0),
-                _h("ETF", "FORTRESS", cur=0.1, tgt=0.9, value=100.0)]
-    scores = {"ACT": {"composite": 50}}
-    plain = today_list.build_items(holdings, scores=scores, ideas=[], months_under={})
-    assert any(i["symbol"] == "ACT" and i["verb"] == "sell_part" for i in plain)
-    items = today_list.build_items(
-        holdings, scores=scores, months_under={},
-        ideas=[{"symbol": "IDEA", "name": "Idea", "score": 95.0}])
-    assert [i["verb"] for i in items if i["symbol"] == "ACT"] == ["swap"]
-
-
-def test_threat_score_floor_reads_the_composite():
-    h = [_h("LOW", "ALPHA")]
-    items = T.threat_items(h, {"LOW": {"composite": 5.0, "structural_grade": 90.0}})
-    assert any("below" in i["reason"] for i in items)
-
-
-# ── Regime: one vocabulary ────────────────────────────────────────────────────
-
-@pytest.mark.parametrize("label", ["bear", "falling", "Falling"])
-def test_bear_regime_is_recognised_in_either_vocabulary(label):
-    from quant.portfolio.regime_constraints import is_bear
-
-    assert is_bear(label) and is_bear({"label": label})
-    assert any(i["symbol"] is None for i in T.threat_items([], {}, {"label": label}))
 
 
 # ── R-P3: the delta badge ─────────────────────────────────────────────────────
@@ -375,15 +307,6 @@ def test_trend_regime_from_the_200_day_average():
     assert up[0] == "bull" and down[0] == "bear" and flat[0] == "chop"
 
 
-def test_score_floor_skips_long_term_and_low_confidence():
-    holdings = [_h("LT", "FORTRESS"), _h("ACT", "ALPHA"), _h("THIN", "ALPHA")]
-    scores = {"LT": {"composite": 20, "confidence": "high"},
-              "ACT": {"composite": 20, "confidence": "medium"},
-              "THIN": {"composite": 20, "confidence": "low"}}
-    flagged = {i["symbol"] for i in T.threat_items(holdings, scores)}
-    assert flagged == {"ACT"}
-
-
 # ── News ──────────────────────────────────────────────────────────────────────
 
 _RSS = b"""<?xml version="1.0"?><rss><channel>
@@ -428,3 +351,88 @@ def test_news_without_a_model_is_stored_unscored():
         conn.execute("DELETE FROM nlp_evidence WHERE symbol = 'NWS'")
     assert stats["new"] == 2 and stats["scored"] == 0
     assert scores == [(None,), (None,)]
+
+
+# ── Positions, targets, digest ────────────────────────────────────────────────
+
+def test_positions_use_invested_over_cost_and_the_latest_stored_value(tmp_path, monkeypatch):
+    from quant import paths
+    from quant.data.database import write_connection
+    from quant.engine.positions import positions_now
+
+    csv = tmp_path / "portfolio.csv"
+    csv.write_text("Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR\n"
+                   "POSA,100.0,1200.0,200.0\nPOSB,50.0,100.0,0.0\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "DATA_PORTFOLIO", str(csv))
+    with write_connection() as conn:
+        conn.execute("DELETE FROM valuation")
+        conn.execute("INSERT INTO valuation (date, symbol, shares, price_eur, fx, value_eur, "
+                     "source) VALUES (?, 'POSA', 10, 130, 1, 1300, 't')", [date(2026, 10, 23)])
+        pos = {p["symbol"]: p for p in positions_now(conn)}
+        conn.execute("DELETE FROM valuation")
+    assert pos["POSA"]["shares"] == 10.0                 # 1000 invested / 100 cost
+    assert pos["POSA"]["value_eur"] == 1300.0            # marked to the store
+    assert round(pos["POSA"]["pnl_pct"], 4) == 0.3
+    assert pos["POSB"]["value_eur"] == 100.0 and not pos["POSB"]["estimated"]
+
+
+def test_targets_live_in_tiers_csv_and_migrate_once(tmp_path, monkeypatch):
+    from quant import paths
+    from quant.data import user_data
+    from quant.portfolio.tier_manager import load_tiers, target_map
+
+    csv = tmp_path / "portfolio.csv"
+    csv.write_text("Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR\n"
+                   "EUNL.DE,100,500,0\nNEWX,10,100,0\n", encoding="utf-8")
+    tiers = tmp_path / "tiers.csv"
+    tiers.write_text("symbol,tier,last_updated,notes\nEUNL.DE,FORTRESS,,\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "DATA_PORTFOLIO", str(csv))
+    monkeypatch.setattr(paths, "DATA_TIERS", str(tiers))
+    assert user_data.migrate_targets_into_tiers() == ["EUNL.DE"]
+    assert target_map(load_tiers()) == {"EUNL.DE": 0.5}      # NEWX: no target
+    assert user_data.migrate_targets_into_tiers() == []      # once
+
+
+def _snap(**kw):
+    base = {"today": date(2026, 10, 26), "prices_date": date(2026, 10, 23), "total": 1234.0,
+            "day_eur": 12.0, "day_pct": 1.0, "since_pct": 5.2,
+            "regime_word": "rising (high confidence)", "items": [], "holdings": [],
+            "news": [], "issues": []}
+    return base | kw
+
+
+def test_digest_reads_like_a_short_report():
+    from quant.engine.notify import build_digest
+
+    text = build_digest(_snap(
+        items=[{"verb": "sell_part", "label": "Nasdaq 100 (SXRV.DE)", "amount_eur": 65,
+                "reason": "6pp above its 20% target.", "horizon": "Today"}],
+        holdings=["MSCI World: 46% (target 50%), score 62"],
+        news=["AMZN: Amazon beats estimates (positive)"],
+        issues=["nlp missing (no model)"]))
+    assert "1,234 EUR" in text and "+12 EUR (+1.0%)" in text and "+5.2%" in text
+    assert "Today:\n- Sell ~65 EUR of Nasdaq 100 (SXRV.DE): 6pp above" in text
+    assert "MSCI World: 46% (target 50%)" in text and "Amazon beats" in text
+    assert "Note: nlp missing" in text
+    assert "Nothing to do." in build_digest(_snap())
+
+
+def test_digest_is_sent_once_per_price_date_from_the_morning_slot(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from quant import paths
+    from quant.engine import notify
+
+    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
+    monkeypatch.setattr(notify, "digest_snapshot", lambda *_a, **_k: _snap())
+    sent: list[str] = []
+
+    def sender(text):
+        sent.append(text)
+        return True
+
+    morning, evening = datetime(2026, 10, 26, 7, 45), datetime(2026, 10, 26, 18, 45)
+    assert notify.send_daily_digest(None, [], [], now=evening, sender=sender) is False
+    assert notify.send_daily_digest(None, [], [], now=morning, sender=sender) is True
+    assert notify.send_daily_digest(None, [], [], now=morning, sender=sender) is False
+    assert len(sent) == 1

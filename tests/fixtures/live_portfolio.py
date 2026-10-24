@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import random
 
-from quant.config import TARGET_WEIGHTS_INVESTED, VALID_TIERS
+from quant.config import VALID_TIERS
+
+# The per-symbol targets of the fixture portfolio (formerly config's map).
+TARGET_WEIGHTS_INVESTED = {"EUNL.DE": 0.50, "SXRV.DE": 0.20, "AMZN": 0.20, "5J50.DE": 0.10}
 
 SEED = 20261002
 

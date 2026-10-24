@@ -559,41 +559,8 @@ def init_db() -> None:
             status VARCHAR DEFAULT 'open'
         )
     """)
-
-    # ── v10.7.0: Alerts (level-triggered, Section 5) ─────────────────────────
-    # An alert stays open until the user resolves it. Self-scoring prices a
-    # resolved alert 30 days later and records a verdict (the honesty ledger).
-    conn.execute("CREATE SEQUENCE IF NOT EXISTS alerts_id_seq START 1")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id BIGINT DEFAULT nextval('alerts_id_seq'),
-            created_date DATE,
-            symbol VARCHAR,
-            kind VARCHAR,
-            message VARCHAR,
-            action VARCHAR,
-            amount_eur DOUBLE,
-            status VARCHAR DEFAULT 'new',
-            resolve_date DATE,
-            resolve_reason VARCHAR,
-            price_at_resolve DOUBLE,
-            notified BOOLEAN DEFAULT FALSE,
-            price_30d DOUBLE,
-            verdict VARCHAR,
-            condition_cleared BOOLEAN DEFAULT FALSE
-        )
-    """)
-    # v10.7.4 (R8): a dismissed alert must not reopen unless the underlying
-    # condition re-arms. condition_cleared records that the condition read false
-    # at least once after the dismissal. Added to legacy DBs via a guarded ALTER
-    # (a failed ALTER aborts the DuckDB transaction, so check the column first).
-    try:
-        cols = {str(r[1]) for r in conn.execute("PRAGMA table_info('alerts')").fetchall()}
-        if "condition_cleared" not in cols:
-            conn.execute(
-                "ALTER TABLE alerts ADD COLUMN condition_cleared BOOLEAN DEFAULT FALSE")
-    except Exception:  # noqa: BLE001
-        pass
+    # v10.8.10: when the user marked an item done (it then stays hidden a week).
+    conn.execute("ALTER TABLE advice_log ADD COLUMN IF NOT EXISTS done_at TIMESTAMP")
 
     # ── v10.7.4 (R7): small key-value meta store (sync-reminder throttle) ────
     conn.execute("""

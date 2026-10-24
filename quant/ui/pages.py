@@ -34,6 +34,17 @@ def _holdings() -> list[dict]:
         return []
 
 
+# Advice-log status in plain words (P2): done by the user vs no longer advised.
+_STATUS_WORDS = {"open": "open", "done": "done by you", "closed": "no longer advised"}
+
+
+def _now_target(h: dict) -> str:
+    """'46% / 50%', or '46% / no target' when no target is set."""
+    now = f"{float(h.get('current_weight') or 0) * 100:.0f}%"
+    tgt = h.get("target_weight")
+    return f"{now} / {'no target' if tgt is None else f'{float(tgt) * 100:.0f}%'}"
+
+
 def _total_value(holdings: list[dict], portfolio) -> float:
     if holdings:
         return sum(float(h.get("value_eur") or 0) for h in holdings)
@@ -211,8 +222,7 @@ def page_home() -> None:
             "Holding": R.label_for(h.get("name") or h["symbol"], h["symbol"]),
             "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
             "Value (EUR)": round(float(h.get("value_eur") or 0), 2),
-            "Now / Target": f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
-                            f"{float(h.get('target_weight') or 0) * 100:.0f}%",
+            "Now / Target": _now_target(h),
         })
     # v10.8.7 (R-C1): no cash row. Uninvested cash is not an entity.
     # v10.8.9 (R-F1): the table is rendered from its declared spec.
@@ -317,20 +327,14 @@ def _render_invest_block(holdings: list[dict]) -> None:
 
 
 def _open_advice_items(holdings: list[dict]) -> list[dict]:
-    """The open advice set (verb + symbol) for the invest plan (T3).
+    """The ONE list's verb + symbol pairs for the invest plan (T3).
 
-    An instrument with an open trim/sell gets no buy suggestion until it clears.
+    An instrument with an open sell / swap / threat gets no buy suggestion.
     """
-    from quant.engine import action_taxonomy as T
-    from quant.engine.advice import build_advice
+    from quant.engine.today_list import build_items
 
-    regime = R.read_regime()
-    advice, _rejected = build_advice(holdings=holdings, regime=regime)
-    items = [{"verb": a.get("kind"), "symbol": a.get("symbol")} for a in advice]
-    items += [{"verb": t["verb"], "symbol": t["symbol"]}
-              for t in T.build(holdings, scores=_scores_map(), ideas=_idea_rows(),
-                               regime=regime)]
-    return items
+    return [{"verb": i["verb"], "symbol": i["symbol"]}
+            for i in build_items(holdings, regime=R.read_regime(), scores=_scores_map())]
 
 
 def _eur_prices(symbols: list[str]) -> dict:
@@ -414,7 +418,58 @@ def page_update() -> None:
             st.session_state.pop("_diff", None)
             st.rerun()
 
+    _render_targets(portfolio)
     _render_change_type()
+
+
+def _render_targets(portfolio) -> None:
+    """Class and target per holding, saved to tiers.csv (v10.8.10).
+
+    The targets drive the ONE list (drift, plan changes) and the invest block.
+    An empty target means "no target": that holding gets no drift advice.
+    """
+    from quant.portfolio.tier_manager import load_tiers, save_tiers, target_map, tier_map
+
+    if portfolio is None or portfolio.empty:
+        return
+    st.subheader("Class and target")
+    tiers = load_tiers()
+    tmap, targets = tier_map(tiers), target_map(tiers)
+    words = {C.CLASS_LABELS[k]: k for k in ("FORTRESS", "ALPHA", "SPECULATIVE")}
+    syms = [str(s) for s in portfolio["Symbol"]]
+    df = pd.DataFrame({
+        "Holding": [R.label_for(_display(s), s) for s in syms],
+        "Class": [C.CLASS_LABELS.get(tmap.get(s, "ALPHA"), "Active") for s in syms],
+        "Target %": [targets[s] * 100 if s in targets else None for s in syms],
+    }, columns=COLS.table_column_order("targets"))
+    cfg = COLS.table_column_config("targets") | {
+        "Class": st.column_config.SelectboxColumn("Class", options=list(words),
+                                                  required=True, width="small"),
+        "Target %": st.column_config.NumberColumn("Target %", min_value=0,
+                                                  max_value=100, step=1, format="%.0f")}
+    edited = st.data_editor(df, hide_index=True, width="stretch", key="targets_editor",
+                            column_config=cfg, disabled=["Holding"])
+    total = pd.to_numeric(edited["Target %"], errors="coerce").sum()
+    st.caption(f"Targets add up to {total:.0f}% of your invested money."
+               + ("" if abs(total - 100) < 0.5 or total == 0
+                  else " They should add up to 100%."))
+    if st.button("Save classes and targets", key="targets_save", width="stretch"):
+        rows = tiers.set_index("symbol") if not tiers.empty else None
+        out = []
+        for sym, (_i, r) in zip(syms, edited.iterrows(), strict=True):
+            notes = (str(rows.loc[sym, "notes"]) if rows is not None and sym in rows.index
+                     else "")
+            tgt = pd.to_numeric(r["Target %"], errors="coerce")
+            out.append({"symbol": sym, "tier": words.get(r["Class"], "ALPHA"),
+                        "target_pct": None if pd.isna(tgt) else float(tgt),
+                        "last_updated": _date.today().isoformat(), "notes": notes})
+        keep = (tiers[~tiers["symbol"].isin(syms)] if not tiers.empty
+                else pd.DataFrame(columns=tiers.columns))
+        try:
+            save_tiers(pd.concat([keep, pd.DataFrame(out)], ignore_index=True))
+            st.success("Saved. The list uses the new targets from now on.")
+        except Exception:  # noqa: BLE001
+            st.error("Could not save the targets. Nothing was written. Try again.")
 
 
 def _render_change_type() -> None:
@@ -515,6 +570,8 @@ def page_history() -> None:
 
     # T5: the advice log (the stateful record of what was recommended).
     st.subheader(C.SEC_ADVICE_LOG)
+    from quant.engine import holdings_analysis as HA
+
     try:
         from quant.engine import advice_state
 
@@ -526,13 +583,14 @@ def page_history() -> None:
     else:
         rows = [{
             "Date": C.fmt_date(r.get("open_since") or r.get("created_at")),
-            "Action": str(r.get("verb") or ""),
+            "Action": HA.verb_word(r.get("verb")),
             "Instrument": R.label_for(_display(r.get("symbol") or ""),
                                       r.get("symbol") or ""),
             # The header carries the currency; an amount-less item stays blank.
             "Amount (EUR)": ("" if r.get("amount_eur") is None
                              else f"{float(r['amount_eur']):.2f}"),
-            "Status": str(r.get("status") or ""),
+            "Status": _STATUS_WORDS.get(str(r.get("status") or ""),
+                                        str(r.get("status") or "")),
         } for r in log]
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
@@ -591,13 +649,12 @@ def _research_rows(holdings: list[dict]) -> list[dict]:
         tech = row.get("tactical_grade")
         components = (f"F {_short_score(fund)} / T {_short_score(tech)} / "
                       f"conf {conf}")
-        is_idea = (sym not in held and comp is not None
+        is_idea = (sym not in held and comp is not None and conf == "high"
                    and float(comp) >= IDEA_FLOOR)
         if sym in held:
             stage = "Held"
             h = held[sym]
-            wt = (f"{float(h.get('current_weight') or 0) * 100:.0f}% / "
-                  f"{float(h.get('target_weight') or 0) * 100:.0f}%")
+            wt = _now_target(h)
             reason = f"held; {tier_word or 'class set'}."
         elif is_idea:
             stage = "Idea"
@@ -700,15 +757,17 @@ def _render_holdings_analysis() -> None:
         if score is None:
             score = s.get("structural_grade")
         cur = float(h.get("current_weight") or 0)
-        tgt = float(h.get("target_weight") or 0)
+        tgt = h.get("target_weight")
         rows.append({
             "Symbol": R.label_for(h.get("name") or sym, sym),
             "Class": C.CLASS_LABELS.get(str(h.get("tier", "")).upper(), h.get("tier", "")),
-            "Now / Target": f"{cur * 100:.0f}% / {tgt * 100:.0f}%",
-            "Drift (pp)": f"{(cur - tgt) * 100:+.1f}",
+            "Now / Target": _now_target(h),
+            "Drift (pp)": ("no target" if tgt is None
+                           else f"{(cur - float(tgt)) * 100:+.1f}"),
             "Score": _safe_score(score),
             C.HOLDINGS_ALERTS_HEADER: str(HA.alert_count(sym, holdings, scores, regime)),
-            C.HOLDINGS_REASON_HEADER: HA.reason_cell(sym, open_advice, cur - tgt, tgt),
+            C.HOLDINGS_REASON_HEADER: HA.reason_cell(
+                sym, open_advice, None if tgt is None else cur - float(tgt), tgt),
             "_sym": sym,
         })
     # v10.8.9 (R-F1): render only the declared spec columns, in order.

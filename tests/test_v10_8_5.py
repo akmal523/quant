@@ -138,15 +138,6 @@ def test_backfill_writes_one_point_per_trading_day():
 
 # ── Phase C (T3): decision taxonomy ───────────────────────────────────────────
 
-def test_taxonomy_rebalance_from_drift():
-    from quant.engine import action_taxonomy as T
-
-    h = [{"symbol": "AAA", "name": "AAA", "tier": "ALPHA",
-          "current_weight": 0.40, "target_weight": 0.20}]
-    items = T.rebalance_items(h)
-    assert len(items) == 1 and items[0]["verb"] == T.VERB_REBALANCE
-    assert "off its" in items[0]["reason"]
-
 
 def test_taxonomy_fortress_never_rebalances():
     from quant.engine import action_taxonomy as T
@@ -171,37 +162,6 @@ def test_taxonomy_threat_score_floor():
     h = [{"symbol": "CCC", "name": "CCC", "tier": "ALPHA"}]
     items = T.threat_items(h, scores={"CCC": {"structural_grade": 30}})
     assert any(i["verb"] == T.VERB_THREAT and "floor" in i["reason"] for i in items)
-
-
-def test_taxonomy_swap_pairs_a_target():
-    from quant.engine import action_taxonomy as T
-
-    h = [{"symbol": "DDD", "name": "DDD", "tier": "ALPHA", "value_eur": 100.0}]
-    ideas = [{"symbol": "EEE", "name": "EEE", "score": 71}]
-    items = T.swap_items(h, ideas, scores={"DDD": {"active_score": 42}})
-    assert len(items) == 1 and items[0]["verb"] == T.VERB_SWAP
-    assert items[0]["target_symbol"] == "EEE"
-
-
-def test_taxonomy_plan_change_requires_k_months():
-    from quant.engine import action_taxonomy as T
-
-    h = [{"symbol": "FFF", "name": "FFF", "tier": "FORTRESS",
-          "current_weight": 0.20, "target_weight": 0.50}]
-    assert T.plan_change_items(h, months_under=2) == []
-    items = T.plan_change_items(h, months_under=3)
-    assert items and items[0]["verb"] == T.VERB_PLAN
-
-
-def test_taxonomy_build_ranks_today_before_this_month():
-    from quant.engine import action_taxonomy as T
-
-    h = [{"symbol": "AAA", "tier": "SPECULATIVE", "pnl_pct": -0.6, "value_eur": 50},
-         {"symbol": "FFF", "tier": "FORTRESS", "current_weight": 0.2,
-          "target_weight": 0.5}]
-    items = T.build(h, months_under=3)
-    horizons = [i["horizon"] for i in items]
-    assert horizons == sorted(horizons, key=lambda x: 0 if x == "Today" else 1)
 
 
 # ── Phase D (T5/T6): holdings drill-down + no duplicated ticker/word ──────────

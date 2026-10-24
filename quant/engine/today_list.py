@@ -7,14 +7,12 @@ advice log on every render. The computation now lives here; the render path call
 only the writers (the daily job, confirm and refresh) call :func:`persist`, which
 reconciles the advice log via :func:`quant.engine.advice_state.sync`.
 
-The list is: drift advice (:func:`quant.engine.advice.build_advice` ->
-:func:`quant.engine.decisions.timed_items`) plus the threat / swap / plan-change
-classes of :mod:`quant.engine.action_taxonomy`. A symbol with a swap never also
-carries a standalone buy/sell (the swap is the paired action).
+The list is the one rule set in :mod:`quant.engine.action_taxonomy` (rebalance,
+plan change, threat, swap) over the live holdings, their 7-day price change,
+the scores and the ideas.
 
 Invariants:
-  - ``build_items`` / ``scores_map`` / ``idea_rows`` / ``months_under_target`` are
-    reads only.
+  - ``build_items`` / ``scores_map`` / ``idea_rows`` / ``change_7d`` are reads only.
   - ``persist`` never raises; it returns the number of items synced.
 """
 from __future__ import annotations
@@ -73,99 +71,38 @@ def idea_rows(holdings: list[dict] | None, scores: dict | None = None,
     return out[:limit]
 
 
-def months_under_target(holdings: list[dict] | None, gap: float | None = None,
-                        conn: Any = None) -> dict:
-    """Per Long-term symbol: consecutive month-ends (newest first) under target.
-
-    A month counts when the symbol's share of the invested total on the last
-    valuation date of that month is more than ``gap`` below its target weight.
-    Read from the valuation store, so it needs no extra state.
-    """
-    from quant.config import PLAN_CHANGE_GAP
-
-    gap = PLAN_CHANGE_GAP if gap is None else gap
-    targets = {str(h.get("symbol")): float(h.get("target_weight") or 0)
-               for h in holdings or []
-               if str(h.get("tier", "")).upper() == "FORTRESS"}
-    if not targets:
+def change_7d(symbols: list[str], conn: Any = None) -> dict:
+    """Per symbol: the close-to-close change over the last 7 trading days."""
+    if not symbols:
         return {}
+    marks = ",".join("?" for _ in symbols)
     rows = _rows(
-        "WITH month_end AS (SELECT max(date) AS d FROM valuation "
-        "GROUP BY date_trunc('month', date)) "
-        "SELECT v.date, v.symbol, v.value_eur FROM valuation v "
-        "JOIN month_end m ON v.date = m.d ORDER BY v.date DESC", conn=conn)
-    by_date: dict = {}
-    for d, sym, value in rows:
-        by_date.setdefault(d, {})[str(sym)] = float(value or 0)
-    out = dict.fromkeys(targets, 0)
-    open_syms = set(targets)
-    for d in sorted(by_date, reverse=True):
-        values = by_date[d]
-        total = sum(values.values())
-        if total <= 0:
-            break
-        for sym in list(open_syms):
-            if targets[sym] - values.get(sym, 0.0) / total > gap:
-                out[sym] += 1
-            else:
-                open_syms.discard(sym)
-        if not open_syms:
-            break
-    return out
+        "SELECT Symbol, Close FROM (SELECT Symbol, Close, ROW_NUMBER() OVER "
+        "(PARTITION BY Symbol ORDER BY Date DESC) AS rn FROM market_history "
+        f"WHERE Symbol IN ({marks}) AND Close IS NOT NULL) WHERE rn IN (1, 8) "
+        "ORDER BY Symbol, rn", list(symbols), conn=conn)
+    closes: dict = {}
+    for sym, close in rows:
+        closes.setdefault(str(sym), []).append(float(close))
+    return {s: c[0] / c[1] - 1.0 for s, c in closes.items() if len(c) == 2 and c[1] > 0}
 
 
-def _taxonomy_items(holdings: list[dict], regime: Any, scores: dict,
-                    ideas: list[dict], months_under: dict) -> list[dict]:
-    """Threat / swap / plan-change items in the ONE-list shape.
-
-    Rebalance stays with ``build_advice`` (it yields the drift buy/sell).
-    """
-    from quant.engine import action_taxonomy as T
-
-    directions = {T.VERB_SWAP: ui_copy.DIRECTION_SELL, T.VERB_THREAT: "Review",
-                  T.VERB_PLAN: ui_copy.DIRECTION_BUY}
-    out: list[dict] = []
-    for t in T.build(holdings, scores=scores, ideas=ideas, regime=regime,
-                     months_under=months_under):
-        if t["verb"] == T.VERB_REBALANCE:
-            continue
-        out.append({
-            "horizon": t["horizon"], "class": t["class"],
-            "direction": directions.get(t["verb"], ui_copy.DIRECTION_BUY),
-            "verb": t["verb"], "label": t["label"], "amount_eur": t["amount_eur"],
-            "reason": t["reason"], "symbol": t["symbol"],
-            "evidence": t.get("evidence"),
-            "target_symbol": t.get("target_symbol"),
-            "target_name": t.get("target_name"),
-        })
-    return out
+_DIRECTIONS = {"sell_part": ui_copy.DIRECTION_SELL, "swap": ui_copy.DIRECTION_SELL,
+               "threat": "Review"}
 
 
 def build_items(holdings: list[dict] | None, regime: Any = None,
-                scores: dict | None = None, ideas: list[dict] | None = None,
-                months_under: dict | None = None) -> list[dict]:
-    """The ONE list (Today before This month). Reads only; never raises."""
-    from quant.engine.advice import build_advice
-    from quant.engine.decisions import timed_items
+                scores: dict | None = None, ideas: list[dict] | None = None) -> list[dict]:
+    """The ONE list (Today before This month) from the one rule set. Reads only."""
+    from quant.engine import action_taxonomy as T
 
     holdings = list(holdings or [])
     scores = scores_map() if scores is None else scores
     ideas = idea_rows(holdings, scores) if ideas is None else ideas
-    if months_under is None:
-        months_under = months_under_target(holdings)
-    try:
-        advice, _rejected = build_advice(holdings=holdings, regime=regime)
-    except Exception:  # noqa: BLE001
-        advice = []
-    taxo = _taxonomy_items(holdings, regime, scores, ideas, months_under)
-    # A swappable position never gets a standalone buy/sell (R-T4).
-    swap_syms = {str(t["symbol"]) for t in taxo if t["verb"] == "swap"}
-    drift = [i for i in timed_items(holdings, advice)
-             if str(i.get("symbol")) not in swap_syms]
-    order = {ui_copy.HORIZON_TODAY: 0, ui_copy.HORIZON_MONTH: 1}
-    items = drift + taxo
-    items.sort(key=lambda i: order.get(i.get("horizon"), 2))
-    return items
+    moves = change_7d([str(h.get("symbol")) for h in holdings])
+    holdings = [{**h, "change_7d": moves.get(str(h.get("symbol")))} for h in holdings]
+    return [{**t, "direction": _DIRECTIONS.get(t["verb"], ui_copy.DIRECTION_BUY)}
+            for t in T.build(holdings, scores=scores, ideas=ideas, regime=regime)]
 
 
 def persist(conn: Any = None) -> int:

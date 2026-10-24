@@ -13,48 +13,17 @@ Invariants:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
 
 from quant import paths
-from quant.data.database import get_connection
-from quant.engine import lock, notify, valuation
-from quant.engine.advice import build_advice
+from quant.engine import lock
 from quant.errors import DataError
 from quant.portfolio.portfolio import load_portfolio, portfolio_issues
 from quant.portfolio.tier_manager import validate_tiers_csv
 from quant.ui.copy import DB_BUSY_RETRY
-from tests.fixtures.live_portfolio import holding
-
-AS_OF = date(2026, 10, 2)
-
-
-# ── Part 5.1: empty and degenerate portfolios ─────────────────────────────────
-
-def test_zero_holdings_returns_empty_advice():
-    advice, rejected = build_advice([], tiers={}, as_of=AS_OF)
-    assert advice == []
-    assert rejected == []
-
-
-def test_all_holdings_one_tier_cap_violation():
-    holdings = [
-        holding(f"BET{i}", f"Bet {i}", "SPECULATIVE", 100.0, total=300.0,
-                target=0.02, conviction=0.0)
-        for i in range(3)
-    ]
-    tiers = {h["symbol"]: "SPECULATIVE" for h in holdings}
-    advice, _ = build_advice(holdings, tiers=tiers, as_of=AS_OF)
-    assert any("2 percent cap" in a["why"] for a in advice if a["kind"] == "keep")
-
-
-def test_zero_portfolio_value_no_nan():
-    zero = holding("ZERO", "Zero", "ALPHA", 0.0, total=0.0, target=0.10)
-    advice, _ = build_advice([zero], tiers={"ZERO": "ALPHA"}, as_of=AS_OF)
-    assert isinstance(advice, list)
-
 
 # ── Part 5.2: adversarial data ────────────────────────────────────────────────
 
@@ -93,15 +62,6 @@ def test_orphan_tier_warning():
     assert any("not in portfolio" in error for error in errors)
 
 
-def test_unpriceable_symbols():
-    conn = get_connection()
-    conn.execute("DELETE FROM holdings_meta")
-    conn.execute(
-        "INSERT INTO holdings_meta (symbol, shares, sync_date, invested_at_sync) "
-        "VALUES ('NOPRICE', 1.0, ?, 100.0)", [AS_OF])
-    assert valuation.unpriceable_symbols(conn, {}) == ["NOPRICE"]
-
-
 # ── Part 5.3: race and timing ─────────────────────────────────────────────────
 
 def _write_lock(tmp_path, pid, age_min, command="other"):
@@ -132,33 +92,3 @@ def test_tiers_reload_on_change(tmp_path):
     path.write_text("symbol,tier,last_updated,notes\nAMZN,FORTRESS,2026-10-01,\n",
                     encoding="utf-8")
     assert tier_map(load_tiers(str(path)))["AMZN"] == "FORTRESS"
-
-
-# ── Part 5.4: notification correctness ────────────────────────────────────────
-
-def _alert(symbol="AMZN", amount=30.0):
-    return {"symbol": symbol, "name": "Amazon.com", "action": "sell",
-            "amount_eur": amount, "fee_eur": 1.0, "message": "tactics fell."}
-
-
-def test_telegram_payload_has_no_totals():
-    text = notify.format_alert(_alert())
-    assert "30" in text
-    assert "portfolio" not in text.lower()
-    assert "cash" not in text.lower()
-
-
-def test_telegram_payload_has_no_token():
-    text = notify.format_alert(_alert())
-    assert "SECRET" not in text
-    assert "telegram_bot_token" not in text
-
-
-def test_failed_send_leaves_unnotified():
-    assert notify.send_alert(_alert(), {"channel": "none"}) is False
-
-
-def test_two_alerts_two_messages():
-    first = notify.format_alert(_alert("AMZN", 30.0))
-    second = notify.format_alert(_alert("MSFT", 40.0))
-    assert first != second

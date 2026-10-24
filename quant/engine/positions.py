@@ -1,130 +1,77 @@
-"""positions.py — the ONE source of current positions (v10.8.0, 2.1).
+"""positions.py — the ONE source of current positions (v10.8.0; v10.8.10).
 
-Intent: every page, advice, alerts, Telegram and reports read the same
-positions. Before v10.8.0 the same holding's value came from three places
-(the holdings_meta estimate, the review artifact, the broker CSV), so the pages
-disagreed. This module returns one list of position dicts.
+Every page, the ONE list and Telegram read the same positions. Per row of the
+holdings table:
 
-Invariants:
-  - Pure read: no writes.
-  - Never raises; returns [] on failure.
-  - value_eur is in EUR (via price_in_eur).
+  invested = typed value - typed profit       (what was paid, EUR)
+  shares   = invested / average cost per share
+  value    = the valuation store's latest value for the symbol (the same number
+             the Portfolio header sums), else the typed value when the symbol
+             has no price yet
+  profit   = value - invested
 
-Dependencies: quant.paths, quant.data.currency, quant.portfolio.portfolio.
+v10.8.10: values were the typed numbers (possibly weeks old), so weights,
+drift and stop-losses ignored the market; shares were computed as value / cost
+(too many shares for any position in profit); a holdings_meta "estimate" branch
+depended on a writer that no longer exists.
+
+Invariants: pure read; never raises; returns [] on failure.
 """
 from __future__ import annotations
 
-import os
-from datetime import date
 from typing import Any
 
 from quant import paths
 
 
-def _as_date(value) -> date | None:
-    if value is None:
-        return None
-    if isinstance(value, date):
-        return value
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def _meta_rows(conn) -> dict:
-    """{symbol: (shares, sync_date, invested)} from holdings_meta."""
-    if conn is None:
-        return {}
+def _store_values(conn: Any) -> tuple[dict, Any]:
+    """``({symbol: value_eur}, as_of)`` from the latest valuation date."""
     try:
         rows = conn.execute(
-            "SELECT symbol, shares, sync_date, invested_at_sync FROM holdings_meta"
-        ).fetchall()
+            "SELECT symbol, value_eur, date FROM valuation "
+            "WHERE date = (SELECT MAX(date) FROM valuation)").fetchall()
     except Exception:  # noqa: BLE001
-        return {}
-    out: dict = {}
-    for sym, shares, sync_date, invested in rows:
-        out[str(sym)] = (float(shares or 0), sync_date, float(invested or 0))
-    return out
+        return {}, None
+    return {str(s): float(v or 0) for s, v, _d in rows}, (rows[0][2] if rows else None)
 
 
-def _csv_mtime_date() -> date | None:
-    try:
-        return date.fromtimestamp(os.path.getmtime(paths.DATA_PORTFOLIO))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _estimate_is_fresher(meta: dict) -> bool:
-    """True when holdings_meta is newer than the broker CSV.
-
-    The newest holdings_meta sync_date is compared to the CSV file's
-    modification date.
-    """
-    csv_day = _csv_mtime_date()
-    if csv_day is None:
-        return False
-    newest: date | None = None
-    for _sym, (_shares, sync_date, _inv) in meta.items():
-        d = _as_date(sync_date)
-        if d is not None and (newest is None or d > newest):
-            newest = d
-    return newest is not None and newest > csv_day
-
-
-def _build(portfolio, conn, price_in_eur) -> list[dict]:
-    meta = _meta_rows(conn)
-    fresher = _estimate_is_fresher(meta)
+def _build(portfolio, conn) -> list[dict]:
+    live, as_of = _store_values(conn) if conn is not None else ({}, None)
     out: list[dict] = []
     for _, r in portfolio.iterrows():
         sym = str(r["Symbol"])
-        csv_value = float(r.get("Current_Value_EUR", 0) or 0)
-        csv_entry = float(r.get("Avg_Entry_Price", 0) or 0)
-        csv_pnl = float(r.get("Broker_PnL_EUR", 0) or 0)
-        if fresher and sym in meta:
-            shares, sync_date, invested = meta[sym]
-            price = price_in_eur(sym, conn=conn)
-            value = shares * price if price is not None else csv_value
-            entry = invested / shares if shares else csv_entry
-            out.append({
-                "symbol": sym, "shares": shares, "value_eur": value,
-                "entry_eur": entry, "profit_eur": value - invested,
-                "as_of": sync_date, "estimated": True,
-            })
-        else:
-            invested = csv_value - csv_pnl
-            shares = csv_value / csv_entry if csv_entry else 0.0
-            out.append({
-                "symbol": sym, "shares": shares, "value_eur": csv_value,
-                "entry_eur": csv_entry, "profit_eur": csv_pnl,
-                "as_of": None, "estimated": False,
-            })
+        typed_value = float(r.get("Current_Value_EUR", 0) or 0)
+        entry = float(r.get("Avg_Entry_Price", 0) or 0)
+        invested = typed_value - float(r.get("Broker_PnL_EUR", 0) or 0)
+        value = live.get(sym, typed_value)
+        out.append({
+            "symbol": sym,
+            "shares": invested / entry if entry > 0 else 0.0,
+            "value_eur": value,
+            "invested_eur": invested,
+            "entry_eur": entry,
+            "profit_eur": value - invested,
+            "pnl_pct": (value / invested - 1.0) if invested > 0 else None,
+            "as_of": as_of if sym in live else None,
+            "estimated": sym in live,
+        })
     return out
 
 
-def positions_now(conn: Any =None) -> list[dict]:
-    """The current positions: symbol, shares, value_eur, entry_eur, profit_eur,
-    as_of, estimated.
-
-    Source precedence: the broker CSV is the base truth. When holdings_meta is
-    fresher than the CSV, the value is shares * price_in_eur (estimated=True).
-    """
-    from quant.data.currency import price_in_eur
+def positions_now(conn: Any = None) -> list[dict]:
+    """The current positions: symbol, shares, value_eur, invested_eur, entry_eur,
+    profit_eur, pnl_pct, as_of, estimated (True = marked to the latest close)."""
     from quant.portfolio.portfolio import load_portfolio
 
-    try:
-        portfolio = load_portfolio(paths.DATA_PORTFOLIO)
-    except Exception:  # noqa: BLE001
-        return []
+    portfolio = load_portfolio(paths.DATA_PORTFOLIO)
     if portfolio is None or portfolio.empty:
         return []
-
     if conn is not None:
-        return _build(portfolio, conn, price_in_eur)
+        return _build(portfolio, conn)
     try:
         from quant.data.database import read_only_connection
 
         with read_only_connection() as c:
-            return _build(portfolio, c, price_in_eur)
+            return _build(portfolio, c)
     except Exception:  # noqa: BLE001
-        return _build(portfolio, None, price_in_eur)
+        return _build(portfolio, None)
