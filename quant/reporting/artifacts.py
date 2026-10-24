@@ -3,8 +3,8 @@ artifacts.py — the read helpers the pages use, plus the per-run log directory.
 
 Reads: the regime estimate, a symbol's score row, the valuation store
 (``portfolio_total``), the value series and the chart math (day delta, growth
-view, value hover, tick dates). ``new_run_dir`` / ``latest_run`` locate the
-``outputs/run_<ts>/pipeline.log`` that refresh writes. Never raise.
+view, value hover, tick dates). ``new_run_dir`` creates the
+``outputs/run_<ts>/`` folder for a run's ``pipeline.log``. Never raise.
 """
 from __future__ import annotations
 
@@ -39,14 +39,6 @@ def new_run_dir() -> str:
     os.makedirs(path, exist_ok=True)
     _RUN_DIR = path
     return path
-
-
-def latest_run() -> str | None:
-    """The newest ``outputs/run_<ts>/`` directory (holds pipeline.log), or None."""
-    if not os.path.isdir(OUTPUTS_DIR):
-        return None
-    runs = [d for d in os.listdir(OUTPUTS_DIR) if d.startswith("run_")]
-    return os.path.join(OUTPUTS_DIR, max(runs)) if runs else None
 
 
 # ── v10.5.3 (spec 1.1): the five UI artifact accessors ────────────────────────

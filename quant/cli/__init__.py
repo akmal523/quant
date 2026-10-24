@@ -112,6 +112,16 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
     _verbose = bool(getattr(_args, "verbose", False)) if _args is not None else False
 
     print(f"db: {paths.DB_FILE}")
+    # The health checks (data freshness, tiers file, database, data source).
+    try:
+        from quant.cli.health import run_health_check
+
+        health = run_health_check()
+        print(f"health: {health['status']}")
+        for check in health["checks"]:
+            print(f"  {check['name']}: {check['status']} - {check['message']}")
+    except Exception as e:  # noqa: BLE001
+        print(f"health: unreadable ({e})")
     # F-series: a fresh install has no schema yet. Initialize it so counts are
     # real (0, not -1) and market_history resolves instead of raising a
     # CatalogException. init_db also seeds the writable data dir.
@@ -387,59 +397,6 @@ def _cmd_all(args: argparse.Namespace) -> int:
     return _cmd_run(args)
 
 
-def _cmd_validate_tiers(_args: argparse.Namespace) -> int:
-    """Validate data/tiers.csv and report issues (v10.6.3)."""
-    from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import load_tiers, validate_tiers_csv
-
-    portfolio_df = load_portfolio()
-    tiers_df = load_tiers()
-    is_valid, errors = validate_tiers_csv(tiers_df, portfolio_df)
-    if is_valid:
-        print("tiers.csv is valid.")
-        return 0
-    print("tiers.csv has issues:")
-    for e in errors:
-        print(f"  - {e}")
-    print("Run 'quant repair-tiers' to attempt automatic repair.")
-    return 1
-
-
-def _cmd_repair_tiers(_args: argparse.Namespace) -> int:
-    """Repair common issues in data/tiers.csv (v10.6.3)."""
-    from quant.portfolio.portfolio import load_portfolio
-    from quant.portfolio.tier_manager import (
-        load_tiers,
-        repair_tiers_csv,
-        save_tiers,
-        validate_tiers_csv,
-    )
-
-    portfolio_df = load_portfolio()
-    tiers_df = load_tiers()
-    repaired = repair_tiers_csv(tiers_df, portfolio_df)
-    is_valid, errors = validate_tiers_csv(repaired, portfolio_df)
-    if is_valid:
-        save_tiers(repaired)
-        print("tiers.csv repaired.")
-        return 0
-    print("Repair failed. Manual intervention required:")
-    for e in errors:
-        print(f"  - {e}")
-    return 1
-
-
-def _cmd_health_check(_args: argparse.Namespace) -> int:
-    """Run the system health check (v10.6.4)."""
-    from quant.cli.health import run_health_check
-
-    result = run_health_check()
-    print(f"System health: {result['status']}")
-    for check in result["checks"]:
-        print(f"  {check['name']:<20} {check['status']:<9} {check['message']}")
-    return 1 if result["status"] == "CRITICAL" else 0
-
-
 def _cmd_schedule(args: argparse.Namespace) -> int:
     """Install, remove, or report the local daily timer (v10.7.0, Section 3.1)."""
     from quant.engine import scheduler
@@ -455,19 +412,13 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
 
 
 def _cmd_notify_setup(_args: argparse.Namespace) -> int:
-    """Interactive notification setup (v10.7.0, Section 4.1)."""
+    """Telegram setup from a terminal (the same as Settings -> Set up Telegram)."""
     from quant.engine import notify
 
-    channel = input("Channel (telegram/email/none): ").strip().lower()
-    config: dict = {"channel": channel or "none"}
-    if channel == "telegram":
-        print("Create a bot via BotFather; get your chat id via a user-info bot.")
-        config["telegram_bot_token"] = input("Bot token: ").strip()
-        config["telegram_chat_id"] = input("Chat id: ").strip()
-    elif channel == "email":
-        config["email_from"] = input("From address: ").strip()
-        config["email_password"] = input("App password: ").strip()
-        config["email_to"] = input("To address: ").strip()
+    print("Create a bot via BotFather; get your chat id via a user-info bot.")
+    config: dict = {"channel": "telegram",
+                    "telegram_bot_token": input("Bot token: ").strip(),
+                    "telegram_chat_id": input("Chat id: ").strip()}
     ok = notify.send_test(config)
     config["tested"] = bool(ok)
     notify.save_config(config)
@@ -532,9 +483,6 @@ def build_parser() -> argparse.ArgumentParser:
     # ── Hidden internal commands ──────────────────────────────────────────────
     sub.add_parser("run", help=hidden)
     sub.add_parser("all", help=hidden)
-    sub.add_parser("validate-tiers", help=hidden)
-    sub.add_parser("repair-tiers", help=hidden)
-    sub.add_parser("health-check", help=hidden)
     sched = sub.add_parser("schedule", help=hidden)
     sched.add_argument("--off", action="store_true")
     sched.add_argument("--status", action="store_true")
@@ -613,9 +561,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # Only commands that produce a run create a run dir + pipeline.log; the
-    # others (dash, doctor, ...) must NOT mint a new (empty) run dir, or
-    # latest_run() would point at it instead of the last real run.
+    # Only commands that produce a run write a run dir + pipeline.log; the
+    # others (dash, doctor, ...) must not mint empty run dirs.
     log_path = (
         output.default_log_path()
         if args.command in ("refresh", "update", "run", "all")
@@ -632,9 +579,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,
         "backup": _cmd_backup,
-        "validate-tiers": _cmd_validate_tiers,
-        "repair-tiers": _cmd_repair_tiers,
-        "health-check": _cmd_health_check,
         "schedule": _cmd_schedule,
         "notify-setup": _cmd_notify_setup,
         "daily": _cmd_daily,

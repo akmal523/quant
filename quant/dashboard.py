@@ -108,13 +108,14 @@ def _startup_staleness() -> None:
     st.session_state["_staleness_checked"] = True
     try:
         from quant.engine import daily
-        from quant.ui import runner
+        from quant.engine import lock as lock_mod
 
         status = daily.staleness_status()
         if not status:
             return
         st.info(status)
-        if not runner.is_running():
+        held = lock_mod.read_lock()
+        if not (held and lock_mod.pid_alive(held.get("pid"))):
             import subprocess
             import sys
 

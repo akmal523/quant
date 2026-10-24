@@ -130,8 +130,8 @@ def test_every_tab_body_is_isolated_by_an_error_boundary(monkeypatch):
     at = _run("pages/analysis.py")
     assert not at.exception, "one failing tab must not kill the page"
     text = _text(at)
-    assert "Research tab failed" in text
-    assert "See Pipeline health" in text
+    assert "The Research tab could not load" in text
+    assert "see Pipeline health" in text
 
 
 # ── Phase 1 (A1/A3): cross-tab interaction + overlapping symbols ──────────────

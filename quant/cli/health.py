@@ -49,11 +49,12 @@ def _check_data_freshness() -> dict:
             age = datetime.now() - latest
             if age > timedelta(days=3):
                 return {"name": "Data freshness", "status": "WARNING",
-                        "message": f"Latest bar is {age.days} days old. Run 'quant update'."}
+                        "message": f"Latest bar is {age.days} days old. "
+                                   "Press Refresh prices in Settings."}
             return {"name": "Data freshness", "status": "OK",
                     "message": f"Latest bar is fresh ({latest.date()})."}
         return {"name": "Data freshness", "status": "WARNING",
-                "message": "No price data found. Run 'quant update'."}
+                "message": "No price data found. Press Refresh prices in Settings."}
     except Exception as e:  # noqa: BLE001
         return {"name": "Data freshness", "status": "WARNING",
                 "message": f"Could not check data freshness: {e}"}

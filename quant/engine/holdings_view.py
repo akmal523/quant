@@ -54,10 +54,7 @@ def holdings_view(conn: Any = None) -> list[dict]:
     """
     from quant.engine.positions import positions_now
 
-    try:
-        positions = positions_now(conn)
-    except Exception:  # noqa: BLE001
-        return []
+    positions = positions_now(conn)   # never raises
     if not positions:
         return []
 

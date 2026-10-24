@@ -6,10 +6,7 @@ import re
 from quant.cli import build_parser
 
 USER_COMMANDS = {"dash", "refresh", "daily", "upgrade", "backup", "doctor"}
-HIDDEN = {"run", "all",
-          "validate-tiers", "repair-tiers", "health-check",
-          "schedule",
-          "notify-setup"}
+HIDDEN = {"run", "all", "schedule", "notify-setup"}
 
 
 def test_help_lists_only_the_six_user_commands():
@@ -20,7 +17,7 @@ def test_help_lists_only_the_six_user_commands():
 
 def test_hidden_commands_still_parse():
     # They remain dispatchable for the scheduler/tests; only the help is hidden.
-    extras = {"ack": ["1", "--status", "done"]}
+    extras: dict = {}
     for name in HIDDEN:
         args = build_parser().parse_args([name, *extras.get(name, [])])
         assert args.command == name

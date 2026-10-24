@@ -26,12 +26,9 @@ _DERIVED_COLS = ["Name"]
 
 def _holdings() -> list[dict]:
     """The live holdings view (positions + tiers + targets). Never raises."""
-    try:
-        from quant.engine.holdings_view import holdings_view
+    from quant.engine.holdings_view import holdings_view
 
-        return holdings_view()
-    except Exception:  # noqa: BLE001
-        return []
+    return holdings_view()
 
 
 # Advice-log status in plain words (P2): done by the user vs no longer advised.
@@ -801,9 +798,12 @@ def _guarded(label: str, render: object, *args: object) -> None:
     """Render a tab body, catching any failure into an in-tab error card (A2)."""
     try:
         render(*args)  # type: ignore[operator]
-    except Exception as e:  # noqa: BLE001
-        st.error(f"{label} tab failed: {e}")
-        st.caption("See Pipeline health for details.")
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("%s tab failed", label)
+        st.error(f"The {label} tab could not load. The other tabs still work; "
+                 "try Run analysis, or see Pipeline health.")
 
 
 def _render_pipeline() -> None:
@@ -1000,6 +1000,11 @@ def _run_analysis() -> None:
         _run_cli("run")
 
 
+# P2/P6: the user sees what happens, not a command name.
+_CLI_WORDS = {"refresh": "Fetching prices, fundamentals and news",
+              "run": "Scoring", "upgrade": "Updating the software"}
+
+
 def _run_cli(command: str) -> bool:
     """Run a CLI command in a subprocess and report the result (v10.8.3).
 
@@ -1010,25 +1015,24 @@ def _run_cli(command: str) -> bool:
     import subprocess
     import sys
 
-    with st.status(f"Running {command}…", expanded=True) as status:
+    words = _CLI_WORDS.get(command, command)
+    with st.status(f"{words}…", expanded=True) as status:
         st.write(C.RUN_ANALYSIS_HINT)
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "quant.cli", command],
                 capture_output=True, text=True, timeout=900)
-        except Exception as e:  # noqa: BLE001
-            status.update(label=f"Could not run {command}", state="error")
-            st.error(f"Could not run {command}: {e}")
+        except Exception:  # noqa: BLE001
+            status.update(label=f"{words}: could not start", state="error")
             return False
-        if proc.returncode == 0:
-            status.update(label=f"{command} finished.", state="complete")
-        else:
-            status.update(label=f"{command} failed (exit {proc.returncode}).",
-                          state="error")
-        tail = (proc.stdout or "")[-2000:]
+        ok = proc.returncode == 0
+        status.update(label=f"{words}: done" if ok else f"{words}: failed",
+                      state="complete" if ok else "error")
+        tail = ((proc.stdout or "") + (proc.stderr or ""))[-2000:]
         if tail:
-            st.code(tail)
-    return proc.returncode == 0
+            with st.expander("Details"):
+                st.code(tail)
+    return ok
 
 
 def page_settings() -> None:
@@ -1048,13 +1052,20 @@ def page_settings() -> None:
 
     st.write(f"Telegram: {_notify.status_line()}")
     with st.expander("Set up Telegram"):
+        st.caption("Each trading morning you get one message: your value, what to "
+                   "do today and this month, your holdings and notable news.")
         token = st.text_input("Bot token", type="password", key="s_tg_token")
         chat = st.text_input("Chat id", key="s_tg_chat")
-        if st.button("Send test"):
-            ok = _notify.send_test({"channel": "telegram",
-                                    "telegram_bot_token": token,
-                                    "telegram_chat_id": chat})
-            st.success("Test sent." if ok else "Test failed.")
+        if st.button("Save and send a test", disabled=not (token and chat)):
+            config = {"channel": "telegram", "telegram_bot_token": token.strip(),
+                      "telegram_chat_id": chat.strip()}
+            config["tested"] = bool(_notify.send_test(config))
+            _notify.save_config(config)       # v10.8.10: setup used to be lost
+            if config["tested"]:
+                st.success("Saved. The test message was sent.")
+            else:
+                st.error("Saved, but the test message failed. Check the token and "
+                         "chat id.")
 
     st.subheader("Actions")
     c1, c2, c3 = st.columns(3)

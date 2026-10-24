@@ -106,6 +106,8 @@ def savings_plan_reminder(conn: Any, today: date | None = None,
     if is_reflected(conn, when, today):
         return None
     amount = _expected_amount(conn, amount_eur)
+    if amount <= 0:
+        return None   # no savings plan in the table: nothing to remind (v10.8.10)
     from quant.ui import copy as C
 
     message = C.SAVINGS_PLAN_REMINDER.format(
