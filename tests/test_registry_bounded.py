@@ -9,35 +9,10 @@ defect class (feeding the 1000+ discovery pool into asset_registry).
 """
 from __future__ import annotations
 
-import csv
-import logging
-from pathlib import Path
-
-from quant.config import CORE_ETFS
 from quant.data.registry_repair import (
-    ensure_registry_rows,
     sync_registry_to_working_universe,
     working_universe,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _rows(path: Path) -> int:
-    with open(path, newline="", encoding="utf-8") as f:
-        return sum(1 for _ in csv.DictReader(f))
-
-
-def test_broker_registry_stays_bounded():
-    registry = ROOT / "data" / "broker_registry.csv"
-    portfolio = ROOT / "data" / "portfolio.csv"
-    n_port = _rows(portfolio) if portfolio.exists() else 0
-    bound = n_port + len(CORE_ETFS) + 20
-    n_reg = _rows(registry)
-    assert n_reg <= bound, (
-        f"broker_registry.csv has {n_reg} rows, above the bounded ceiling {bound}; "
-        "a write path likely used universe_master"
-    )
 
 
 def _local_db():
@@ -87,14 +62,3 @@ def test_sync_membership_is_idempotent():
     sync_registry_to_working_universe(conn)
     second = {r[0] for r in conn.execute("SELECT symbol FROM asset_registry").fetchall()}
     assert first == second
-
-
-def test_bulk_universe_master_insert_is_refused(tmp_path, caplog):
-    reg = tmp_path / "broker_registry.csv"
-    reg.write_text("yahoo_ticker,isin\n", encoding="utf-8")
-    huge = [f"SYM{i}" for i in range(1082)]   # universe_master-sized pool
-    with caplog.at_level(logging.WARNING):
-        out = ensure_registry_rows(str(reg), symbols=huge)
-    assert out.get("added", 0) == 0
-    assert out.get("warning") == "bulk_source_refused"
-    assert "bulk universe_master" in caplog.text

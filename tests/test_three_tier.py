@@ -84,29 +84,7 @@ def test_3_3_hmm_convergence():
     assert model.monitor_.iter < 100
 
 
-def test_3_4_cvar_at_least_as_extreme_as_var():
-    """Expected shortfall (CVaR) is at least as extreme as VaR."""
-    from quant.portfolio.risk import calculate_historical_var
-
-    rng = np.random.default_rng(3)
-    returns = pd.Series(rng.normal(0.0, 0.02, 1000))
-    var_95 = calculate_historical_var(returns, 0.95)
-    tail = returns[returns <= var_95]
-    cvar = float(tail.mean())
-    # Both are negative; CVaR is more negative (more extreme) than VaR.
-    assert cvar <= var_95
-
-
 # ── Category 4: Data Integrity ────────────────────────────────────────────────
-
-def test_4_1_yahoo_drift_golden_snapshot():
-    """The golden backtest snapshot exists and is a stable JSON payload."""
-    import json
-
-    golden = Path(__file__).resolve().parent / "golden" / "backtest_2024.json"
-    assert golden.exists()
-    data = json.loads(golden.read_text())
-    assert isinstance(data, dict) and data  # non-empty, parseable
 
 
 def test_4_2_duplicate_timestamps_rejected():
@@ -123,52 +101,3 @@ def test_4_2_duplicate_timestamps_rejected():
     except DataAssertionError:
         raised = True
     assert raised
-
-
-def test_4_3_news_source_failure_penalizes_tactical():
-    """No NLP data (data_confidence 0) lowers the tactical grade."""
-    from quant.analytics.scoring import evaluate_tactical_grade
-
-    with_data = evaluate_tactical_grade(0.6, 0.0, 0.0, data_confidence=1.0)
-    without = evaluate_tactical_grade(0.6, 0.0, 0.0, data_confidence=0.0)
-    assert without < with_data
-
-
-def test_5_2_recency_bias_not_exclusive():
-    """The regime model uses a long window, not only the last 3 months."""
-    from quant.analytics.scoring import fit_market_regime
-
-    rng = np.random.default_rng(11)
-    close = pd.Series(100 * np.cumprod(1 + rng.normal(0.0003, 0.01, 300)))
-    vol = close.pct_change().rolling(20).std().bfill()
-    # With 300 points (well over 3 months) the model returns a real probability.
-    score = fit_market_regime(close, vol)
-    assert 0.0 <= score <= 15.0
-
-
-# ── Category 6: Economic Realism ──────────────────────────────────────────────
-
-
-def test_6_2_liquidity_constraint():
-    """A 10k EUR order on a 50k-share ADV name is rejected."""
-    from quant.portfolio.trade_size import check_volume_liquidity
-
-    df = pd.DataFrame({
-        "Close": [1.0] * 30,
-        "Volume": [50_000.0] * 30,
-    })
-    ok, reason = check_volume_liquidity("THIN", 10_000.0, df)
-    assert ok is False and "ADV" in reason
-
-
-# ── Category 7: System Robustness ─────────────────────────────────────────────
-
-
-def test_7_3_api_rate_limit_counter():
-    """Rate-limit hits are counted so the 100/min contract is observable."""
-    from quant.infra.observability import ObservabilityCollector
-
-    obs = ObservabilityCollector()
-    for _ in range(3):
-        obs.increment("api_rate_limit_hits")
-    assert obs.counters["api_rate_limit_hits"] == 3

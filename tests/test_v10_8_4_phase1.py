@@ -122,13 +122,3 @@ def test_manifest_missing_stage_reason_is_not_a_guess():
         conn.execute("DELETE FROM run_manifest")
     reason = manifest.empty_state_reason("regime")
     assert "not available yet" in reason
-
-
-def test_scoring_penalises_missing_nlp_but_still_scores():
-    """T7: a missing NLP input lowers the grade; the score still exists."""
-    from quant.analytics.scoring import evaluate_tactical_grade
-
-    with_data = evaluate_tactical_grade(0.7, 20.0, 0.0, data_confidence=1.0)
-    without = evaluate_tactical_grade(0.7, 20.0, 0.0, data_confidence=0.0)
-    assert without < with_data
-    assert without >= 0.0  # a real score, never None

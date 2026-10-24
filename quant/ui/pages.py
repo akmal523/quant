@@ -199,7 +199,7 @@ def page_home() -> None:
     if first_pct is not None:
         st.caption(f"since first purchase: {first_pct:+.1f}%")
 
-    R._render_value_chart(R.read_history(), holdings)
+    R._render_value_chart(holdings)
 
     _render_tasks()
     _render_what_to_do(holdings)
@@ -553,11 +553,13 @@ def _short_score(value) -> str:
 
 
 def _news_tone(score) -> str:
-    """The plain tone word for a sentiment score (neutral on a missing value)."""
+    """The plain tone word for a headline score (-1..1); "not scored" when absent."""
     try:
         s = float(score)
     except (TypeError, ValueError):
-        return "neutral"
+        return "not scored"
+    if s != s:
+        return "not scored"
     if s > 0.15:
         return "positive"
     if s < -0.15:
@@ -806,18 +808,17 @@ def _inspect_drawer(symbols: list[str], rows_by_sym: dict, prefix: str,
 
 
 def _render_instrument_detail(sym: str, row: dict, prefix: str = "rs") -> None:
-    """Row drawer: FIVE sections, fixed order, each with an explicit empty state.
+    """Row drawer: four sections, fixed order, each with an explicit empty state.
 
     (1) price chart; (2) score + component bars; (3) latest <=5 news headlines
-    with tone, or a reasoned empty state + CTA; (4) SEC mention count, or a
-    reasoned empty state; (5) open advice list, or "no open advice". ``prefix``
+    with tone, or a reasoned empty state + CTA; (4) open advice list, or "no
+    open advice". (The SEC section went with the SEC fetch, v10.8.10.) ``prefix``
     scopes every widget key to the tab context ("ha"/"rs"), so the same symbol
     inspected in two tabs can never collide on a page-global key (v10.8.6, A1).
     """
     _drawer_price(sym, prefix)
     _drawer_score(sym, row)
     _drawer_news(sym)
-    _drawer_sec(sym)
     _drawer_advice(sym)
 
 
@@ -882,23 +883,8 @@ def _drawer_news(sym: str) -> None:
         st.caption(f"{n.get('title') or '-'} ({_news_tone(n.get('score'))})")
 
 
-def _drawer_sec(sym: str) -> None:
-    """Section 4: the SEC mention count, or a reasoned empty state."""
-    from quant.engine import manifest as M
-
-    st.markdown(f"**{C.DRAWER_SEC}**")
-    sec = R.q("SELECT COUNT(*) AS n FROM nlp_evidence WHERE symbol = ? "
-              "AND lower(coalesce(source,'')) = 'sec'", [sym])
-    n = int(sec["n"].iloc[0]) if not sec.empty else 0
-    if n == 0:
-        reason = M.empty_state_reason("nlp") or "no SEC filings fetched yet"
-        st.caption(C.DRAWER_NO_SEC.format(reason=reason))
-        return
-    st.caption(f"SEC filing mentions: {n}.")
-
-
 def _drawer_advice(sym: str) -> None:
-    """Section 5: the numbered threat triggers + open advice, or "no open advice"."""
+    """Section 4: the numbered threat triggers + open advice, or "no open advice"."""
     from quant.engine import advice_state
     from quant.engine import holdings_analysis as HA
 
@@ -939,12 +925,9 @@ def _render_market() -> None:
         if st.button(C.BTN_RUN_ANALYSIS, key="run_analysis_market",
                      width="stretch"):
             _run_analysis()
-    try:
-        from quant.engine.news_pillar import model_available
+    from quant.data.news import model_available
 
-        if not model_available():
-            st.caption(C.MARKET_NEWS_OFF)
-    except Exception:  # noqa: BLE001
+    if not model_available():
         st.caption(C.MARKET_NEWS_OFF)
 
 

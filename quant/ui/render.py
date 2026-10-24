@@ -28,8 +28,6 @@ from quant.reporting.artifacts import (
     compute_growth_view,
     compute_value_view_hover,
     format_chart_ticks,
-    read_actions,
-    read_history,
     read_portfolio_total,
     read_regime,
     read_value_series,
@@ -41,8 +39,6 @@ from quant.ui.search import discovery_candidates, label_for, load_index, search
 
 # Re-exported for the five pages (quant/ui/pages.py reads them via this module).
 __all__ = [
-    "read_actions",
-    "read_history",
     "read_regime",
     "read_value_series",
     "label_for",
@@ -332,7 +328,7 @@ def _rebase(values):
     return values / base * 100.0
 
 
-def _render_value_chart(history, holdings) -> None:
+def _render_value_chart(holdings) -> None:
     """Portfolio value chart: Value | Growth (T3; v10.8.6 B3/B4/B5).
 
     Value  = the absolute portfolio total from the valuation store, with one
@@ -340,8 +336,7 @@ def _render_value_chart(history, holdings) -> None:
     Growth = normalized to 100: a bold portfolio line plus one line per held asset.
     The chart reads the store through the pure helpers in
     quant.reporting.artifacts and never recomputes shares/values inline (R1).
-    Fallbacks for a database without a store: the snapshot+flow value series,
-    then the review history.
+    Fallback for a database without a store: the snapshot+flow value series.
     """
     import plotly.graph_objects as go
 
@@ -357,9 +352,6 @@ def _render_value_chart(history, holdings) -> None:
         if series is not None and len(series) >= 2:
             df = series.copy()
             df["review_ts"] = pd.to_datetime(df["date"], errors="coerce")
-        elif history is not None and len(history) >= 3:
-            df = history.copy()
-            df["review_ts"] = pd.to_datetime(df["review_ts"], errors="coerce")
         else:
             st.info(C.CHART_BUILDING)
             return

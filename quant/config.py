@@ -1,39 +1,12 @@
 """
-config.py — All runtime settings. Values override via .env.
+config.py — the app's fixed settings: fees, risk profiles, alert and decision
+thresholds, the funnel, and the per-symbol target map. Pure constants.
 """
-import os
-from typing import Any
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # ── Currency ──────────────────────────────────────────────────────────────────
 BASE_CURRENCY  = "EUR"
 
-# ── FinBERT ───────────────────────────────────────────────────────────────────
-FINBERT_MODEL         = "ProsusAI/finbert"
-
-# ── Data Sources ──────────────────────────────────────────────────────────────
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "")
-
-# ── Async I/O ─────────────────────────────────────────────────────────────────
-MAX_ASYNC_WORKERS = 10
-
-# ── Scoring Weights (must sum to 100) ─────────────────────────────────────────
-WEIGHT_STEWARDSHIP  = 30
-WEIGHT_TECHNICAL    = 15
-
-# ── Backtest ──────────────────────────────────────────────────────────────────
-COMMISSION_SLIPPAGE  = 0.0015
-WFO_IS_DAYS   = 365
-WFO_OOS_DAYS  = 90
-WFO_STEP_DAYS = 90
-
 # ── Trade Republic Execution Reality (Phase 4) ────────────────────────────────
-# TR fee structure: 1 EUR per active trade, 0 EUR Sparplan buy / 1 EUR sell.
-# Round-trip active trade = 2 EUR. This is the asymmetric hurdle rate.
-ROUND_TRIP_FEE_EUR = 2.0
 ACTIVE_TRADE_FEE_EUR = 1.0
 SPARPLAN_BUY_FEE_EUR = 0.0
 SPARPLAN_SELL_FEE_EUR = 1.0
@@ -99,38 +72,6 @@ FUNNEL_STAGE1_TARGET = 300             # soft cap on Stage 1 survivors
 FUNNEL_TOP_N = 24                      # Stage 2 survivors for heavy analysis
 FUNNEL_MAX_WORKERS = 10
 
-# CORE sleeve: immutable, never graduated, never demoted. Broad market, water,
-# bonds, and money market ETFs. These are the long-term accumulation vehicles.
-CORE_ETFS = [
-    "URTH", "IWDA.AS", "EUNL.DE", "VOO", "CSPX.L", "EIMI.L",
-    "SWRD.L", "EXW1.DE", "EXIA.DE", "ISF.L", "IEAG.L", "ITPS.L",
-    "XEON.DE", "SXRV.DE", "IQQQ.DE", "GLUG.L", "PHO",
-]
-
-# ── Strategic Rebalancing Tiers (v11) ─────────────────────────────────────────
-# Intent: differentiate buy-and-hold vs active trading assets so the bot stops
-# emitting SELL on core ETFs over minor noise. Tier lists take PRECEDENCE over
-# CORE_ETFS for tier assignment (e.g. SXRV.DE is in CORE_ETFS but classified
-# SATELLITE here). classify_asset() checks these lists first.
-# Invariants: a symbol maps to exactly one tier; unknown symbols default ACTIVE.
-CORE_ASSETS = [
-    "EUNL.DE", "IWDA.AS", "VOO", "CSPX.L", "URTH", "EIMI.L",
-    "SWRD.L", "EXW1.DE", "EXIA.DE", "ISF.L", "IEAG.L", "ITPS.L",
-    "XEON.DE", "IQQQ.DE", "GLUG.L", "PHO",
-]
-SATELLITE_ASSETS = ["SXRV.DE", "QQQ", "TQQQ", "IQQQ.DE"]
-ACTIVE_ASSETS = ["AMZN", "AAPL", "TSLA", "MSFT", "NVDA", "GOOGL", "META"]
-SECTOR_ASSETS = ["5J50.DE", "URA", "TAN", "ICLN", "XLE", "XLK"]
-
-# Target portfolio weights per tier (must sum to 1.0). Used for drift analysis.
-# Intent: 50% broad market, 20% growth/leveraged, 20% individual stocks,
-# 10% sector plays. First-run baseline eases in (no forced rebalance).
-TARGET_WEIGHTS = {
-    "CORE": 0.50,
-    "SATELLITE": 0.20,
-    "ACTIVE": 0.20,
-    "SECTOR": 0.10,
-}
 
 # ── v10.7.3 (Part 5.1): ONE invested-pool target map ──────────────────────────
 # The single source of per-symbol targets for the invested pool. build_advice,
@@ -147,24 +88,7 @@ TARGET_WEIGHTS_INVESTED = {
 
 # Rebalancing thresholds & frequencies.
 REBALANCE_DRIFT_THRESHOLD = 0.05   # generic drift trigger (5%)
-MIN_TRADE_SIZE_EUR = 50.0          # minimum trade to clear the 2 EUR round-trip
 
-# v10.8.0 (2.3): ONE tier vocabulary. The legacy 4-tier keys (CORE/SATELLITE/
-# ACTIVE/SECTOR) are gone; legacy values are carried over through
-# LEGACY_TIER_MAPPING. FORTRESS rebalances only on >10% drift and quarterly.
-# Days between allowed rebalances per tier.
-REBALANCE_FREQUENCY_DAYS = {
-    "FORTRESS": 90,     # quarterly (was CORE)
-    "ALPHA": 7,         # weekly
-    "SPECULATIVE": 7,   # weekly
-}
-
-# Per-tier drift thresholds (fraction) that trigger a rebalance.
-REBALANCE_DRIFT_TIERS = {
-    "FORTRESS": 0.10,   # only major drift (was CORE)
-    "ALPHA": 0.05,
-    "SPECULATIVE": 0.05,
-}
 
 # ── v10.8.7 (T4): decision-taxonomy thresholds (ONE config module) ────────────
 # Every verb threshold lives here; no magic numbers in the UI or the engine.
@@ -180,48 +104,6 @@ PLAN_CHANGE_GAP = 0.10        # under-target gap that triggers a plan change
 # A watched (non-held) symbol with a composite at or above this floor becomes an
 # Idea and flows into Research, swap candidates, the invest plan and This month.
 IDEA_FLOOR = 55.0
-# The score a missing component contributes (R-C2): deliberately below neutral,
-# so a symbol with prices only cannot reach IDEA_FLOOR.
-SCORE_MISSING_PENALTY = 12.0
-# Component weights for the composite (must sum to 1.0). Technical is always
-# present (prices); the others fall back to SCORE_MISSING_PENALTY when missing.
-SCORE_COMPONENT_WEIGHTS = {
-    "technical": 0.40,
-    "fundamental": 0.30,
-    "sentiment": 0.20,
-    "stewardship": 0.10,
-}
-# Confidence tier mapping (documented in CONTEXT.md): present/total ratio.
-CONFIDENCE_HIGH_RATIO = 0.8
-CONFIDENCE_MEDIUM_RATIO = 0.5
-
-# ── Fast Filter / Screener Thresholds ─────────────────────────────────────────
-FILTER_MAX_PE  = 25.0
-FILTER_MIN_ROE = 0.20
-
-# ── Fundamental Grade Thresholds ──────────────────────────────────────────────
-STRUCT_MAX_PEG = 1.5
-
-# ── Stewardship (Non-Financials) ──────────────────────────────────────────────
-STW_GEN_MAX_DE  = 0.5
-STW_GEN_MID_DE  = 1.0
-STW_GEN_MIN_ROE = 0.10
-STW_GEN_HI_ROE  = 0.20
-STW_GEN_MIN_ICR = 5.0
-
-# ── Stewardship (Financials/Banks) ────────────────────────────────────────────
-STW_FIN_MIN_PB  = 1.0
-STW_FIN_MAX_PB  = 1.5
-STW_FIN_MIN_ICR = 3.0
-
-# ── Allocation Logic Thresholds ───────────────────────────────────────────────
-MIN_STRUCT_GRADE_FOR_BUY = 75
-MIN_TACT_GRADE_FOR_BUY   = 70
-
-# ── Data Confidence ──────────────────────────────────────────────────────────
-# When no SEC/News data is available, the sentiment component is unreliable.
-# This penalty reduces the tactical grade to prevent false BUY signals.
-SENTIMENT_NO_DATA_PENALTY = 15.0  # max points deducted when NLP data is missing
 
 # ── v10.4.0: Data Quality Assertions (Phase 1) ────────────────────────────────
 # Hard CI/CD gate. A violation aborts the pipeline (unlike the soft repair in
@@ -236,28 +118,6 @@ ASSERT_MAX_DAILY_DROP = 0.50
 VALID_TIERS = ("FORTRESS", "ALPHA", "SPECULATIVE")
 DEFAULT_TIER = "ALPHA"
 
-LEGACY_TIER_MAPPING = {
-    "CORE": "FORTRESS",
-    "SATELLITE": "ALPHA",
-    "ACTIVE": "ALPHA",
-    "SECTOR": "ALPHA",
-}
-
-
-def _canonical_tier(tier) -> str:
-    """Map a legacy tier name to its current name (v10.8.0, 2.3)."""
-    t = str(tier or "").upper()
-    return LEGACY_TIER_MAPPING.get(t, t)
-
-
-def rebalance_threshold(tier: Any) -> float:
-    """The drift threshold for a tier (legacy names mapped first)."""
-    return REBALANCE_DRIFT_TIERS.get(_canonical_tier(tier), REBALANCE_DRIFT_THRESHOLD)
-
-
-def rebalance_min_days(tier: Any) -> int:
-    """The minimum days between rebalances for a tier (legacy names mapped first)."""
-    return REBALANCE_FREQUENCY_DAYS.get(_canonical_tier(tier), 7)
 
 # Per-tier behaviour. max_allocation is a hard cap (None = uncapped).
 TIER_CONSTRAINTS = {

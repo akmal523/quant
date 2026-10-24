@@ -45,12 +45,6 @@ FALLBACKS: dict[str, dict] = {
     "flows.load_flows": _e("unreadable flows table", [], "empty",
                            "test_fallback_flows_load_flows"),
     # ── news_pillar ───────────────────────────────────────────────────────────
-    "news_pillar._read_cache": _e("unreadable news cache", {}, "empty",
-                                  "test_fallback_news_pillar_read_cache"),
-    "news_pillar.model_available": _e("torch unavailable", False, "none",
-                                      "test_fallback_news_pillar_model_available"),
-    "news_pillar._parse_published": _e("unparseable published date", None, "none",
-                                       "test_fallback_news_pillar_parse_published"),
     # ── sizing ────────────────────────────────────────────────────────────────
     "sizing.is_untouchable": _e("non-numeric position value", True, "none",
                                 "test_fallback_sizing_is_untouchable"),
@@ -59,16 +53,12 @@ FALLBACKS: dict[str, dict] = {
     "sizing.passes_fee_hurdle": _e("non-numeric alpha or amount", True, "none",
                                    "test_fallback_sizing_passes_fee_hurdle"),
     # ── valuation ─────────────────────────────────────────────────────────────
-    "valuation.compute_shares": _e("non-numeric value or price", None, "none",
-                                   "test_fallback_valuation_compute_shares"),
     "valuation._lookup": _e("price lookup raised", None, "none",
                             "test_fallback_valuation_lookup"),
     "valuation._last_sync_date": _e("unreadable holdings_meta", None, "none",
                                     "test_fallback_valuation_last_sync_date"),
     "valuation._meta_get": _e("unreadable meta table", None, "none",
                               "test_fallback_valuation_meta_get"),
-    "valuation.record_snapshot": _e("unreadable holdings_meta", 0, "none",
-                                    "test_fallback_valuation_record_snapshot"),
     # ── account ───────────────────────────────────────────────────────────────
     "account.load_account": _e("missing or invalid account.yaml",
                                "AccountState(EUR, None, balanced, loaded=False)",
@@ -80,18 +70,12 @@ FALLBACKS: dict[str, dict] = {
                                    "empty", "test_fallback_portfolio_load"),
     "portfolio.portfolio_issues": _e("portfolio CSV unreadable", [], "empty",
                                      "test_fallback_portfolio_issues"),
-    "portfolio.load_broker_data": _e("portfolio CSV unreadable", {}, "empty",
-                                     "test_fallback_portfolio_broker_data"),
-    "portfolio.get_last_rebalance": _e("unreadable rebalance_log", None, "none",
-                                       "test_fallback_portfolio_last_rebalance"),
     # ── tier_manager ──────────────────────────────────────────────────────────
     "tier_manager.load_tiers": _e("tiers.csv unreadable", "empty frame", "empty",
                                   "test_fallback_tier_manager_load_tiers"),
     # ── persistence (v10.8.1) ─────────────────────────────────────────────────
     "user_data._copy_if_missing": _e("missing or unreadable source file", False,
                                      "none", "test_fallback_user_data_copy_if_missing"),
-    "notify._load_state": _e("missing or invalid notify state", {}, "empty",
-                             "test_fallback_notify_load_state"),
     # ── the ONE list / regime (v10.8.10) ──────────────────────────────────────
     "today_list._rows": _e("unreadable store", [], "empty",
                            "test_fallback_today_list_rows"),

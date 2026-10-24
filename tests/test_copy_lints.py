@@ -8,8 +8,7 @@ This module is that ONE lint. It scans three sources:
 
   1. the copy module ([`quant/ui/copy.py`](quant/ui/copy.py)) string constants;
   2. the rendered AppTest page text and dataframes;
-  3. the Telegram message builders ([`quant/engine/notify.py`](quant/engine/notify.py),
-     [`quant/reporting/notifier.py`](quant/reporting/notifier.py)).
+  3. the Telegram message builder ([`quant/engine/notify.py`](quant/engine/notify.py)).
 
 A parametrized self-test injects each bad pattern into a fixture string and
 asserts the scanner flags it, so a silent regression in the lint itself fails.
@@ -107,7 +106,7 @@ def test_copy_module_strings_have_no_bad_patterns():
 
 # ── Source 3: the Telegram message builders ───────────────────────────────────
 
-@pytest.mark.parametrize("rel", ["engine/notify.py", "reporting/notifier.py"])
+@pytest.mark.parametrize("rel", ["engine/notify.py"])
 def test_telegram_builders_have_no_bad_patterns(rel):
     """R-F3: no banned pattern in a Telegram/Discord message builder string."""
     offenders = _scan_constants(_QUANT / rel)

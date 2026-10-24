@@ -51,36 +51,3 @@ def test_data_quality_auto_repair():
     assert repaired["Close"].isna().sum() == 0
     assert repaired["Date"].duplicated().sum() == 0
     print("  [PASS] test_data_quality_auto_repair")
-
-
-# ── Observability ─────────────────────────────────────────────────────────────
-
-def test_observability_summary():
-    """Summary reports step count and duration."""
-    from quant.infra.observability import ObservabilityCollector
-    obs = ObservabilityCollector()
-    with obs.step("load"):
-        pass
-    with obs.step("score"):
-        pass
-    summary = obs.summary()
-    assert "2 total" in summary
-    assert "Pipeline completed" in summary
-    print("  [PASS] test_observability_summary")
-
-
-def test_observability_captures_error():
-    """Errors are recorded in the step."""
-    from quant.infra.observability import ObservabilityCollector
-    obs = ObservabilityCollector()
-    try:
-        with obs.step("bad"):
-            raise ValueError("boom")
-    except ValueError:
-        pass
-    assert obs.steps[-1]["status"] == "error"
-    assert "boom" in obs.steps[-1]["error"]
-    print("  [PASS] test_observability_captures_error")
-
-
-# ── Alerts ────────────────────────────────────────────────────────────────────

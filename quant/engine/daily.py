@@ -311,17 +311,6 @@ def run_daily(
         new_alerts=new_alerts,
     )
 
-    # v10.7.2 (Part 2.3): recompute the news-pillar status on the Friday run.
-    # Absent when zero model-scored items in the last 30 days; the daily job then
-    # never imports torch (the performance win on the old laptop).
-    try:
-        if today.weekday() == 4:
-            from quant.engine import news_pillar
-
-            news_pillar.recompute_status(today)
-    except Exception:  # noqa: BLE001
-        pass
-
     # Write the artifact (with the gap line when catching up).
     _write_daily_artifact(today, result, new_alerts)
 

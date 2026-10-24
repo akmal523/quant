@@ -15,40 +15,14 @@ Invariants:
 """
 from __future__ import annotations
 
-from collections import Counter
 from datetime import date
 
-import numpy as np
-
-from quant.analytics.scoring import evaluate_structural_grade, evaluate_tactical_grade
 from quant.data.database import get_connection
 from quant.engine import alerts
 from quant.engine.advice import build_advice
 from tests.fixtures.live_portfolio import holding, live_shaped, live_tiers
 
 AS_OF = date(2026, 10, 2)
-
-
-def _universe(n: int = 50):
-    rng = np.random.default_rng(11)
-    return [
-        (rng.uniform(5, 60), rng.uniform(0.5, 4.0), rng.uniform(-0.1, 0.5),
-         rng.uniform(0, 30), rng.uniform(0, 1), rng.uniform(-100, 100),
-         rng.uniform(0, 25))
-        for _ in range(n)
-    ]
-
-
-def test_scoring_pipeline_differentiates_assets():
-    structural, tactical = [], []
-    for pe, peg, roe, stew, bull, finbert, var in _universe():
-        structural.append(evaluate_structural_grade(pe, peg, roe, stew))
-        tactical.append(evaluate_tactical_grade(bull, finbert, var))
-    assert max(structural) - min(structural) >= 30
-    assert max(tactical) - min(tactical) >= 30
-    for grades in (structural, tactical):
-        counts = Counter(round(g) for g in grades)
-        assert max(counts.values()) <= len(grades) * 0.2
 
 
 def test_advice_pipeline_produces_a_spread():

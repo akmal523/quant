@@ -6,15 +6,12 @@ position that needs nothing is not an item at all.
 from __future__ import annotations
 
 from quant.engine.decisions import (
-    actionable_items,
-    build_decision_list,
     format_item_line,
 )
-from quant.ui import copy as C
 
 
 def _item(verb, label, amount=None):
-    return {"group": C.DECISION_GROUP_RECOMMENDED, "verb": verb,
+    return {"verb": verb,
             "label": label, "amount_eur": amount}
 
 
@@ -40,14 +37,3 @@ def test_no_bare_reason_line_is_always_label_plus_verb():
     # A change_savings_plan item has no amount but still names the instrument.
     line = format_item_line(_item("change_savings_plan", "Alpha (AAA)"))
     assert line == "Change the savings plan for Alpha (AAA)"
-
-
-def test_actionable_items_exclude_optional():
-    decisions = build_decision_list(
-        [{"kind": "buy", "symbol": "AAA", "company_name": "Alpha", "eur": 10.0,
-          "why": "under target"},
-         {"kind": "keep", "symbol": "BBB", "company_name": "Beta", "eur": None,
-          "why": "long-term holding"}],
-        [], [])
-    act = actionable_items(decisions)
-    assert {d["symbol"] for d in act} == {"AAA"}

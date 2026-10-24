@@ -149,33 +149,6 @@ def test_bear_regime_is_recognised_in_either_vocabulary(label):
     assert any(i["symbol"] is None for i in T.threat_items([], {}, {"label": label}))
 
 
-def test_regime_stage_label_is_probability_scaled():
-    import math
-
-    from quant.data.database import write_connection
-    from quant.engine import analysis
-    from quant.portfolio.regime_constraints import regime_from_bull_prob
-    from quant.reporting.artifacts import read_regime
-
-    with write_connection() as conn:
-        conn.execute("DELETE FROM market_history WHERE Symbol = ?",
-                     [analysis.REGIME_SYMBOL])
-        for i in range(300):
-            close = 100.0 + 10.0 * math.sin(i / 15.0) + 0.05 * i
-            conn.execute("INSERT INTO market_history (Symbol, Date, Close) "
-                         "VALUES (?, ?, ?)",
-                         [analysis.REGIME_SYMBOL, date.fromordinal(739000 + i), close])
-        res = analysis._regime_stage(conn, "t", date(2026, 10, 1))
-        conn.execute("DELETE FROM market_history WHERE Symbol = ?",
-                     [analysis.REGIME_SYMBOL])
-    # A probability, not score points (it used to be prob * 15).
-    assert 0.0 <= res["prob"] <= 1.0
-    assert res["label"] == regime_from_bull_prob(res["prob"])
-    assert read_regime()["label"] == res["label"]
-    with write_connection() as conn:
-        conn.execute("DELETE FROM meta WHERE key = ?", [analysis.REGIME_META_KEY])
-
-
 # ── R-P3: the delta badge ─────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("eur,pct,text", [
@@ -250,7 +223,7 @@ def test_offline_fx_uses_the_last_live_rate_not_one(tmp_path, monkeypatch):
     from quant.data import currency
 
     monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    monkeypatch.setattr(currency, "_eur_rate_cache", None)
+    monkeypatch.setattr(currency, "_rate_cache", {})
 
     def offline(*_a, **_k):
         raise OSError("offline")
@@ -259,9 +232,22 @@ def test_offline_fx_uses_the_last_live_rate_not_one(tmp_path, monkeypatch):
     monkeypatch.setattr(currency.urllib.request, "urlopen", offline)
     assert currency.get_eur_rate() == 1.0          # never online: last resort
 
-    currency._save_last_rate(1.16)
-    monkeypatch.setattr(currency, "_eur_rate_cache", None)
+    currency._save_last_rate("USD", 1.16)
+    monkeypatch.setattr(currency, "_rate_cache", {})
     assert currency.get_eur_rate() == 1.16
+
+
+def test_fx_uses_the_currency_yahoo_reports(monkeypatch):
+    from quant.data import currency
+
+    monkeypatch.setattr(currency, "_rate_cache", {"USD": 1.25, "GBP": 0.80})
+    monkeypatch.setattr(currency, "_ccy_cache", {"CSPX.L": "USD", "VOD.L": "GBp",
+                                                 "BP.L": "GBP"})
+    assert currency.get_fx_to_eur("CSPX.L") == 1 / 1.25     # a USD line on London
+    assert currency.get_fx_to_eur("VOD.L") == 0.01 / 0.80   # pence
+    assert currency.get_fx_to_eur("BP.L") == 1 / 0.80       # pounds, not dollars
+    monkeypatch.setattr(currency, "_ccy_cache", {})
+    assert currency.deduce_currency("EUNL.DE") == "EUR"     # fallback guess
 
 
 # ── Stock splits ──────────────────────────────────────────────────────────────
@@ -324,3 +310,121 @@ def test_yahoo_split_events_are_read_from_the_history_frame():
                       index=idx)
     assert _split_events(df) == [("2026-04-01", 2.0)]
     assert _split_events(df.drop(columns="Stock Splits")) == []
+
+
+def test_write_connection_body_error_propagates_as_itself():
+    import pytest
+
+    from quant.data.database import write_connection
+
+    with pytest.raises(OSError, match="Conflicting lock"):
+        with write_connection():
+            raise OSError("Conflicting lock on file")
+
+
+# ── Score model (v10.8.10) ────────────────────────────────────────────────────
+
+def test_technical_needs_a_year_and_rewards_an_uptrend():
+    from quant.engine import score_model as M
+
+    assert M.technical_score([100.0] * 150) is None
+    flat = M.technical_score([100.0] * 260)
+    up = M.technical_score([100.0 + i * 0.2 for i in range(260)])
+    down = M.technical_score([200.0 - i * 0.2 for i in range(260)])
+    assert flat == 50.0 and up > 60 > 40 > down
+
+
+def test_fundamentals_read_yahoo_debt_to_equity_percent_and_real_interest_cover():
+    from quant.engine import score_model as M
+
+    assert M.interest_cover(800.0, -100.0) == 8.0
+    base = {"pe": 14, "peg": 0.9, "roe": 0.25, "ebit": 800, "interest_expense": -100}
+    assert M.fundamental_score({**base, "debt_to_equity": 40.0}) == 100.0  # 0.4x
+    assert M.fundamental_score({**base, "debt_to_equity": 250.0}) < 100.0  # 2.5x
+    assert M.fundamental_score({"pe": 14}) is None                         # too thin
+
+
+def test_sentiment_is_recent_weighted_and_needs_enough_headlines():
+    from quant.engine import score_model as M
+
+    today = date(2026, 10, 24)
+    assert M.sentiment_score([(today, 0.9)] * 2, today) is None
+    assert M.sentiment_score([(date(2026, 8, 1), 0.9)] * 5, today) is None  # too old
+    mixed = [(today, 0.8)] * 3 + [(date(2026, 10, 3), -0.8)] * 3
+    assert M.sentiment_score(mixed, today) > 50.0          # recent news weighs more
+
+
+def test_composite_ignores_missing_parts_instead_of_penalizing_them():
+    from quant.engine import score_model as M
+
+    etf = M.composite({"technical": 60.0}, "ETF")
+    assert etf["composite"] == 60.0 and etf["confidence"] == "medium"
+    stock = M.composite({"technical": 60.0, "fundamental": 80.0}, "EQUITY")
+    assert stock["confidence"] == "high"
+    assert stock["composite"] == round((0.5 * 60 + 0.35 * 80) / 0.85, 1)
+    assert M.composite({}, "EQUITY")["composite"] is None
+
+
+def test_trend_regime_from_the_200_day_average():
+    from quant.engine import score_model as M
+
+    assert M.trend_regime([100.0] * 100) is None
+    up = M.trend_regime([100.0] * 200 + [110.0] * 5)
+    down = M.trend_regime([100.0] * 200 + [90.0] * 5)
+    flat = M.trend_regime([100.0] * 205)
+    assert up[0] == "bull" and down[0] == "bear" and flat[0] == "chop"
+
+
+def test_score_floor_skips_long_term_and_low_confidence():
+    holdings = [_h("LT", "FORTRESS"), _h("ACT", "ALPHA"), _h("THIN", "ALPHA")]
+    scores = {"LT": {"composite": 20, "confidence": "high"},
+              "ACT": {"composite": 20, "confidence": "medium"},
+              "THIN": {"composite": 20, "confidence": "low"}}
+    flagged = {i["symbol"] for i in T.threat_items(holdings, scores)}
+    assert flagged == {"ACT"}
+
+
+# ── News ──────────────────────────────────────────────────────────────────────
+
+_RSS = b"""<?xml version="1.0"?><rss><channel>
+<item><title>Short upbeat line</title><pubDate>Fri, 23 Oct 2026 10:00:00 +0000</pubDate></item>
+<item><title>Profit warning issued</title><pubDate>Thu, 22 Oct 2026 10:00:00 +0000</pubDate></item>
+</channel></rss>"""
+
+
+class _FakeScorer:
+    def score(self, texts):
+        return [0.8 if "upbeat" in t else -0.7 for t in texts]
+
+
+def test_news_ingest_scores_short_headlines_and_skips_known_titles():
+    from quant.data import news
+    from quant.data.database import write_connection
+
+    with write_connection() as conn:
+        conn.execute("DELETE FROM nlp_evidence WHERE symbol = 'NWS'")
+        first = news.ingest(conn, ["NWS"], fetch=lambda _s: _RSS, scorer=_FakeScorer(),
+                            today=date(2026, 10, 24))
+        again = news.ingest(conn, ["NWS"], fetch=lambda _s: _RSS, scorer=_FakeScorer(),
+                            today=date(2026, 10, 24))
+        rows = conn.execute("SELECT title, score FROM nlp_evidence WHERE symbol = 'NWS' "
+                            "ORDER BY score").fetchall()
+        conn.execute("DELETE FROM nlp_evidence WHERE symbol = 'NWS'")
+    assert first == {"symbols": 1, "new": 2, "scored": 2}
+    assert again["new"] == 0
+    assert rows == [("Profit warning issued", -0.7), ("Short upbeat line", 0.8)]
+
+
+def test_news_without_a_model_is_stored_unscored():
+    from quant.data import news
+    from quant.data.database import write_connection
+
+    with write_connection() as conn:
+        conn.execute("DELETE FROM nlp_evidence WHERE symbol = 'NWS'")
+        stats = news.ingest(conn, ["NWS"], fetch=lambda _s: _RSS, scorer=None,
+                            today=date(2026, 10, 24))
+        scores = conn.execute("SELECT score FROM nlp_evidence WHERE symbol = 'NWS'"
+                              ).fetchall()
+        conn.execute("DELETE FROM nlp_evidence WHERE symbol = 'NWS'")
+    assert stats["new"] == 2 and stats["scored"] == 0
+    assert scores == [(None,), (None,)]

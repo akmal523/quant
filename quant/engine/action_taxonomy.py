@@ -134,9 +134,13 @@ def threat_items(holdings: list[dict] | None, scores: dict | None = None,
                              f"down {abs(pnl_pct) * 100:.0f}% from entry.",
                              HORIZON_TODAY, tier, "Holdings analysis"))
             continue
-        # Score floor: the held composite (R-C2), structural grade as fallback.
-        comp = _score_of(scores.get(sym) or {})
-        if comp is not None and _num(comp) < SCORE_FLOOR:
+        # Score floor: the held composite, only when the score is trustworthy
+        # (medium/high confidence) and never for a Long-term holding (v10.8.10).
+        s = scores.get(sym) or {}
+        comp = _score_of(s)
+        trusted = str(s.get("confidence") or "medium") in ("medium", "high")
+        if (comp is not None and trusted and tier != "FORTRESS"
+                and _num(comp) < SCORE_FLOOR):
             out.append(_item(VERB_THREAT, sym, _label(h), None,
                              f"score {_num(comp):.0f} below the {SCORE_FLOOR:.0f} floor.",
                              HORIZON_TODAY, tier, "Research"))

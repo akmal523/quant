@@ -15,7 +15,6 @@ Invariants:
 """
 from __future__ import annotations
 
-import json
 import os
 import urllib.parse
 import urllib.request
@@ -24,9 +23,6 @@ from quant import paths
 
 NOTIFY_FILE = os.path.join(str(paths.DATA_DIR), "notify.toml")
 STATE_NAME = "notify_state.json"
-MAX_PER_DAY = 2
-FINGERPRINT_ROUND = 10
-MAX_MESSAGE_LINES = 8
 
 
 def load_config(path: str | None = None) -> dict:
@@ -102,11 +98,6 @@ def send(text: str, config: dict | None = None) -> bool:
     return _send_telegram(cfg, text)
 
 
-def send_text(text: str, config: dict | None = None) -> bool:
-    """Backward-compatible alias for :func:`send`."""
-    return send(text, config)
-
-
 def format_alert(alert: dict) -> str:
     """The legacy alert phrasing (kept until the alert system is folded into
     the decision list, v10.8.2). Never raises."""
@@ -146,82 +137,3 @@ def send_test(config: dict | None = None) -> bool:
 
 def _state_path() -> str:
     return os.path.join(str(paths.OUTPUTS_DIR), STATE_NAME)
-
-
-def _load_state() -> dict:
-    try:
-        with open(_state_path(), encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001
-        return {}
-
-
-def _save_state(state: dict) -> None:
-    try:
-        os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
-        with open(_state_path(), "w", encoding="utf-8") as f:
-            json.dump(state, f)
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def _round10(amount) -> int:
-    if isinstance(amount, bool) or not isinstance(amount, int | float):
-        return 0
-    return int(round(float(amount) / FINGERPRINT_ROUND) * FINGERPRINT_ROUND)
-
-
-def message_fingerprint(items: list[dict]) -> str:
-    """A stable identity of an item list (symbol + verb + amount to the 10 EUR)."""
-    parts = []
-    for it in items or []:
-        sym = str(it.get("symbol") or it.get("label") or "")
-        verb = str(it.get("verb") or it.get("kind") or "")
-        parts.append(f"{verb}:{sym}:{_round10(it.get('amount_eur'))}")
-    return "|".join(sorted(parts))
-
-
-def build_message(items: list[dict]) -> str:
-    """The plain-text message: at most 8 lines, one item per line."""
-    from quant.engine.decisions import format_item_line
-
-    lines = [f"Quant-AI: {len(items)} things to do"]
-    for it in items:
-        lines.append(format_item_line(it))
-        if len(lines) >= MAX_MESSAGE_LINES:
-            break
-    return "\n".join(lines)
-
-
-def notify_decisions(items: list[dict], today=None, config: dict | None = None,
-                     sender=None) -> bool:
-    """Send one message if the actionable list is non-empty, new, and under cap.
-
-    Returns True only when a message was actually sent (v10.8.2, section 7).
-    """
-    from datetime import date as _date
-
-    from quant.engine.decisions import actionable_items
-
-    actionable = actionable_items(items)
-    if not actionable:
-        return False
-    today = today or _date.today()
-    day = today.isoformat()
-    state = _load_state()
-    if state.get("day") != day:
-        state = {"day": day, "count": 0, "fingerprint": state.get("fingerprint")}
-    if int(state.get("count", 0)) >= MAX_PER_DAY:
-        return False
-    fingerprint = message_fingerprint(actionable)
-    if fingerprint == state.get("fingerprint"):
-        return False  # nothing changed since the last message
-    text = build_message(actionable)
-    fn = sender or send
-    ok = fn(text, config) if config is not None else fn(text)
-    if ok:
-        state["count"] = int(state.get("count", 0)) + 1
-        state["fingerprint"] = fingerprint
-        _save_state(state)
-    return bool(ok)

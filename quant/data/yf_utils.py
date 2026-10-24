@@ -191,7 +191,14 @@ def history_with_timeout(
 
         def _worker() -> None:
             try:
-                result[0] = yf.Ticker(ticker).history(**kwargs)
+                tk = yf.Ticker(ticker)
+                df = tk.history(**kwargs)
+                # The quote currency comes with the history (no extra request).
+                try:
+                    df.attrs["currency"] = (tk.history_metadata or {}).get("currency")
+                except Exception:  # noqa: BLE001
+                    df.attrs["currency"] = None
+                result[0] = df
             except Exception as e:  # noqa: BLE001
                 error[0] = e
 

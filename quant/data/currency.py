@@ -1,11 +1,15 @@
 """
-currency.py — FX helpers: dynamic rate fetching, OHLCV normalisation to EUR.
+currency.py — EUR conversion for every price the app shows.
 
-Graceful degradation: when both live sources fail, the last successfully
-fetched EUR/USD rate (persisted in the data folder) is used; 1.0 is the last
-resort only on an install that has never been online. v10.8.10: before, any
-offline run used 1.0, and the valuation backfill rewrote the whole stored
-history of USD holdings at that rate.
+A symbol's currency is the one Yahoo reports for it (stored in
+``asset_registry.currency`` by refresh); the ticker-suffix guess is only the
+fallback for a symbol never fetched. Rates are "units of X per 1 EUR" from Yahoo
+(``EURX=X``), then the ECB (frankfurter.dev), then the last live rate persisted
+in the data folder. Pence quotes (``GBp``/``GBX``) are divided by 100.
+
+v10.8.10: before, every offline run used EUR/USD = 1.0 (the valuation backfill
+then rewrote the whole history of USD holdings at that rate), every ``.L``
+listing was treated as pence, and non-USD rates were proxied through USD.
 """
 from __future__ import annotations
 
@@ -13,150 +17,159 @@ import json
 import urllib.request
 from typing import Any
 
-import pandas as pd
 import yfinance as yf
 
 from quant.cli.output import reporter
 
-# Module-level EUR/USD rate cache (fetched once per process).
-_eur_rate_cache: float | None = None
-_LAST_RATE_FILE = "fx_eurusd_last.json"
+_LAST_RATES_FILE = "fx_rates_last.json"
+_LEGACY_LAST_RATE_FILE = "fx_eurusd_last.json"
+_rate_cache: dict[str, float] = {}
+_ccy_cache: dict[str, str] = {}
+# Plausible "X per EUR" bands; a quote outside is a bad tick, not a rate.
+_BANDS = {"USD": (0.8, 1.5), "GBP": (0.6, 1.1), "CHF": (0.7, 1.4)}
 
 
-def _last_rate_path() -> str:
+def _outputs_file(name: str) -> str:
     import os
 
     from quant import paths
 
-    return os.path.join(str(paths.OUTPUTS_DIR), _LAST_RATE_FILE)
+    return os.path.join(str(paths.OUTPUTS_DIR), name)
 
 
-def _save_last_rate(rate: float) -> None:
-    """Persist a live EUR/USD rate for offline runs. Never raises."""
+def _load_last_rates() -> dict:
+    rates: dict = {}
+    for name in (_LEGACY_LAST_RATE_FILE, _LAST_RATES_FILE):
+        try:
+            with open(_outputs_file(name), encoding="utf-8") as f:
+                data = json.load(f)
+            if "eurusd" in data:
+                data = {"USD": data["eurusd"]}
+            rates.update({str(k): float(v) for k, v in data.items()})
+        except Exception:  # noqa: BLE001
+            continue
+    return rates
+
+
+def _save_last_rate(ccy: str, rate: float) -> None:
+    """Persist a live rate for offline runs. Never raises."""
     import os
 
     try:
-        os.makedirs(os.path.dirname(_last_rate_path()), exist_ok=True)
-        with open(_last_rate_path(), "w", encoding="utf-8") as f:
-            json.dump({"eurusd": rate}, f)
+        rates = _load_last_rates()
+        rates[ccy] = rate
+        os.makedirs(os.path.dirname(_outputs_file(_LAST_RATES_FILE)), exist_ok=True)
+        with open(_outputs_file(_LAST_RATES_FILE), "w", encoding="utf-8") as f:
+            json.dump(rates, f)
     except Exception:  # noqa: BLE001
         pass
 
 
-def _load_last_rate() -> float | None:
-    """The last persisted live EUR/USD rate, or None."""
+def _plausible(ccy: str, rate: float) -> bool:
+    lo, hi = _BANDS.get(ccy, (1e-6, 1e6))
+    return lo < rate < hi
+
+
+def _yahoo_rate(ccy: str) -> float | None:
     try:
-        with open(_last_rate_path(), encoding="utf-8") as f:
-            rate = float(json.load(f)["eurusd"])
-        return rate if 0.8 < rate < 1.5 else None
+        df = yf.Ticker(f"EUR{ccy}=X").history(period="5d")
+        if not df.empty and "Close" in df.columns:
+            return float(df["Close"].dropna().iloc[-1])
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _ecb_rate(ccy: str) -> float | None:
+    # Cloudflare answers 403 to urllib's default User-Agent.
+    try:
+        req = urllib.request.Request(
+            f"https://api.frankfurter.dev/v1/latest?from=EUR&to={ccy}",
+            headers={"User-Agent": "quant-ai"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return float(json.loads(resp.read())["rates"][ccy])
     except Exception:  # noqa: BLE001
         return None
 
-def get_eur_rate() -> float:
-    """
-    Fetch live EUR/USD rate dynamically. Cached for lifetime of the process.
-    Tries Yahoo Finance first, then falls back to a public European API.
-    If both fail, returns last-known rate or 1.0 with a warning.
-    """
-    global _eur_rate_cache
-    if _eur_rate_cache is not None:
-        return _eur_rate_cache
 
-    # Method 1: Yahoo Finance
-    try:
-        tkr = yf.Ticker("EURUSD=X")
-        df = tkr.history(period="5d")
-        if not df.empty and "Close" in df.columns:
-            rate = float(df["Close"].iloc[-1])
-            if 0.8 < rate < 1.5:
-                _eur_rate_cache = rate
-                _save_last_rate(rate)
-                reporter.detail(f"  [FX] Live Rate (Yahoo) EUR/USD = {rate:.4f}")
-                return rate
-    except Exception:
-        pass
-
-    # Method 2: Frankfurter API (ECB). v10.8.10: the old api.frankfurter.app URL
-    # redirects here, and Cloudflare answers 403 to urllib's default User-Agent,
-    # so this fallback silently never worked before.
-    try:
-        req = urllib.request.urlopen(urllib.request.Request(
-            "https://api.frankfurter.dev/v1/latest?from=EUR&to=USD",
-            headers={"User-Agent": "quant-ai"}), timeout=5)
-        data = json.loads(req.read())
-        rate = float(data["rates"]["USD"])
-        if not 0.8 < rate < 1.5:
-            raise ValueError(f"implausible EUR/USD {rate}")
-        _eur_rate_cache = rate
-        _save_last_rate(rate)
-        reporter.detail(f"  [FX] Live Rate (ECB API) EUR/USD = {rate:.4f}")
-        return rate
-    except Exception:
-        pass
-
-    # Offline: the last live rate, never a silent 1.0 when one is known.
-    last = _load_last_rate()
-    if last is not None:
-        reporter.detail(f"  [FX] WARNING: live EUR/USD unavailable; using the last "
-                        f"live rate {last:.4f}.")
-        _eur_rate_cache = last
+def eur_rate(ccy: str) -> float | None:
+    """Units of ``ccy`` per 1 EUR (live, else the last live rate), or None."""
+    ccy = ccy.upper()
+    if ccy == "EUR":
+        return 1.0
+    if ccy in _rate_cache:
+        return _rate_cache[ccy]
+    for source, fetch in (("Yahoo", _yahoo_rate), ("ECB", _ecb_rate)):
+        rate = fetch(ccy)
+        if rate is not None and _plausible(ccy, rate):
+            _rate_cache[ccy] = rate
+            _save_last_rate(ccy, rate)
+            reporter.detail(f"  [FX] EUR/{ccy} = {rate:.4f} ({source})")
+            return rate
+    last = _load_last_rates().get(ccy)
+    if last is not None and _plausible(ccy, last):
+        reporter.detail(f"  [FX] WARNING: live EUR/{ccy} unavailable; using the "
+                        f"last live rate {last:.4f}.")
+        _rate_cache[ccy] = last
         return last
-    reporter.detail("  [FX] WARNING: could not fetch live EUR/USD rate; using fallback 1.0.")
-    _eur_rate_cache = 1.0
-    return _eur_rate_cache
+    return None
+
+
+def get_eur_rate() -> float:
+    """EUR/USD (USD per EUR). 1.0 only on an install that has never been online."""
+    rate = eur_rate("USD")
+    if rate is None:
+        reporter.detail("  [FX] WARNING: no EUR/USD rate known; using 1.0.")
+        return 1.0
+    return rate
 
 
 def deduce_currency(symbol: str) -> str:
-    """Deduce native currency from a yahoo ticker suffix. Pure function.
+    """Guess a listing currency from the ticker suffix (fallback only). Pure.
 
-    Intent: portfolio audit needs per-symbol native currency to convert prices
-    to EUR. Symbols without a suffix are US-listed (USD). Exchange suffixes map
-    to their listing currency. Invariants: returns an ISO-ish code; unknown
-    suffixes default to USD.
+    ``.L`` is ambiguous on Yahoo (pence, pounds or dollars per line); the stored
+    Yahoo currency always wins over this guess.
     """
     if "." not in symbol:
         return "USD"
     suffix = symbol.split(".")[-1].upper()
-    eur_zones = {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE"}
-    if suffix in eur_zones:
+    if suffix in {"DE", "PA", "AS", "MI", "MC", "BR", "VI", "HE", "F", "IR", "LS"}:
         return "EUR"
-    if suffix == "L":
-        return "GBX"
-    if suffix == "SW":
-        return "CHF"
-    if suffix == "CO":
-        return "DKK"
-    if suffix == "OL":
-        return "NOK"
-    if suffix == "ST":
-        return "SEK"
-    if suffix == "TO":
-        return "CAD"
-    if suffix == "AX":
-        return "AUD"
-    if suffix == "KS":
-        return "KRW"
-    return "USD"
+    return {"L": "GBp", "SW": "CHF", "CO": "DKK", "OL": "NOK", "ST": "SEK",
+            "TO": "CAD", "AX": "AUD", "KS": "KRW"}.get(suffix, "USD")
+
+
+def symbol_currency(symbol: str) -> str:
+    """The currency Yahoo reports for ``symbol`` (stored by refresh), else a guess."""
+    if symbol in _ccy_cache:
+        return _ccy_cache[symbol]
+    ccy = None
+    try:
+        from quant.data.database import read_only_connection
+
+        with read_only_connection() as conn:
+            row = conn.execute("SELECT currency FROM asset_registry WHERE symbol = ? "
+                               "AND currency_source = 'yahoo'", [symbol]).fetchone()
+        ccy = row[0] if row and row[0] else None
+    except Exception:  # noqa: BLE001
+        ccy = None
+    _ccy_cache[symbol] = ccy or deduce_currency(symbol)
+    return _ccy_cache[symbol]
 
 
 def get_fx_to_eur(symbol: str) -> float:
-    """Return multiplier converting a symbol's native price to EUR.
-
-    Intent: portfolio audit converts native-currency prices to EUR for real PnL.
-    EUR -> 1.0; USD -> 1/EURUSD (live). GBX -> GBP -> EUR via USD proxy. Other
-    currencies fall back to apply_fx_conversion on a single-row frame; unknown
-    rates degrade to 1.0 (no crash). Dependencies: get_eur_rate, apply_fx_conversion.
-    """
-    ccy = deduce_currency(symbol)
-    if ccy == "EUR":
-        return 1.0
-    if ccy == "USD":
-        return 1.0 / get_eur_rate()
-    if ccy == "GBX":
-        return (1.0 / 100.0) / get_eur_rate()
-    dummy = pd.DataFrame({"Close": [1.0]})
-    conv = apply_fx_conversion(dummy, ccy, "EUR")
-    return float(conv["Close"].iloc[0])
+    """Multiplier from a symbol's quoted price to EUR. Never raises."""
+    ccy = symbol_currency(symbol)
+    factor = 1.0
+    if ccy in ("GBp", "GBX"):          # pence
+        factor, ccy = 0.01, "GBP"
+    if ccy.upper() == "EUR":
+        return factor
+    rate = eur_rate(ccy) if ccy.upper() != "USD" else get_eur_rate()
+    if rate is None:
+        reporter.detail(f"  [FX] WARNING: no EUR/{ccy} rate known; {symbol} unconverted.")
+        return factor
+    return factor / rate
 
 
 def _native_close(symbol: str, as_of=None, conn=None) -> float | None:
@@ -198,66 +211,4 @@ def price_in_eur(symbol: str, as_of: Any =None, conn: Any =None) -> float | None
     close = _native_close(symbol, as_of, conn)
     if close is None:
         return None
-    try:
-        return close * get_fx_to_eur(symbol)
-    except Exception:  # noqa: BLE001
-        return close
-
-
-def apply_fx_conversion(
-    hist: pd.DataFrame,
-    from_currency: str,
-    to_currency: str = "EUR",
-) -> pd.DataFrame:
-    """
-    Normalise OHLCV Close/High/Low/Open columns to target currency.
-    Returns the original DataFrame unchanged if conversion is not needed or fails.
-    """
-    src = (from_currency or "").upper().strip()
-    tgt = (to_currency  or "EUR").upper().strip()
-
-    price_cols = [c for c in ("Open", "High", "Low", "Close") if c in hist.columns]
-    h = hist.copy()
-
-    # GBX (pence) -> GBP
-    if src == "GBX":
-        for c in price_cols:
-            h[c] = h[c] / 100.0
-        src = "GBP"
-
-    if src == tgt:
-        return h
-
-    # Fetch FX multiplier
-    multiplier: float | None = None
-
-    if tgt == "EUR":
-        if src == "USD":
-            multiplier = 1.0 / get_eur_rate()
-        else:
-            ticker = f"{src}EUR=X"
-            try:
-                fx_df = yf.Ticker(ticker).history(period="5d")
-                if not fx_df.empty:
-                    multiplier = float(fx_df["Close"].iloc[-1])
-            except Exception:
-                pass
-
-            if multiplier is None:
-                # Fallback: convert through USD
-                try:
-                    usd_ticker = f"{src}USD=X"
-                    fx_usd = yf.Ticker(usd_ticker).history(period="5d")
-                    if not fx_usd.empty:
-                        usd_rate = float(fx_usd["Close"].iloc[-1])
-                        multiplier = usd_rate / get_eur_rate()
-                except Exception:
-                    multiplier = 1.0 / get_eur_rate()  # treat as USD
-
-    if multiplier is None:
-        return h  # cannot determine rate; return as-is
-
-    for c in price_cols:
-        h[c] = h[c] * multiplier
-
-    return h
+    return close * get_fx_to_eur(symbol)

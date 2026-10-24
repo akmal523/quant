@@ -46,15 +46,20 @@ def _display(sym: str) -> str:
 
 
 def scores_map(conn: Any = None) -> dict:
-    """The scores store as ``{symbol: {composite, structural_grade}}``."""
-    rows = _rows("SELECT symbol, composite, structural_grade FROM scores", conn=conn)
-    return {str(sym): {"composite": comp, "structural_grade": grade}
-            for sym, comp, grade in rows}
+    """The scores store as ``{symbol: {composite, structural_grade, confidence}}``."""
+    rows = _rows("SELECT symbol, composite, structural_grade, confidence FROM scores",
+                 conn=conn)
+    return {str(sym): {"composite": comp, "structural_grade": grade, "confidence": conf}
+            for sym, comp, grade, conf in rows}
 
 
 def idea_rows(holdings: list[dict] | None, scores: dict | None = None,
               limit: int = 50) -> list[dict]:
-    """Watched (non-held) symbols with a composite >= ``IDEA_FLOOR``, best first."""
+    """Watched (non-held) symbols with a composite >= ``IDEA_FLOOR``, best first.
+
+    Only high-confidence scores qualify: a stock needs its fundamentals, an ETF
+    needs news, so a pure price trend never becomes an Idea.
+    """
     from quant.config import IDEA_FLOOR
 
     scores = scores_map() if scores is None else scores
@@ -62,6 +67,7 @@ def idea_rows(holdings: list[dict] | None, scores: dict | None = None,
     out = [{"symbol": sym, "name": _display(sym), "score": float(s["composite"])}
            for sym, s in scores.items()
            if sym not in held and s.get("composite") is not None
+           and str(s.get("confidence") or "high") == "high"
            and float(s["composite"]) >= IDEA_FLOOR]
     out.sort(key=lambda x: x["score"], reverse=True)
     return out[:limit]

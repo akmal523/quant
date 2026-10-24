@@ -29,30 +29,12 @@ dependencies = [
     "yfinance>=0.2.40",
     "pandas>=2.0",
     "numpy>=1.26",
-    # v10.8.2: account.yaml is read/written with PyYAML. It used to arrive
-    # transitively via transformers; now that the news stack is optional it must
-    # be a direct dependency.
-    "pyyaml>=6.0",
-    "python-dotenv>=1.0",
-    "aiohttp>=3.9",
-    "tenacity>=8.2",
+    "pyyaml>=6.0",            # data/account.yaml
     "duckdb>=1.0.0",
     "platformdirs>=4.0",
-    "feedparser>=6.0",
-    # lxml: the parser behind pd.read_html (universe builder).
-    "lxml>=5.0",
-    "requests>=2.31",
-    # v10.8.0 (1.3): bound the fragile parser. selectolax 1.0 removed the Modest
-    # backend; the lexbor backend is used, but a major bump is not assumed safe.
-    "selectolax>=0.3.16,<1.0",
-    "polars>=1.0",
-    # pyarrow: parquet run artifacts and polars -> pandas conversion.
-    "pyarrow>=15.0",
-    "hmmlearn>=0.3",
-    "scikit-learn>=1.4",
-    "sec-edgar-downloader>=5.0",
-    # jinja2: pandas Styler (the amber Entry-check rows).
-    "jinja2>=3.1",
+    "feedparser>=6.0",        # news headlines (RSS)
+    "lxml>=5.0",              # pd.read_html (universe builder)
+    "jinja2>=3.1",            # pandas Styler (the amber Entry-check rows)
 ]
 
 [project.optional-dependencies]

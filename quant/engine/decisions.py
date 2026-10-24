@@ -39,67 +39,6 @@ def _label(item: dict) -> str:
     return name or symbol
 
 
-def build_decision_list(advice: list[dict] | None,
-                        holdings: list[dict] | None = None,
-                        rejected: list[dict] | None = None) -> list[dict]:
-    """Group every decision into the three buckets. Pure; no I/O.
-
-    Args:
-        advice: the Advice records from :func:`quant.engine.advice.build_advice`.
-        holdings: the position dicts (for the ``blocked`` flag).
-        rejected: the RejectedNote records (the "Not this week" notes).
-
-    Returns ``[{group, verb, label, amount_eur, reason, symbol}]`` in group
-    order: Needs your input, then Recommended, then Optional.
-    """
-    out: list[dict] = []
-    blocked_syms: set[str] = set()
-    for h in holdings or []:
-        if not h.get("blocked"):
-            continue
-        sym = str(h.get("symbol") or "")
-        blocked_syms.add(sym)
-        out.append({
-            "group": ui_copy.DECISION_GROUP_INPUT,
-            "verb": "blocked",
-            "label": _label(h),
-            "amount_eur": None,
-            "reason": ui_copy.NEEDS_ATTENTION_ISIN.format(symbol=sym),
-            "symbol": sym,
-        })
-    for a in advice or []:
-        sym = str(a.get("symbol") or "")
-        if sym and sym in blocked_syms:
-            continue
-        kind = str(a.get("kind") or "")
-        group = (ui_copy.DECISION_GROUP_RECOMMENDED if kind in _ACTIONABLE
-                 else ui_copy.DECISION_GROUP_OPTIONAL)
-        out.append({
-            "group": group,
-            "verb": kind,
-            "label": _label(a),
-            "amount_eur": a.get("eur"),
-            "reason": str(a.get("why") or ""),
-            "symbol": sym,
-        })
-    for n in rejected or []:
-        out.append({
-            "group": ui_copy.DECISION_GROUP_OPTIONAL,
-            "verb": "rejected",
-            "label": str(n.get("symbol") or ""),
-            "amount_eur": None,
-            "reason": str(n.get("plain_reason") or ""),
-            "symbol": str(n.get("symbol") or ""),
-        })
-    return out
-
-
-def group_order() -> list[str]:
-    """The three group headers, in display order."""
-    return [ui_copy.DECISION_GROUP_INPUT, ui_copy.DECISION_GROUP_RECOMMENDED,
-            ui_copy.DECISION_GROUP_OPTIONAL]
-
-
 # v10.8.2 (section 6): the first line is always "Verb Name (TICKER) amount".
 # v10.8.4 (T9): "Sell about X EUR of Name (TICKER) (TICKER.DE)" became
 # "Sell ~X EUR of Name (TICKER.DE)": one verb, one ticker.
@@ -151,15 +90,6 @@ def format_item_line(item: dict) -> str:
     if amount:
         return tpl.format(amount=amount, label=label)
     return tpl.format(amount="", label=label).replace("  ", " ").strip()
-
-
-def actionable_items(decisions: list[dict] | None) -> list[dict]:
-    """Items that ask the user to act: Needs your input + Recommended.
-
-    v10.8.2 (section 6): a position that needs nothing (Optional) is not an item.
-    """
-    keep = (ui_copy.DECISION_GROUP_INPUT, ui_copy.DECISION_GROUP_RECOMMENDED)
-    return [d for d in (decisions or []) if d.get("group") in keep]
 
 
 # ── v10.8.3: the timed list (Today / This month, Buy / Sell, by class) ─────────

@@ -12,24 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_async_fetcher_imports():
-    """A fresh install must be able to import the review's text fetcher."""
-    import quant.data.async_fetcher  # noqa: F401
-
-
-def test_sec_edgar_uses_lexbor():
-    from selectolax.lexbor import LexborHTMLParser
-
-    import quant.data.sec_edgar as sec_edgar
-
-    assert sec_edgar.LexborHTMLParser is LexborHTMLParser
-
-
-def test_selectolax_is_bounded():
-    text = (ROOT / "pyproject.toml").read_text()
-    assert re.search(r'"selectolax>=0\.3\.16,<1\.0"', text)
-
-
 def test_streamlit_minimum_is_real():
     """The declared minimum must cover st.segmented_control and width='stretch'."""
     text = (ROOT / "pyproject.toml").read_text()
@@ -37,17 +19,3 @@ def test_streamlit_minimum_is_real():
     assert m, "streamlit minimum not declared"
     major, minor = (int(x) for x in m.group(1).split(".")[:2])
     assert (major, minor) >= (1, 49), f"streamlit>={m.group(1)} is too low"
-
-
-def test_review_text_fetch_is_guarded():
-    """The optional text-fetch import must not crash the review (1.3)."""
-    src = (ROOT / "quant" / "main.py").read_text()
-    assert "Text fetch unavailable" in src
-    assert "from quant.data.async_fetcher import fetch_all_texts_concurrently" in src
-
-
-def test_no_hardcoded_briefing_date_or_placeholder_cash():
-    """The advanced briefing must use today's date and the real cash (3.1)."""
-    src = (ROOT / "quant" / "main.py").read_text()
-    assert "2026-09-09" not in src
-    assert "placeholder cash" not in src

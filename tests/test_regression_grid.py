@@ -20,11 +20,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 
-import pandas as pd
-
 from quant import paths
-from quant.data.database import get_connection
-from quant.engine import flows, lock, sizing, valuation
+from quant.engine import flows, lock, sizing
 from quant.engine.advice import build_advice
 from tests.fixtures.live_portfolio import alpha_case
 
@@ -91,19 +88,6 @@ def test_regression_stale_lock_takeover(tmp_path, monkeypatch):
     res = lock.acquire("new")
     assert res.acquired and res.taken_over
     assert "taken over from stale process" in lock.status_line()
-
-
-def test_regression_holdings_meta_sync():
-    """[regression] v10.7.2 Part 5.2: a CSV sync populates shares."""
-    conn = get_connection()
-    conn.execute("DELETE FROM holdings_meta")
-    df = pd.DataFrame([{"Symbol": "EUNL.DE", "Current_Value_EUR": 1000.0,
-                        "Invested_EUR": 900.0}])
-    written = valuation.sync_holdings_meta(conn, df, {"EUNL.DE": 100.0}, AS_OF)
-    assert written == 1
-    row = conn.execute(
-        "SELECT shares FROM holdings_meta WHERE symbol = 'EUNL.DE'").fetchone()
-    assert abs(row[0] - 10.0) < 1e-9
 
 
 def test_regression_fortress_verdict_never_sell():

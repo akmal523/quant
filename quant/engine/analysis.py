@@ -25,13 +25,12 @@ Invariants:
 from __future__ import annotations
 
 import logging
-import math
 import time
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from quant.engine import manifest
+from quant.engine import manifest, score_model
 
 logger = logging.getLogger(__name__)
 
@@ -125,82 +124,64 @@ def _record(conn: Any, run_id: str, stage: str, status: str,
     return {"stage": stage, "status": status, "coverage": coverage, "error": error}
 
 
-# ── Component extraction (pure over the connection) ───────────────────────────
+# ── Component extraction (reads over the connection; math in score_model) ─────
 
 def _technical_from_prices(conn: Any, symbol: str) -> float | None:
-    """A 0-100 technical score from the price series (None when < 2 points)."""
+    """The trend component from the stored closes (see score_model)."""
     try:
         rows = conn.execute(
             "SELECT Close FROM market_history WHERE Symbol = ? AND Close IS NOT NULL "
             "ORDER BY Date", [symbol]).fetchall()
     except Exception:  # noqa: BLE001
         return None
-    closes = [float(r[0]) for r in rows if r[0] is not None]
-    if len(closes) < 2:
-        return None
-    lookback = min(len(closes) - 1, 21)
-    mom = closes[-1] / closes[-1 - lookback] - 1.0 if closes[-1 - lookback] else 0.0
-    return round(50.0 + 50.0 * math.tanh(mom * 5.0), 1)
+    return score_model.technical_score([r[0] for r in rows])
 
 
 def _fundamentals_row(conn: Any, symbol: str) -> dict | None:
     try:
         row = conn.execute(
-            "SELECT pe, peg, roe, debt_to_equity, interest_expense "
+            "SELECT pe, peg, roe, debt_to_equity, ebit, interest_expense "
             "FROM fundamentals WHERE symbol = ?", [symbol]).fetchone()
     except Exception:  # noqa: BLE001
         return None
     if not row:
         return None
-    pe, peg, roe, de, ie = row
-    if pe is None and peg is None and roe is None:
-        return None
-    return {"PE": pe, "PEG": peg, "ROE": roe, "DebtToEquity": de, "ICR": ie}
+    keys = ("pe", "peg", "roe", "debt_to_equity", "ebit", "interest_expense")
+    return dict(zip(keys, row, strict=True))
 
 
-def _fundamental_component(conn: Any, symbol: str) -> float | None:
-    f = _fundamentals_row(conn, symbol)
-    if f is None:
-        return None
-    from quant.analytics.scoring import evaluate_structural_grade, stewardship_score_v2
-
-    s = stewardship_score_v2(f)
-    return round(float(evaluate_structural_grade(
-        f.get("PE"), f.get("PEG"), f.get("ROE"), s)), 1)
-
-
-def _stewardship_component(conn: Any, symbol: str) -> float | None:
-    f = _fundamentals_row(conn, symbol)
-    if f is None:
-        return None
-    from quant.analytics.scoring import stewardship_score_v2
-    from quant.config import WEIGHT_STEWARDSHIP
-
-    s = stewardship_score_v2(f)
-    return round(min(100.0, s / float(WEIGHT_STEWARDSHIP) * 100.0), 1)
-
-
-def _sentiment_component(conn: Any, symbol: str) -> float | None:
+def _sentiment_component(conn: Any, symbol: str, today: date | None = None) -> float | None:
+    """Recency-weighted news tone from ``nlp_evidence`` (see score_model)."""
+    today = today or date.today()
     try:
-        row = conn.execute(
-            "SELECT AVG(score) FROM nlp_evidence WHERE symbol = ?", [symbol]).fetchone()
+        rows = conn.execute(
+            "SELECT CAST(COALESCE(published_at, retrieved_at) AS DATE), score "
+            "FROM nlp_evidence WHERE symbol = ? AND score IS NOT NULL",
+            [symbol]).fetchall()
     except Exception:  # noqa: BLE001
         return None
-    if not row or row[0] is None:
-        return None
-    v = float(row[0])
-    if -1.0 <= v <= 1.0:
-        v = (v + 1.0) * 50.0
-    return round(max(0.0, min(100.0, v)), 1)
+    return score_model.sentiment_score(rows, today)
+
+
+def _instrument_class(conn: Any, symbol: str) -> str:
+    try:
+        row = conn.execute("SELECT instrument_class FROM asset_registry WHERE symbol = ?",
+                           [symbol]).fetchone()
+        if row and row[0]:
+            return str(row[0])
+    except Exception:  # noqa: BLE001
+        pass
+    from quant.execution.taxonomy import classify_instrument
+
+    return classify_instrument(symbol)
 
 
 def components_for(conn: Any, symbol: str) -> dict:
-    """The four scoring components for a symbol (None when absent). Pure-ish."""
+    """The scoring components for a symbol (None when absent)."""
     return {
         "technical": _technical_from_prices(conn, symbol),
-        "fundamental": _fundamental_component(conn, symbol),
+        "fundamental": score_model.fundamental_score(_fundamentals_row(conn, symbol)),
         "sentiment": _sentiment_component(conn, symbol),
-        "stewardship": _stewardship_component(conn, symbol),
     }
 
 
@@ -257,15 +238,13 @@ def _fetch_stage(conn: Any, run_id: str, stage: str, table: str, col: str,
 REGIME_META_KEY = "analysis_regime"
 
 
-def write_regime(conn: Any, label: str, prob: float, as_of: date) -> None:
+def write_regime(conn: Any, label: str, deviation: float, confidence: str,
+                 as_of: date) -> None:
     """Store the regime estimate where :func:`artifacts.read_regime` finds it."""
     import json
 
-    from quant.analytics.scoring import regime_confidence
-
-    payload = {"state": "estimated", "label": label, "prob": round(prob, 4),
-               "confidence": regime_confidence(prob), "as_of": as_of.isoformat(),
-               "error": None}
+    payload = {"state": "estimated", "label": label, "deviation": round(deviation, 4),
+               "confidence": confidence, "as_of": as_of.isoformat(), "error": None}
     try:
         conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                      [REGIME_META_KEY, json.dumps(payload)])
@@ -274,50 +253,42 @@ def write_regime(conn: Any, label: str, prob: float, as_of: date) -> None:
 
 
 def _regime_stage(conn: Any, run_id: str, now: date) -> dict:
-    """Compute the macro regime from the benchmark history (always recompute)."""
+    """The market trend: the world index against its 200-day average.
+
+    v10.8.10: replaces a 2-state HMM whose last-day probability saturated at 0 or
+    1 (every logged run read p=1.00). Bull when the index is more than
+    ``score_model.REGIME_BAND`` above its 200-day average on each of the last
+    ``REGIME_DAYS`` closes, bear when as far below, else mixed (chop).
+    """
     try:
         rows = conn.execute(
             "SELECT Close FROM market_history WHERE Symbol = ? AND Close IS NOT NULL "
             "ORDER BY Date", [REGIME_SYMBOL]).fetchall()
     except Exception:  # noqa: BLE001
         rows = []
-    closes = [float(r[0]) for r in rows if r[0] is not None]
-    if len(closes) < 252:
+    regime = score_model.trend_regime([r[0] for r in rows])
+    if regime is None:
         return _record(conn, run_id, "regime", manifest.STATUS_MISSING,
                        error="not enough history yet")
-    try:
-        import pandas as pd
-
-        from quant.analytics.scoring import fit_market_regime
-        from quant.portfolio.regime_constraints import regime_from_bull_prob
-
-        series = pd.Series(closes)
-        vol = series.pct_change().rolling(20).std()
-        # max_points=1.0: the fit returns the bull PROBABILITY, not score points.
-        prob = float(fit_market_regime(series, vol, max_points=1.0))
-        label = regime_from_bull_prob(prob)
-        write_regime(conn, label, prob, now)
-        return _record(conn, run_id, "regime", manifest.STATUS_OK,
-                       coverage=manifest.coverage_text((1, 1)),
-                       error="") | {"label": label, "prob": prob}
-    except Exception as e:  # noqa: BLE001
-        return _record(conn, run_id, "regime", manifest.STATUS_FAILED, error=str(e))
+    label, deviation, confidence = regime
+    write_regime(conn, label, deviation, confidence, now)
+    return _record(conn, run_id, "regime", manifest.STATUS_OK,
+                   coverage=manifest.coverage_text((1, 1)),
+                   error="") | {"label": label, "deviation": deviation}
 
 
 def _scoring_stage(conn: Any, run_id: str, symbols: list[str]) -> dict:
-    """Compute a numeric composite for every symbol with a price (R-C2)."""
-    from quant.analytics.scoring import composite_score
-
+    """Score every symbol with enough data (R-C2; model in score_model)."""
     scored = 0
     for sym in symbols:
-        comps = components_for(conn, sym)
-        if comps.get("technical") is None:
+        result = score_model.composite(components_for(conn, sym),
+                                       _instrument_class(conn, sym))
+        if result["composite"] is None:
             continue
-        result = composite_score(comps)
         write_scores(conn, sym, result)
         scored += 1
     status = manifest.STATUS_OK if scored else manifest.STATUS_MISSING
-    err = "" if scored else "no symbol has a price yet"
+    err = "" if scored else "no symbol has enough price history yet"
     return _record(conn, run_id, "scoring", status,
                    coverage=manifest.coverage_text((scored, len(symbols))),
                    error=err)

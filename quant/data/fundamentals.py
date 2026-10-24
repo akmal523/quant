@@ -1,13 +1,14 @@
 """
-fundamentals.py — Hierarchical fundamentals fetcher with ICR support.
+fundamentals.py — P/E, PEG, ROE, debt/equity, EBIT and interest expense per stock.
 
-Fetch order: SQLite cache → Alpha Vantage (if key set) → yfinance (exponential backoff).
+Fetch order: the DuckDB ``fundamentals`` cache (7 days) -> Yahoo (``info`` +
+``income_stmt``) in a thread with a hard timeout. Called by ``refresh`` for
+single stocks only (ETFs have no fundamentals). The score model
+(:mod:`quant.engine.score_model`) normalizes debt/equity (Yahoo reports percent)
+and computes interest cover = EBIT / |interest expense|.
 
-New in this version:
-  - ICR (Interest Coverage Ratio = EBIT / |Interest Expense|) fetched from income_stmt.
-  - D/E and ICR cached alongside PE/PEG/ROE.
-  - tenacity-based exponential backoff on all network calls.
-  - Alpha Vantage free-tier hook (25 req/day; activate via ALPHA_VANTAGE_API_KEY in .env).
+v10.8.10: the Alpha Vantage path was removed (it never supplied interest
+expense, and its retry wrapper raised instead of returning None).
 """
 from __future__ import annotations
 
@@ -15,15 +16,7 @@ import logging
 import threading
 import time
 
-import requests
 import yfinance as yf
-from tenacity import (
-    before_sleep_log,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from quant.data.database import get_connection
 
@@ -95,53 +88,6 @@ def _compute_icr(data: dict) -> float | None:
 
 # ── Alpha Vantage (free tier) ─────────────────────────────────────────────────
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(requests.exceptions.RequestException),
-    before_sleep=before_sleep_log(logger, logging.DEBUG),
-    reraise=False,
-)
-def _fetch_alpha_vantage(symbol: str) -> dict | None:
-    """
-    Alpha Vantage OVERVIEW endpoint — free tier: 25 req/day.
-    Provides PE, PEG, ROE, D/E.  EBIT via EBITDA proxy (acceptable for ICR ordering).
-    Requires ALPHA_VANTAGE_API_KEY in .env.
-    """
-    from quant.config import ALPHA_VANTAGE_API_KEY
-    if not ALPHA_VANTAGE_API_KEY:
-        return None
-
-    url = (
-        f"https://www.alphavantage.co/query"
-        f"?function=OVERVIEW&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}"
-    )
-    resp = requests.get(url, timeout=12)
-    resp.raise_for_status()
-    d = resp.json()
-
-    if "Symbol" not in d:
-        # Rate-limit response or empty ticker
-        logger.debug("[AV] No data for %s — may be rate-limited.", symbol)
-        return None
-
-    def _f(key: str) -> float | None:
-        v = d.get(key)
-        try:
-            return float(v) if v and v not in ("None", "-", "") else None
-        except (TypeError, ValueError):
-            return None
-
-    return {
-        "PE":             _f("PERatio"),
-        "PEG":            _f("PEGRatio"),
-        "ROE":            _f("ReturnOnEquityTTM"),
-        "DebtToEquity":   _f("DebtToEquityRatio"),
-        "EBIT":           _f("EBITDA"),   # EBITDA used as ICR proxy (OVERVIEW only)
-        "InterestExpense": None,           # Not available in OVERVIEW endpoint
-    }
-
-
 # ── yfinance Fallback ─────────────────────────────────────────────────────────
 
 def _yf_worker(symbol: str, result: list) -> None:
@@ -207,7 +153,7 @@ def _fetch_yfinance_fallback(symbol: str) -> dict | None:
 
 def get_fundamentals(symbol: str) -> dict:
     """
-    Hierarchical fetcher: Cache → Alpha Vantage → yfinance fallback.
+    Cache (7 days) -> Yahoo. Never raises.
 
     Returns dict with keys:
       PE, PEG, ROE, DebtToEquity, EBIT, InterestExpense, ICR
@@ -219,10 +165,7 @@ def get_fundamentals(symbol: str) -> dict:
         cached["ICR"] = _compute_icr(cached)
         return cached
 
-    data = _fetch_alpha_vantage(symbol)
-
-    if not data:
-        data = _fetch_yfinance_fallback(symbol)
+    data = _fetch_yfinance_fallback(symbol)
 
     if data:
         _save_to_cache(symbol, data)

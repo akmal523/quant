@@ -3,7 +3,7 @@
 Ruling R-P2: status columns are DERIVED, never placeholders. The Reason cell is
 computed from advice state and weights; the Alerts cell counts the open
 Threat-verb triggers; the coverage line is the ONE helper and never a bare "-".
-The drawer has a fixed five-section order, each with an explicit empty state.
+The drawer has a fixed four-section order, each with an explicit empty state.
 
 Synthetic fixtures only; the user's real DB and data dir are never touched.
 """
@@ -104,7 +104,7 @@ def test_no_held_placeholder_in_ui():
     assert "'Reason': 'held'" not in pages
 
 
-# ── AppTest: the drawer's five sections ───────────────────────────────────────
+# ── AppTest: the drawer's four sections ───────────────────────────────────────
 
 pytest.importorskip("streamlit")
 
@@ -139,10 +139,6 @@ def seeded_analysis(tmp_path, monkeypatch):
             "INSERT INTO nlp_evidence (symbol, source, title, published_at, score) "
             "VALUES (?, ?, ?, ?, ?)",
             ["EUNL.DE", "news", "World ETF rallies", "2026-10-13", 0.5])
-        conn.execute(
-            "INSERT INTO nlp_evidence (symbol, source, title, published_at, score) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ["EUNL.DE", "sec", "10-K filing", "2026-10-13", 0.0])
         conn.execute(
             "INSERT INTO advice_log (verb, symbol, amount_eur, reason, horizon, "
             "class, created_at, open_since, status) "
@@ -190,16 +186,15 @@ def test_holdings_analysis_cells_are_derived(seeded_analysis):
     assert str(row.iloc[0]["Alerts"]).isdigit()
 
 
-def test_drawer_shows_all_five_sections_with_data(seeded_analysis):
-    """Acceptance: all five sections present for a symbol with news/SEC data."""
+def test_drawer_shows_all_sections_with_data(seeded_analysis):
+    """Acceptance: all four sections present for a symbol with news data."""
     at = _analysis_page()
     at.selectbox(key="ha_inspect").select("EUNL.DE").run()
     assert not at.exception
     text = _text(at)
-    for header in ("Price", "Score", "News", "SEC filings", "Open advice"):
+    for header in ("Price", "Score", "News", "Open advice"):
         assert header in text, f"drawer section {header!r} missing"
-    assert "World ETF rallies" in text
-    assert "SEC filing mentions: 1" in text
+    assert "World ETF rallies (positive)" in text
 
 
 def test_drawer_missing_data_shows_reasoned_empty_states(seeded_analysis):
@@ -208,8 +203,7 @@ def test_drawer_missing_data_shows_reasoned_empty_states(seeded_analysis):
     at.selectbox(key="ha_inspect").select("AMZN").run()
     assert not at.exception
     text = _text(at)
-    for header in ("Price", "Score", "News", "SEC filings", "Open advice"):
+    for header in ("Price", "Score", "News", "Open advice"):
         assert header in text, f"drawer section {header!r} missing"
     assert "no news fetched yet" in text
-    assert "no SEC filings fetched yet" in text
     assert "no open advice" in text

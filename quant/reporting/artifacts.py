@@ -1,17 +1,15 @@
 """
-artifacts.py — Run artifacts + structured logging.
+artifacts.py — the read helpers the pages use, plus the per-run log directory.
 
-Intent: each run writes a timestamped artifact directory (outputs/run_<ts>/)
-with factor scores, NLP scores, run config, and metrics. Enables debugging why
-a signal appeared. Also provides a structured JSON logger.
-Invariants: artifact dir created idempotently; writes are atomic-ish (parquet).
-Dependencies: pandas, polars, json, logging.
+Reads: the regime estimate, a symbol's score row, the valuation store
+(``portfolio_total``), the value series and the chart math (day delta, growth
+view, value hover, tick dates). ``new_run_dir`` / ``latest_run`` locate the
+``outputs/run_<ts>/pipeline.log`` that refresh writes. Never raise.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 from datetime import date, datetime
 from typing import Any, NamedTuple
 
@@ -44,50 +42,11 @@ def new_run_dir() -> str:
 
 
 def latest_run() -> str | None:
-    """Return the most recent run dir (spec 4.3 single artifact accessor).
-
-    Intent: the dashboard Explorer must read scores through ONE helper so it can
-    never point at a stale or wrong artifact path. Alias of latest_run_dir().
-    """
-    return latest_run_dir()
-
-
-def latest_run_dir() -> str | None:
-    """Return the most recent outputs/run_<ts>/ directory, or None.
-
-    Intent (Phase 5 / v10.2): the dashboard sidebar shows the last run timestamp
-    and reads the latest factor_scores.parquet from the newest artifact dir.
-    Invariants: returns None if no run artifacts exist.
-    """
+    """The newest ``outputs/run_<ts>/`` directory (holds pipeline.log), or None."""
     if not os.path.isdir(OUTPUTS_DIR):
         return None
     runs = [d for d in os.listdir(OUTPUTS_DIR) if d.startswith("run_")]
-    if not runs:
-        return None
-    return os.path.join(OUTPUTS_DIR, max(runs))
-
-
-def save_artifact(run_dir: str, name: str, df: pd.DataFrame) -> str:
-    """Save a DataFrame to run_dir/<name>.parquet. Returns full path."""
-    path = os.path.join(run_dir, f"{name}.parquet")
-    df.to_parquet(path, index=False)
-    return path
-
-
-def save_config(run_dir: str, config: dict) -> str:
-    """Save run configuration as JSON."""
-    path = os.path.join(run_dir, "run_config.json")
-    with open(path, "w") as f:
-        json.dump(config, f, indent=2, default=str)
-    return path
-
-
-def save_metrics(run_dir: str, metrics: dict) -> str:
-    """Save run metrics as JSON."""
-    path = os.path.join(run_dir, "metrics.json")
-    with open(path, "w") as f:
-        json.dump(metrics, f, indent=2, default=str)
-    return path
+    return os.path.join(OUTPUTS_DIR, max(runs)) if runs else None
 
 
 # ── v10.5.3 (spec 1.1): the five UI artifact accessors ────────────────────────
@@ -107,62 +66,6 @@ _REGIME_DEFAULT: dict = {
 }
 
 
-# H3.7 (L1): a review lives in a TIMESTAMPED dir that carries metrics.json.
-# outputs/run_latest and update-only dirs must never shadow a review.
-_RUN_RE = re.compile(r"^run_\d{4}-\d{2}-\d{2}_\d{6}$")
-
-
-def _review_run_dirs() -> list[str]:
-    """Timestamped run dirs carrying metrics.json, newest first (H3.7, L1)."""
-    if not os.path.isdir(OUTPUTS_DIR):
-        return []
-    runs = sorted((d for d in os.listdir(OUTPUTS_DIR) if _RUN_RE.match(d)),
-                  reverse=True)
-    return [os.path.join(OUTPUTS_DIR, d) for d in runs
-            if os.path.exists(os.path.join(OUTPUTS_DIR, d, "metrics.json"))]
-
-
-def _read_metrics(run: str) -> dict | None:
-    path = os.path.join(run, "metrics.json")
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def latest_review(ok_only: bool = False) -> dict:
-    """Return the latest review's metrics.json as a dict ({} when absent).
-
-    H3.6/H3.7 (N1/L1): reads only timestamped dirs that carry metrics.json, so
-    an update-only dir or outputs/run_latest cannot shadow a review. A review
-    without `review_status` is legacy and counts as ok; only "failed" excludes.
-    """
-    for run in _review_run_dirs():
-        m = _read_metrics(run)
-        if m is None:
-            continue
-        if ok_only and m.get("review_status") == "failed":
-            continue
-        return m
-    return {}
-
-
-def _update_state_path() -> str:
-    return os.path.join(OUTPUTS_DIR, "update_state.json")
-
-
-def write_update_state(payload: dict) -> None:
-    """Persist the last successful update's timestamp/counts (H3.7, L2)."""
-    try:
-        with open(_update_state_path(), "w", encoding="utf-8") as f:
-            json.dump(payload, f)
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def _analysis_regime() -> dict:
     """The regime stored by the analysis chain's regime stage, or {}."""
     try:
@@ -179,122 +82,13 @@ def _analysis_regime() -> dict:
 
 
 def read_regime() -> dict:
-    """Return the regime block (spec 1.2). Neutral default when absent.
+    """The market regime stored by the analysis chain; neutral default when absent.
 
-    H3.6 (N1): reads the most recent SUCCESSFUL review (ok_only). v10.8.10: the
-    analysis chain's regime stage also stores an estimate; the newer of the two
-    (by ``as_of``) wins. The label may be either vocabulary (bull/bear/chop or
-    rising/falling/mixed); consumers normalise with
-    :func:`quant.portfolio.regime_constraints.regime_key`.
+    Label: bull / bear / chop (consumers normalise with
+    :func:`quant.portfolio.regime_constraints.regime_key`).
     """
-    review = latest_review(ok_only=True).get("regime")
-    review = review if isinstance(review, dict) else {}
     stored = _analysis_regime()
-    best = review
-    if stored and (not review.get("label")
-                   or str(stored.get("as_of") or "") >= str(review.get("as_of") or "")):
-        best = stored
-    if best:
-        return {**_REGIME_DEFAULT, **best}
-    return dict(_REGIME_DEFAULT)
-
-
-def _read_audit_df() -> pd.DataFrame:
-    path = os.path.join(OUTPUTS_DIR, "portfolio_audit.csv")
-    if not os.path.exists(path):
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(path)
-    except Exception:  # noqa: BLE001
-        return pd.DataFrame()
-
-
-def read_actions() -> list[dict]:
-    """Return per-holding dicts merging the audit row with its canonical action.
-
-    Intent: the holdings table and the action cards read ONE object (spec 2.1 /
-    A3). Includes the audit columns the table needs (value, weights) plus the
-    action fields (action, amount, blocked, status, remedy).
-    """
-    from quant.config import MIN_TRADE_SIZE_EUR, rebalance_threshold
-    from quant.reporting.actions import build_actions
-    from quant.ui import copy as ui_copy
-
-    audit = _read_audit_df()
-    if audit.empty:
-        return []
-
-    # v10.8.0 (Phase 1): overlay the LIVE positions so the Overview table, the
-    # steps, the action cards and My holdings read the same value, weight and
-    # tier. Before this, the Overview read the frozen review artifact while My
-    # holdings read the live broker CSV, so the two disagreed.
-    try:
-        from quant.engine.positions import positions_now
-        from quant.portfolio.tier_manager import load_tiers_safe, tier_map
-
-        live = {p["symbol"]: p for p in positions_now()}
-        tmap = tier_map(load_tiers_safe()[0])
-        total = sum(float(p["value_eur"]) for p in live.values()) or 1.0
-        if live:
-            audit = audit.copy()
-            for i, r in audit.iterrows():
-                sym = str(r.get("Symbol", ""))
-                p = live.get(sym)
-                if p:
-                    audit.at[i, "Value_EUR"] = float(p["value_eur"])
-                    audit.at[i, "Current_Weight"] = (
-                        f"{float(p['value_eur']) / total * 100:.1f}%")
-                if sym in tmap:
-                    audit.at[i, "Tier"] = tmap[sym]
-    except Exception:  # noqa: BLE001
-        pass
-
-    def _pct(value) -> float:
-        try:
-            return float(str(value).rstrip("%") or 0) / 100.0
-        except (TypeError, ValueError):
-            return 0.0
-
-    by_sym = {a["symbol"]: a for a in build_actions(audit)}
-    total_value = float(audit["Value_EUR"].sum()) if "Value_EUR" in audit else 0.0
-    out: list[dict] = []
-    for _, r in audit.iterrows():
-        sym = str(r.get("Symbol", ""))
-        a = by_sym.get(sym, {})
-        rec = str(r.get("Recommendation", "") or "")
-        tier = str(r.get("Tier", "ACTIVE"))
-        threshold = rebalance_threshold(tier)
-        drift_frac = _pct(r.get("Drift", ""))
-        cooldown = r.get("Cooldown_Until")
-        if isinstance(cooldown, float) and cooldown != cooldown:
-            cooldown = None
-        status = a.get("status") or ui_copy.status_for(
-            rec, cooldown_until=cooldown, drift_frac=drift_frac, threshold=threshold)
-        suppressed = None
-        # S3: over threshold but the move is below the minimum order size.
-        if not a.get("action") and not a.get("blocked") and abs(drift_frac) > threshold:
-            if abs(drift_frac) * total_value < MIN_TRADE_SIZE_EUR:
-                suppressed = "below_min"
-                status = ui_copy.STATUS_BELOW_MIN
-        out.append({
-            "symbol": sym,
-            "name": str(r.get("Name", "") or sym),
-            "tier": tier,
-            "value_eur": float(r.get("Value_EUR", 0) or 0),
-            "current_weight": str(r.get("Current_Weight", "")),
-            "target_weight": str(r.get("Target_Weight", "")),
-            "drift": str(r.get("Drift", "")),
-            "action": a.get("action"),
-            "kind": a.get("kind"),
-            "amount_eur": a.get("amount_eur"),
-            "blocked": bool(a.get("blocked", False)),
-            "remedy": a.get("remedy"),
-            "status": status,
-            "min_trade_eur": a.get("min_trade_eur", MIN_TRADE_SIZE_EUR),
-            "cooldown_until": cooldown,
-            "suppressed": suppressed,
-        })
-    return out
+    return {**_REGIME_DEFAULT, **stored} if stored else dict(_REGIME_DEFAULT)
 
 
 def read_score_row(symbol: str) -> dict:
@@ -321,17 +115,6 @@ def read_score_row(symbol: str) -> dict:
         "sentiment": res[4], "stewardship": res[5],
         "present": int(res[6] or 0), "total": int(res[7] or 0),
     }
-
-
-def read_history() -> pd.DataFrame:
-    """Return the portfolio value history (one row per review).
-
-    Single accessor for the Today value chart (spec 1.1). Delegates to the
-    history module so the table definition stays in one place.
-    """
-    from quant.portfolio.history import load_history
-
-    return load_history()
 
 
 def read_portfolio_total() -> pd.DataFrame:

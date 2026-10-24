@@ -92,39 +92,35 @@ def _print_open_alerts() -> None:
 
 
 def _cmd_run(_args: argparse.Namespace) -> int:
-    """Score, audit, and report (step 2). Returns an exit code.
+    """Run the analysis chain on the stored data, then persist the ONE list.
 
-    H3.3: a failed review writes review_status=failed (+ error) to the run artifact
-    so Today/Health/Reviews read ONE field; no portfolio_history row is written.
+    v10.8.10: this used to run a second, older review pipeline (process pool,
+    HMM, FinBERT on filing text, audit CSV, run artifacts) whose output no page
+    read and whose workers failed on the database lock. ``quant run`` is now the
+    same chain the daily job runs: regime, scores, run manifest.
     """
+    from quant.data.database import init_db, write_connection
+    from quant.engine import analysis
     from quant.engine import lock as lock_mod
-    from quant.main import main as pipeline_main
 
     if not _lock_or_fail("run"):
         return 1
     try:
-        _print_open_alerts()
-        try:
-            rc = pipeline_main()
-            _persist_today_list()
-            return rc
-        except Exception as e:  # noqa: BLE001
-            try:
-                from quant.reporting.artifacts import new_run_dir, save_metrics
-
-                save_metrics(new_run_dir(), {"review_status": "failed", "error": str(e)})
-            except Exception:  # noqa: BLE001
-                pass
-            raise
+        init_db()
+        with write_connection() as conn:
+            res = analysis.run_analysis(conn)
+        for stage in res["stages"]:
+            output.reporter.line(f"  {stage['stage']}: {stage['status']} "
+                                 f"{stage.get('coverage') or ''}".rstrip())
+        _persist_today_list()
+        return 0
     finally:
         lock_mod.release()
 
 
 def _cmd_doctor(_args: argparse.Namespace) -> int:
     """Read-only diagnosis. No writes, no secrets; safe to paste publicly."""
-    import json
     import os
-    import time
 
     from quant import paths
     from quant.data.database import read_only_connection
@@ -195,36 +191,19 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
             print(f"probe {sym}: longName={pr.get('long_name')!r} "
                   f"currency={pr.get('currency')!r}")
 
+    # v10.8.10: news = the scored headlines in nlp_evidence (written by refresh).
     try:
-        from quant.data import news as _news
+        from quant.data.news import model_available
 
-        cache_path = _news._cache_path()
-        if os.path.exists(cache_path):
-            data = json.load(open(cache_path, encoding="utf-8"))
-            ages = [time.time() - float(v.get("retrieved_at", 0)) for v in data.values()]
-            print(f"news cache: {len(data)} symbols, newest {min(ages) / 3600:.1f} h")
-        else:
-            print("news cache: none")
+        with read_only_connection() as conn:
+            n, scored, newest = conn.execute(
+                "SELECT COUNT(*), COUNT(score), MAX(retrieved_at) FROM nlp_evidence"
+            ).fetchone()
+        model = "on" if model_available() else "off (install the news extra)"
+        print(f"news: {n} headlines, {scored} scored, newest {newest or 'never'}; "
+              f"model {model}")
     except Exception as e:  # noqa: BLE001
-        print(f"news cache: unreadable ({e})")
-
-    # H3.6 (N3): sentiment provenance distribution over the news cache.
-    try:
-        from quant.data.news import cache_scorer_stats
-
-        _st = cache_scorer_stats()
-        print(f"sentiment cache: {_st['entries']} entries, scorer model {_st['model']} / "
-              f"default {_st['default']}, pos {_st['pos']} neg {_st['neg']} neu {_st['neu']}")
-    except Exception as e:  # noqa: BLE001
-        print(f"sentiment cache: unreadable ({e})")
-
-    # v10.7.2 (Part 2.1): the condensed news-pillar status line.
-    try:
-        from quant.engine import news_pillar
-
-        print(news_pillar.summary_line())
-    except Exception as e:  # noqa: BLE001
-        print(f"news pillar: unreadable ({e})")
+        print(f"news: unreadable ({e})")
 
     # v10.7.4 (Part 5.2): portfolio data issues and unpriceable holdings.
     try:
@@ -297,25 +276,6 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"sentiment model: {'available' if avail else 'not available'}")
     except Exception:  # noqa: BLE001
         print("sentiment model: not available")
-
-    # H3.8 (M4): the advice engine, diagnosable like everything else.
-    try:
-        import pandas as _pd
-
-        from quant.reporting.actions import build_actions
-
-        _fix = _pd.DataFrame([
-            {"Symbol": "EUNL.DE", "Tier": "CORE", "Drift": "-16.1%",
-             "Target_Weight": "50.0%",
-             "Recommendation": "BUY 150 EUR (CORE drift -16.1% exceeds 10.0% threshold)"},
-            {"Symbol": "SXRV.DE", "Tier": "SATELLITE", "Drift": "10.5%",
-             "Target_Weight": "20.0%",
-             "Recommendation": "SELL 100 EUR (SATELLITE drift 10.5% exceeds 5.0% threshold)"},
-        ])
-        _acts = [a for a in build_actions(_fix) if not a.get("blocked")]
-        print(f"actions oracle: {len(_acts)} actions on fixture")
-    except Exception as e:  # noqa: BLE001
-        print(f"actions oracle: unreadable ({e})")
 
     try:
         from quant.engine import lock as lock_mod
@@ -396,37 +356,6 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
         print(f"notifications: {notify_status()}")
     except Exception:  # noqa: BLE001
         print("notifications: off; run quant notify-setup")
-    return 0
-
-
-def _cmd_news_doctor(args: argparse.Namespace) -> int:
-    """Read-only news-pillar diagnostic (v10.7.2, Part 2.1). Never loads torch.
-
-    ``--enable`` forces the pillar active (the model loads again); a subsequent
-    Friday recomputation may return it to absent.
-    """
-    from quant.engine import news_pillar
-    from quant.ui import copy as C
-
-    if getattr(args, "enable", False):
-        news_pillar.enable()
-        print(C.NEWS_DOCTOR_ENABLED)
-        return 0
-
-    symbols: list[str] = []
-    try:
-        from quant.portfolio.portfolio import load_portfolio
-
-        df = load_portfolio()
-        if df is not None and not df.empty:
-            symbols = [str(s) for s in df["Symbol"].astype(str)]
-    except Exception:  # noqa: BLE001
-        symbols = []
-
-    print(C.NEWS_DOCTOR_HEADER)
-    for line in news_pillar.diagnostic_lines(symbols):
-        print(line)
-    print(news_pillar.summary_line())
     return 0
 
 
@@ -642,8 +571,6 @@ def build_parser() -> argparse.ArgumentParser:
     # ── Hidden internal commands ──────────────────────────────────────────────
     sub.add_parser("run", help=hidden)
     sub.add_parser("all", help=hidden)
-    news_doc = sub.add_parser("news-doctor", help=hidden)
-    news_doc.add_argument("--enable", action="store_true")
     sub.add_parser("validate-tiers", help=hidden)
     sub.add_parser("repair-tiers", help=hidden)
     sub.add_parser("health-check", help=hidden)
@@ -747,7 +674,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "all": _cmd_all,
         "dash": _cmd_dash,
         "doctor": _cmd_doctor,
-        "news-doctor": _cmd_news_doctor,
         "backup": _cmd_backup,
         "validate-tiers": _cmd_validate_tiers,
         "repair-tiers": _cmd_repair_tiers,

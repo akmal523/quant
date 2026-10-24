@@ -58,25 +58,3 @@ def test_assertions_hard_gate():
         "Close": [100.0, 101.0, 102.0],
     })
     assert run_assertions(clean, "X") == ["no_duplicate_timestamps", "no_unexplained_drop"]
-
-
-def test_event_bus_new_events():
-    from quant.infra.event_bus import EVENTS, EventBus
-    assert EVENTS["MARKET_CLOSE_DATA_READY"] == "market_close_data_ready"
-    assert EVENTS["KILL_SWITCH"] == "kill_switch"
-    bus = EventBus()
-    seen = []
-    bus.subscribe(EVENTS["KILL_SWITCH"], lambda d: seen.append(d))
-    bus.publish(EVENTS["KILL_SWITCH"], {"signal": "LIQUIDATE TO CASH"})
-    assert seen and seen[0]["signal"] == "LIQUIDATE TO CASH"
-
-
-def test_observability_metrics():
-    from quant.infra.observability import ObservabilityCollector
-    obs = ObservabilityCollector()
-    obs.record_metric("duckdb_query_ms", 12.5)
-    obs.record_metric("duckdb_query_ms", 7.5)
-    obs.increment("api_rate_limit_hits")
-    j = obs.to_json()
-    assert j["metrics"]["duckdb_query_ms"]["mean"] == 10.0
-    assert j["counters"]["api_rate_limit_hits"] == 1

@@ -13,27 +13,6 @@ Invariants:
 """
 from __future__ import annotations
 
-# HMM bull-probability thresholds. >= 0.60 is a bull regime; <= 0.40 is bear;
-# the middle band is chop (uncertain).
-BULL_THRESHOLD = 0.60
-BEAR_THRESHOLD = 0.40
-
-
-def regime_from_bull_prob(bull_prob: float) -> str:
-    """Map an HMM bull probability to a discrete regime label.
-
-    Intent: translate the continuous regime signal into a discrete key.
-    Invariants: returns one of {bull, bear, chop}.
-    """
-    if bull_prob is None:
-        return "chop"
-    if bull_prob >= BULL_THRESHOLD:
-        return "bull"
-    if bull_prob <= BEAR_THRESHOLD:
-        return "bear"
-    return "chop"
-
-
 # The review artifact stores the human words (rising/falling/mixed); the engine
 # keys are bull/bear/chop. ``regime_key`` accepts either, so a consumer can never
 # miss a bear market because of the vocabulary it was handed.

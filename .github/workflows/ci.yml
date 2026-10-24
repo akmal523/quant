@@ -34,9 +34,6 @@ jobs:
         # set in pyproject addopts. -n auto parallelises across CPU cores.
         run: python -m pytest -n auto --cov=quant --cov-report=xml --cov-report=term
 
-      - name: Golden snapshot gate
-        run: python -m pytest tests/test_golden_snapshot.py -q
-
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v4

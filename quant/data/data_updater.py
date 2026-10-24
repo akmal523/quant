@@ -11,7 +11,7 @@ from quant.cli.output import reporter
 from quant.data.assertions import DataAssertionError
 from quant.data.database import get_connection, init_db
 from quant.data.yf_utils import history_with_timeout, rate_limited
-from quant.execution.taxonomy import get_instrument_class, resolve_broker
+from quant.execution.taxonomy import get_instrument_class
 
 # Spacing between the (batched-friendly) per-symbol fetches. yfinance 1.x rate
 # limits aggressively; a modest delay + jitter avoids tripping it.
@@ -59,11 +59,10 @@ def fetch_single(sym: str, name: str, sector: str,
     Dependencies: yfinance, pandas, taxonomy (broker registry).
     """
     try:
-        # Phase 4 (1.2): resolve TR ticker for execution-relevant local prices.
-        # For equities/ETFs with a broker mapping, fetch the LS Exchange ticker
-        # (e.g. AAPL.DE) so moving averages reflect local trading hours/spreads.
-        broker = resolve_broker(sym)
-        fetch_ticker = broker["tr_ticker"] if broker["tr_ticker"] else sym
+        # v10.8.10: always fetch the symbol itself. The old Trade Republic ticker
+        # swap (VOO -> VUSA.DE) stored another listing's prices, in another
+        # currency, under this symbol.
+        fetch_ticker = sym
 
         # Throttle: space out requests with jitter to avoid Yahoo rate-limiting.
         time.sleep(REQUEST_DELAY + random.uniform(0, 0.4))
@@ -85,6 +84,7 @@ def fetch_single(sym: str, name: str, sector: str,
             return None
 
         replace = not last_date
+        currency = df.attrs.get("currency")
         splits = _split_events(df)
         if last_date and splits:
             full = history_with_timeout(fetch_ticker, period="5y", auto_adjust=True)
@@ -92,6 +92,7 @@ def fetch_single(sym: str, name: str, sector: str,
                 reporter.detail(f" [!] {sym}: split found but the full refetch failed")
                 return None
             df, replace = full, True
+            currency = df.attrs.get("currency") or currency
             splits = _split_events(df)
             reporter.detail(f" [CA] {sym}: split {splits[-1][0]} x{splits[-1][1]:g}; "
                             "history refetched on the new share basis")
@@ -177,10 +178,13 @@ def fetch_single(sym: str, name: str, sector: str,
 
         df.attrs["splits"] = splits
         df.attrs["replace"] = replace
+        df.attrs["currency"] = currency
         return df
-    except DataAssertionError:
-        # Hard gate: propagate so main() aborts the whole run.
-        raise
+    except DataAssertionError as e:
+        # v10.8.10: skip this one symbol. Aborting the whole refresh left the bad
+        # row inside every later overlap window, so prices never updated again.
+        reporter.detail(f" [!] {sym}: data assertion failed, symbol skipped: {e}")
+        return None
     except Exception as e:
         reporter.detail(f" [!] Error {sym}: {e}")
         return None
@@ -272,6 +276,27 @@ def build_fetch_list() -> tuple[list[tuple[str, str, str]], dict]:
     return [(sym, name, sector) for sym, (name, sector) in tickers.items()], meta
 
 
+def _enrich(conn: Any, held: set[str]) -> None:
+    """Names, fundamentals and news for the held symbols + funnel survivors."""
+    from quant.data import news
+    from quant.data.fundamentals import get_fundamentals
+    from quant.data.funnel import load_survivors
+    from quant.data.names import probe_and_store
+    from quant.execution.taxonomy import classify_instrument
+
+    survivors = load_survivors()
+    for sym in survivors:
+        probe_and_store(sym, conn)
+    symbols = sorted(held | set(survivors))
+    stocks = [s for s in symbols if classify_instrument(s) == "EQUITY"]
+    for sym in stocks:
+        get_fundamentals(sym)                 # cached for 7 days; never raises
+    reporter.detail(f"fundamentals: {len(stocks)} stocks checked")
+    stats = news.ingest(conn, symbols)
+    reporter.detail(f"news: {stats['new']} new headlines for {stats['symbols']} symbols, "
+                    f"{stats['scored']} scored")
+
+
 def main() -> int:
     """Fetch market data + run the funnel. Returns an exit code (spec 3.1)."""
     from quant import __version__
@@ -311,6 +336,7 @@ def main() -> int:
     overall_timeout = max(120.0, (total / max(MAX_WORKERS, 1)) * 60.0)
 
     split_rows: list[tuple[str, str, float]] = []
+    currencies: dict[str, str] = {}
     replace_syms: set[str] = set()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
@@ -320,21 +346,15 @@ def main() -> int:
 
         try:
             for i, future in enumerate(as_completed(futures, timeout=overall_timeout), 1):
-                try:
-                    result = future.result()
-                except DataAssertionError as e:
-                    # Hard data-quality gate failed: abort the entire run rather
-                    # than ingesting corrupt data. Exit code 1 (spec 3.1).
-                    reporter.end_progress()
-                    reporter.line(f"error: data assertion failed: {e}")
-                    reporter.line("remedy: fix the data source, then re-run quant update.")
-                    return 1
+                result = future.result()  # fetch_single skips a bad symbol itself
                 if result is not None:
                     all_data.append(result)
                     sym_done = str(result["Symbol"].iloc[0])
                     split_rows += [(sym_done, d, f) for d, f in result.attrs.get("splits", [])]
                     if result.attrs.get("replace"):
                         replace_syms.add(sym_done)
+                    if result.attrs.get("currency"):
+                        currencies[sym_done] = str(result.attrs["currency"])
                 reporter.progress(f"  fetched {i}/{total}")
         except TimeoutError:
             reporter.end_progress()
@@ -380,29 +400,20 @@ def main() -> int:
             f"INSERT INTO market_history ({insert_cols}) {insert_select}"
         )
 
+    # The quote currency Yahoo reports drives every EUR conversion (currency.py).
+    for sym, ccy in currencies.items():
+        conn.execute("UPDATE asset_registry SET currency = ?, currency_source = 'yahoo' "
+                     "WHERE symbol = ?", [ccy, sym])
+
     # Yahoo's split events feed the valuation's share restatement (mtm).
     for sym, day, factor in split_rows:
         conn.execute("INSERT OR REPLACE INTO splits (symbol, effective_date, factor) "
                      "VALUES (?, ?, ?)", [sym, day, factor])
 
-    # ── v10.4.0 (Phase 4): structured telemetry + EDA event ─────────────
-    # Publish market_close_data_ready so subscribers (scoring) can react
-    # without a hard call chain. A Yahoo outage cannot cascade.
-    try:
-        from quant.infra.event_bus import EVENTS, EventBus
-        from quant.infra.observability import ObservabilityCollector
-        obs = ObservabilityCollector()
-        obs.record_metric("fetch_latency_s", time.time() - _t0)
-        obs.record_metric("tickers_fetched", len(all_data))
-        if rate_limited():
-            obs.increment("api_rate_limit_hits")
-        EventBus().publish(EVENTS["MARKET_CLOSE_DATA_READY"], {
-            "rows": len(final_df),
-            "tickers": len(all_data),
-            "telemetry": obs.to_json(),
-        })
-    except Exception:
-        pass
+    # ── v10.8.10: what `quant run` used to do and the analysis actually reads ──
+    # Names for funnel survivors, fundamentals for single stocks (7-day cache;
+    # ETFs have none), and news headlines scored into nlp_evidence.
+    _enrich(conn, held)
 
     # ── H3-fix part 2: heal missing cells over the working universe ─────────
     # Names/currency via the R5 backfill (live metadata, missing cells only);
@@ -419,17 +430,6 @@ def main() -> int:
                         f"currency {_nm['currency_filled']}, isin {_ic['filled']}")
     except Exception as _e:  # noqa: BLE001
         reporter.detail(f"registry heal skipped: {_e}")
-
-    # ── H3.7 (L2): record the successful update so the Settings status line can
-    # compose live values (instrument count, prices-through, refreshed-at).
-    try:
-        from quant.reporting.artifacts import write_update_state
-
-        _lb = final_df["Date"].max() if "Date" in final_df.columns else ""
-        write_update_state({"ts": dt.datetime.now().isoformat(timespec="seconds"),
-                            "instruments": len(all_data), "prices_through": str(_lb)})
-    except Exception as _e:  # noqa: BLE001
-        reporter.detail(f"update state skipped: {_e}")
 
     # ── v10.8.4 (T1/T7): write the mark-to-market valuation store and the run
     # manifest so the on-demand refresh extends the chart and the header delta.

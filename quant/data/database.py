@@ -104,43 +104,34 @@ def write_connection(
     """Short-lived read-write connection with a bounded retry budget.
 
     Intent (v10.7.2, Part 1.2): one helper for every write path. Opens the
-    connection, yields it, and closes it in ``finally``. On a DuckDB lock/IO
-    error (at connect time or in the body) it retries up to ``attempts`` times
-    with backoff totaling about ``total_seconds``. Invariants: the connection is
-    always closed; the last error is raised when every attempt fails.
+    connection with a bounded retry on DuckDB lock/IO errors (backoff totaling
+    about ``total_seconds``), yields it once, and closes it in ``finally``.
+    v10.8.10: a generator context manager can yield only once, so the body is
+    never retried (the old body retry turned a lock error into "generator didn't
+    stop after throw()"); an error in the body propagates as itself.
     """
     from quant.config import WRITE_RETRY_ATTEMPTS, WRITE_RETRY_TOTAL_SECONDS
 
     attempts = WRITE_RETRY_ATTEMPTS if attempts is None else attempts
     total_seconds = WRITE_RETRY_TOTAL_SECONDS if total_seconds is None else total_seconds
     delays = _write_backoff(attempts, total_seconds)
-    last: Exception | None = None
+    conn = None
     for i in range(max(1, attempts)):
-        conn = None
         try:
             conn = _connect_with_timeout(timeout=2.0)
+            break
         except Exception as e:  # noqa: BLE001
-            last = e
             if _is_lock_error(e) and i < len(delays):
                 time.sleep(delays[i])
                 continue
             raise
+    try:
+        yield conn
+    finally:
         try:
-            yield conn
-            return
-        except Exception as e:  # noqa: BLE001
-            last = e
-            if _is_lock_error(e) and i < len(delays):
-                time.sleep(delays[i])
-                continue
-            raise
-        finally:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-    if last is not None:
-        raise last
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 @contextmanager
 def read_only_connection() -> Iterator[duckdb.DuckDBPyConnection]:
@@ -210,6 +201,9 @@ def migrate_registry_display_name(conn: duckdb.DuckDBPyConnection) -> None:
     the migration safe on both old and fresh schemas.
     """
     conn.execute("ALTER TABLE asset_registry ADD COLUMN IF NOT EXISTS display_name VARCHAR")
+    # v10.8.10: 'yahoo' when ``currency`` is the one Yahoo reports for the symbol
+    # (written by refresh); FX conversion trusts only that, else a suffix guess.
+    conn.execute("ALTER TABLE asset_registry ADD COLUMN IF NOT EXISTS currency_source VARCHAR")
 
 def init_db() -> None:
     """Initializes unified OLAP schemas.
@@ -310,13 +304,6 @@ def init_db() -> None:
         )
     """)
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS nlp_scores (
-            doc_hash VARCHAR PRIMARY KEY,
-            score DOUBLE
-        )
-    """)
-
     # ── v10.5.0 (spec 6): first-class NLP evidence table ─────────────────────
     # Documented columns so the Explorer can show WHY a sentiment score exists:
     # source, title, published_at, score, confidence, retrieved_at. A score that
@@ -380,18 +367,6 @@ def init_db() -> None:
         # Table may not exist yet on first run; non-fatal.
         pass
 
-    # ── Phase 5 (v10.2): Universe audit trail ────────────────────────────────
-    # Every state change (GRADUATE / DEMOTE / DELIST / PIN / ADD) is logged here
-    # so the dashboard can render an auditable event log.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS universe_events (
-            ts TIMESTAMP DEFAULT now(),
-            symbol VARCHAR,
-            event VARCHAR,
-            reason VARCHAR
-        )
-    """)
-
     # ── v10.5.0: account_state table removed ─────────────────────────────────
     # Cash, risk profile, and base currency now live in data/account.yaml
     # (single source of truth, spec 2.2). The old DuckDB table is dropped so no
@@ -400,18 +375,6 @@ def init_db() -> None:
         conn.execute("DROP TABLE IF EXISTS account_state")
     except Exception:
         pass
-
-    # ── Phase 5 (v11): Rebalance log ─────────────────────────────────────────
-    # Tracks the last rebalance date per symbol for time-gated rebalancing.
-    # Intent: CORE assets rebalance quarterly, SATELLITE monthly, SECTOR
-    # bi-weekly. Absence of a row = first run -> baseline ease-in (no forced
-    # rebalance). portfolio.py reads/writes this table.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS rebalance_log (
-            symbol VARCHAR PRIMARY KEY,
-            last_rebalance_date DATE
-        )
-    """)
 
     # ── Plan 3 (Phase 1): Broad Universe Master ─────────────────────────────
     # Replaces the hardcoded ~300 SECTOR_UNIVERSE. Holds the full 1000+ ticker
@@ -479,19 +442,6 @@ def init_db() -> None:
             fee_eur DOUBLE DEFAULT 0,
             realized_pnl_eur DOUBLE,
             created_at TIMESTAMP DEFAULT now()
-        )
-    """)
-
-    # ── v10.5.1 (spec 5.1): portfolio value history ──────────────────────────
-    # One row per review, written by the review step. Feeds the Today value
-    # chart. Not keyed by date because several reviews can occur in one day.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio_history (
-            review_ts TIMESTAMP,
-            value_eur DOUBLE,
-            invested_eur DOUBLE,
-            cash_eur DOUBLE,
-            pnl_eur DOUBLE
         )
     """)
 

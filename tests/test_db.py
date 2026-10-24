@@ -18,9 +18,10 @@ def test_db_init():
     res_fund = conn.execute("SELECT pe FROM fundamentals WHERE symbol = 'AAPL'").fetchone()
     assert res_fund[0] == 25.5, "Fundamentals I/O failed."
 
-    # Test NLP Schema
-    conn.execute("INSERT INTO nlp_scores (doc_hash, score) VALUES ('hash123', 85.0)")
-    res_nlp = conn.execute("SELECT score FROM nlp_scores WHERE doc_hash = 'hash123'").fetchone()
-    assert res_nlp[0] == 85.0, "NLP I/O failed."
-
-    print("db.py validation passed.")
+    # News evidence schema (written by refresh, read by scoring and the drawer)
+    conn.execute("INSERT INTO nlp_evidence (symbol, source, title, score) "
+                 "VALUES ('AAPL', 'news', 'db test headline', 0.5)")
+    res_nlp = conn.execute("SELECT score FROM nlp_evidence WHERE title = "
+                           "'db test headline'").fetchone()
+    assert res_nlp[0] == 0.5, "NLP evidence I/O failed."
+    conn.execute("DELETE FROM nlp_evidence WHERE title = 'db test headline'")

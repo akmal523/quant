@@ -12,43 +12,9 @@ Synthetic fixtures only; the user's real DB and data dir are never touched.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
-
-from quant.analytics.scoring import composite_score, confidence_tier
-
-# ── R-C2: the pure composite ──────────────────────────────────────────────────
-
-def test_composite_is_numeric_with_only_technical():
-    """Prices-only: a numeric composite + confidence 'low', never a dash."""
-    result = composite_score({"technical": 60.0, "fundamental": None,
-                              "sentiment": None, "stewardship": None})
-    assert isinstance(result["composite"], float)
-    assert 0.0 <= result["composite"] <= 100.0
-    assert result["confidence"] == "low"
-    assert result["present"] == 1 and result["total"] == 4
-
-
-def test_composite_high_confidence_when_all_present():
-    result = composite_score({"technical": 70.0, "fundamental": 80.0,
-                              "sentiment": 60.0, "stewardship": 50.0})
-    assert result["confidence"] == "high"
-    assert result["present"] == 4
-
-
-def test_composite_never_aborts_on_empty():
-    result = composite_score({})
-    assert isinstance(result["composite"], float)
-    assert result["confidence"] == "low"
-
-
-def test_confidence_tier_mapping():
-    assert confidence_tier(4, 4) == "high"
-    assert confidence_tier(3, 4) == "medium"
-    assert confidence_tier(1, 4) == "low"
-    assert confidence_tier(0, 0) == "low"
-
 
 # ── A3: the pipeline + manifest on a prices-only fixture ──────────────────────
 
@@ -73,10 +39,12 @@ def prices_only():
                 "INSERT INTO asset_registry (symbol, name, instrument_class, "
                 "universe_status) VALUES (?, ?, 'EQUITY', 'WATCHLIST')",
                 [sym, sym])
-            for i, d in enumerate((date(2026, 9, 1), date(2026, 9, 2), _TODAY)):
+            # A year of closes: the trend score needs >= 200 (v10.8.10).
+            for i in range(260):
+                d = _TODAY - timedelta(days=259 - i)
                 conn.execute(
                     "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
-                    "VALUES (?, ?, ?)", [sym, str(d), 100.0 + i])
+                    "VALUES (?, ?, ?)", [sym, str(d), 100.0 + i * 0.1])
     yield
     with write_connection() as conn:
         for sym in _SYMS:
@@ -85,7 +53,7 @@ def prices_only():
 
 
 def test_run_analysis_scores_every_watched_symbol(prices_only):
-    """Every watched symbol gets a numeric composite with confidence 'low'."""
+    """Every watched stock gets a numeric composite; trend only = 'medium'."""
     from quant.data.database import write_connection
     from quant.engine import analysis
 
@@ -98,7 +66,7 @@ def test_run_analysis_scores_every_watched_symbol(prices_only):
     assert len(rows) == len(_SYMS)
     for _sym, comp, conf in rows:
         assert comp is not None and 0.0 <= float(comp) <= 100.0
-        assert conf == "low"
+        assert conf == "medium"
 
 
 def test_run_analysis_writes_one_manifest_row_per_stage(prices_only):

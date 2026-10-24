@@ -9,7 +9,6 @@ from datetime import date
 
 import pandas as pd
 
-from quant.engine import notify
 from quant.engine.confirm import confirm_save
 from quant.engine.diff import diff_tables
 
@@ -78,25 +77,3 @@ def test_enter_holdings_confirm_then_history(tmp_path, monkeypatch):
         conn.execute("DELETE FROM position_snapshots WHERE symbol = ?", [sym])
         conn.execute("DELETE FROM flows WHERE symbol = ?", [sym])
         conn.execute("DELETE FROM trades WHERE symbol = ?", [sym])
-
-
-def test_telegram_sends_once_then_caps(tmp_path, monkeypatch):
-    monkeypatch.setattr(notify.paths, "OUTPUTS_DIR", tmp_path)
-    calls = []
-
-    def _sender(text, config=None):
-        calls.append(text)
-        return True
-
-    d = date(2026, 10, 8)
-    a = [{"group": "Recommended", "verb": "buy", "label": "Name (AAA)",
-          "amount_eur": 100.0, "symbol": "AAA"}]
-    b = [{"group": "Recommended", "verb": "buy", "label": "Name (AAA)",
-          "amount_eur": 120.0, "symbol": "AAA"}]
-    c = [{"group": "Recommended", "verb": "buy", "label": "Name (AAA)",
-          "amount_eur": 140.0, "symbol": "AAA"}]
-    assert notify.notify_decisions(a, today=d, sender=_sender) is True
-    assert notify.notify_decisions(a, today=d, sender=_sender) is False  # unchanged
-    assert notify.notify_decisions(b, today=d, sender=_sender) is True   # changed
-    assert notify.notify_decisions(c, today=d, sender=_sender) is False  # cap
-    assert len(calls) == 2

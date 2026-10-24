@@ -52,16 +52,6 @@ def test_tier_dictionary_words():
     assert C.tier_word("SPECULATIVE") == C.TIER_SPECULATIVE
 
 
-def test_status_dictionary_has_no_forbidden_tokens():
-    assert C.STATUS_ON_TRACK == "OK, do nothing"
-    assert C.STATUS_TRIM == "Sell part"
-    assert C.STATUS_WAITING.startswith("Cooldown until")
-    for token in C.FORBIDDEN_TOKENS:
-        assert token not in C.STATUS_ON_TRACK
-        assert token not in C.STATUS_TRIM
-        assert token not in C.STATUS_WAITING
-
-
 def test_forbidden_tokens_cover_section_11():
     required = {
         "Trim", "On track", "Waiting until", "Current_Value_EUR",
@@ -77,4 +67,3 @@ def test_sizing_constants():
     assert config.SELL_ROUND_STEP_EUR == 5.0
     assert config.BUY_ROUND_STEP_EUR == 10.0
     assert config.UNTOUCHABLE_POSITION_EUR == 100.0
-

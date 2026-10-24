@@ -37,11 +37,6 @@ SEC_WHAT_TO_DO = "What to do today"
 EMPTY_NO_MATCHES = ("No instrument matches {query}. Try a company or fund name, "
                     "a symbol, an ISIN, or a theme such as gold or defence.")
 
-# ── Action cards (spec 3.2) ───────────────────────────────────────────────────
-ACTION_BLOCKED_MANUAL = ("ISIN missing for {symbol}. Not found automatically. Add a verified "
-                         "row from your broker app or the fund factsheet, then press Repair "
-                         "registry again.")
-
 # ── v10.6.2 / v10.7.0: Three-tier dashboard, cash, tax-loss ──────────────────
 TIER_FORTRESS = "Long-term (never sell)"
 TIER_ALPHA = "Active (may sell)"
@@ -86,16 +81,6 @@ STATUS_WORDS = {
     "CORE": "Core",
     "DELISTED": "Delisted",
 }
-# A3 (v10.5.2): the ONE status vocabulary. The holdings table and the action
-# cards both read these words via status_for(), so two widgets on one screen can
-# never disagree (P2 trust rule). v10.7.0: statuses are verbs with EUR amounts
-# (Section 11 dictionary).
-STATUS_ON_TRACK = "OK, do nothing"
-STATUS_ADD = "Buy more (regular buying is fine)"
-STATUS_TRIM = "Sell part"
-STATUS_BLOCKED = "Blocked"
-STATUS_WAITING = "Cooldown until {date} (do nothing)"
-STATUS_BELOW_MIN = "Below minimum order"
 # Column-name -> human header (P2: no column names in the UI).
 # v10.8.8 (R-P1): the editor grid + entry-check headers ARE the column contract
 # (see quant/ui/columns.py). Every header is non-empty; money columns carry their
@@ -128,11 +113,9 @@ ENTRY_CHECK_EMPTY = "No holdings to check yet."
 DRAWER_PRICE = "Price"
 DRAWER_SCORE = "Score"
 DRAWER_NEWS = "News"
-DRAWER_SEC = "SEC filings"
 DRAWER_ADVICE = "Open advice"
 DRAWER_NO_PRICE = "no price history yet - {reason}"
 DRAWER_NO_NEWS = "no news fetched yet - {reason}"
-DRAWER_NO_SEC = "no SEC filings fetched yet - {reason}"
 DRAWER_NO_ADVICE = "no open advice"
 DRAWER_ALERT_LINE = "{n}. {reason}"
 # v10.8.8 (R-P2): the derived Holdings Analysis cells.
@@ -267,17 +250,6 @@ LABEL_BENCHMARK = "Compare to MSCI World (IWDA.AS)"
 BENCHMARK_SYMBOL = "IWDA.AS"
 
 
-# ── v10.7.2 (Part 2): the news pillar's honest absent line + diagnostic ───────
-NEWS_DOCTOR_HEADER = "News pillar diagnostic"
-NEWS_DOCTOR_LINE = ("{symbol}: {total} items in 30 days, {long} long enough, "
-                    "{model} scored by the model, {default} defaulted ({reason}).")
-NEWS_DOCTOR_NONE = "{symbol}: no news in the last 30 days."
-NEWS_DOCTOR_STATUS = "News pillar: {status} ({model} model-scored items in 30 days)."
-NEWS_DOCTOR_ENABLED = "News pillar forced active."
-NEWS_DOCTOR_REASON_SHORT = "text too short"
-NEWS_DOCTOR_REASON_UNAVAILABLE = "model unavailable"
-NEWS_DOCTOR_REASON_NOT_INVOKED = "scorer not invoked"
-
 # ── v10.7.2 (Part 3): backup ──────────────────────────────────────────────────
 BACKUP_WARNING_SECRETS = ("Including data/notify.toml (contains your bot token). "
                           "Keep this archive private.")
@@ -307,43 +279,6 @@ def status_word(universe_status: str) -> str:
     return STATUS_WORDS.get(str(universe_status).upper(), "Watching")
 
 
-def status_for(
-    recommendation: str,
-    blocked: bool = False,
-    cooldown_until: date | datetime | str | None = None,
-    drift_frac: float | None = None,
-    threshold: float | None = None,
-) -> str:
-    """Map an audit recommendation to the ONE canonical status word (A3).
-
-    Intent: the holdings table and the action cards must read the same audit
-    object, so a position 7.5 points over target during cooldown cannot read
-    "On track" in one widget and "Waiting" in another.
-    Invariants:
-      - blocked -> Blocked (an ISIN blocker outranks any drift).
-      - actionable (BUY/SELL) while in cooldown -> Waiting until {date}.
-      - BUY -> Add, SELL -> Trim, otherwise -> On track.
-    """
-    if blocked:
-        return STATUS_BLOCKED
-    rec = str(recommendation or "")
-    actionable = rec.startswith("BUY") or rec.startswith("SELL")
-    # H3.8 (M4): an over-threshold drift is actionable even when the time gate
-    # delays the order — so "On track" for a 7.5-point overshoot is impossible.
-    if drift_frac is not None and threshold is not None and abs(drift_frac) >= threshold:
-        actionable = True
-    if actionable and cooldown_until is not None:
-        return STATUS_WAITING.format(date=fmt_date(cooldown_until))
-    if rec.startswith("BUY"):
-        return STATUS_ADD
-    if rec.startswith("SELL"):
-        return STATUS_TRIM
-    if actionable and drift_frac is not None:
-        # Over threshold with no explicit rec: use the drift sign.
-        return STATUS_ADD if drift_frac < 0 else STATUS_TRIM
-    return STATUS_ON_TRACK
-
-
 # ── v10.7.0: Naming dictionary (Section 11, mandatory) ────────────────────────
 # Old -> new, exact strings. The forbidden-token test scans rendered pages and
 # the briefing for the OLD tokens; these constants are the new vocabulary.
@@ -355,11 +290,6 @@ TIER_WORDS = {
     "SPECULATIVE": TIER_SPECULATIVE,
 }
 
-# v10.8.0 (Phase 1, redesign 3.2): the ONE decision list, three groups.
-NEEDS_ATTENTION_ISIN = "ISIN missing for {symbol}. Repair it in Settings."
-DECISION_GROUP_INPUT = "Needs your input"
-DECISION_GROUP_RECOMMENDED = "Recommended"
-DECISION_GROUP_OPTIONAL = "Optional"
 SEC_MARKET = "Market"
 
 # v10.8.2 (B2): the invest block on Portfolio. One amount, one cadence, a
@@ -421,8 +351,6 @@ ALERT_DETAILS_IN_APP = "details in app"
 # ── v10.7.1: One advice pipeline (Part 1) ─────────────────────────────────────
 ADVICE_SELL_PART = "Sell part"
 ADVICE_BUY = "Buy"
-ADVICE_TOP_UP = "Top up savings plan"
-ADVICE_KEEP = "Keep, do nothing"
 ADVICE_FROM_CASH = "cash"
 ADVICE_FROM_SAVINGS = "savings plan"
 ADVICE_FROM_POSITION = "position"
