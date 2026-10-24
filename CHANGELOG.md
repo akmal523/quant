@@ -46,16 +46,45 @@ corrects the doc where the code was right), removes dead code, and replaces the
 - **Scores disagreed between tabs.** Holdings analysis and the threat floor read
   the same composite as Research; class weights in advice and the allocator come
   from `weights.class_weights` (R-C3).
+- **USD holdings valued at EUR/USD 1.0.** Both FX sources could fail in the
+  daily job (Yahoo rate-limited after the universe download; the ECB fallback had
+  moved and answered 403 to urllib's default User-Agent, so it never worked), and
+  the backfill then rewrote the whole stored history at 1.0 (AMZN about 15% too
+  high). The fallback works again, and the last live rate is persisted and used
+  offline. The next successful daily run rewrites the history.
 - **Flaky CI test.** The Research inspect-control test matched Pipeline health's
   "Stage" column; it now matches the Research column spec. The async fetch test no
   longer hits the network.
 
 ### Removed
 
-- Dead modules `quant/engine/steps.py`, `quant/reporting/reporting.py`,
-  `quant/utils/retry.py`, the root `main.py` / `data_updater.py` shims, the unused
-  weekly backup nag, and 334 unused copy constants.
-- Unused dependencies `openpyxl`, `beautifulsoup4`, `markdown`; `requests` moves
+Everything below was unreachable from every entry point (CLI, dashboard, pages,
+daily timer) and is deleted with the tests that only exercised it; tests of
+live code were kept (about 9,000 lines of code and tests removed).
+
+- Modules: the monthly allocator and savings-plan block (superseded by
+  `invest_plan`), the Buffett filter, alpha metrics (DSR / IC), data validation,
+  signal routing, TCA, watchlist discovery, broker reconciliation (+ the hidden
+  `reconcile` command), the fortress / speculative / alpha tier scorers, the
+  signal cache, table recovery, the legacy `AlertSystem`, the cash-rate schedule
+  (and its live web fetch), the disk cache (+ `cache-stats` / `clear-cache`), the
+  pending-sync marker, `engine/steps.py`, `reporting/reporting.py`,
+  `utils/retry.py`.
+- `portfolio/optimizer.py` is now `portfolio/trade_size.py`: the unused
+  mean-CVaR optimizer is gone; the two fee/liquidity gates the review audit uses
+  stay.
+- Functions inside live modules no caller reaches (batch/conviction/Kelly
+  scoring, emergency-sell / Sharpe / VaR helpers, `mtm.write_valuation`, CSV sync
+  reminders, `run_morning`, tier auto-assignment, dead UI helpers and palette
+  tokens), 67 unused config constants, 369 unused copy strings.
+- Scripts: `setup_cron.sh`, `reconcile_broker.py`, `benchmark.py` (broken),
+  `final_verification.py`, `audit_docstrings.py`, `audit_type_hints.py`,
+  `migrate_tiers.py`; the root `main.py` / `data_updater.py` shims.
+- New databases no longer create `trade_log`, `portfolio_snapshot`,
+  `monthly_plans`, `fundamentals_history`, `portfolio_value_history` (no reader);
+  existing databases keep them.
+- `data/watchlist.csv` (never read) and the unused weekly backup nag.
+- Unused dependencies `cvxpy`, `arch`, `openpyxl`, `beautifulsoup4`, `markdown`; `requests` moves
   from the dashboard extra to the core. The no-op CPU-torch index is dropped from
   CI; the stale `uv.lock` (10.4.2) is removed.
 

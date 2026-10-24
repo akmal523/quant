@@ -77,16 +77,85 @@ analysis** (which runs `refresh` then `run`). Every stage writes one
 Fetching itself happens in `refresh` (and the daily job's update step) before the
 chain, so production runs normally show `ok-reused`. TTLs: prices 1 **trading**
 day (Friday's close is fresh over the weekend), fundamentals 7 days, nlp 1 day.
-The `optimization` stage only checks that scores exist (coverage). The mean-CVaR
-optimizer ([`quant/portfolio/optimizer.py`](quant/portfolio/optimizer.py)) is
-not called by the product today (only its `minimum_trade_size` fee hurdle is);
-it is library code kept under test and mutation testing.
+The `optimization` stage only checks that scores exist (coverage); there is no
+portfolio optimizer in the product (the unused mean-CVaR optimizer was removed
+in v10.8.10).
 
 The regime stage fits on `URTH` (`fit_market_regime(..., max_points=1.0)` is a
 probability), maps it with `regime_from_bull_prob` (≥ 0.60 bull, ≤ 0.40 bear) and
 stores it in `meta`; `artifacts.read_regime` returns the newer of that estimate
 and the last review's regime block. Consumers compare with
 `regime_constraints.is_bear` / `regime_key`, which accept both vocabularies.
+
+## How it works, end to end
+
+1. **Install / start** (`install.sh`, `start.sh`): a `.venv` in the checkout runs
+   `python -m quant.cli dash`, which starts Streamlit on `quant/dashboard.py`.
+   On the first start of a process, the dashboard runs the one-time legacy
+   migration, seeds the data folder, and runs two backfills (display names, the
+   valuation catch-up) with bounded retries.
+2. **Update holdings**: the user types the broker numbers into the editor grid;
+   the Entry-check table below shows live vs typed values. **Review changes**
+   diffs the new table against the saved one (Bought / Sold / Market move);
+   **Confirm and save** ([`confirm.py`](quant/engine/confirm.py)) snapshots the
+   input files, writes the table atomically, appends `position_snapshots`, writes
+   Bought/Sold to the ledger (`trades` + `flows`), backfills the valuation store
+   and persists the ONE list.
+3. **Refresh** (`quant refresh`, Settings → Refresh prices,
+   [`data_updater.py`](quant/data/data_updater.py)): builds/updates the
+   `universe_master`, runs the funnel to about 24 survivors, fetches price ranges
+   into `market_history` (split-checked), fundamentals into `fundamentals`, then
+   persists the ONE list.
+4. **Run** (`quant run`, [`main.py`](quant/main.py)): reads the stored prices,
+   scores survivors + holdings in a process pool (structural / tactical grades,
+   FinBERT sentiment when the `news` extra is installed), seeds `holdings_meta`
+   for new holdings, audits the table, writes a timestamped review (scores,
+   audit, regime block, metrics), sends the legacy Telegram briefing, runs the
+   analysis chain and persists the ONE list. **Run analysis** = refresh + run.
+5. **Daily job** (`quant daily`, systemd timer at 18:45 and 07:45,
+   [`daily.py`](quant/engine/daily.py)): refresh, revalue, analysis chain,
+   valuation backfill, level-triggered alerts (sent to Telegram one by one),
+   the ONE list, a daily Markdown artifact; skips weekends; a busy database
+   writes a failed-run marker and the next slot retries.
+6. **Valuation store** ([`mtm.py`](quant/engine/mtm.py)): shares per day =
+   opening lot (`holdings_meta`; a trade on or before its date is already in it)
+   + later ledger trades, × the day's close × FX (current EUR rate per symbol);
+   one row per held symbol per trading day in `valuation`, the sum in
+   `portfolio_total`. The chart, the header and the day delta read only this.
+7. **The ONE list** ([`today_list.py`](quant/engine/today_list.py)): drift
+   advice + threat / swap / plan-change items, paired sells, annotated with how
+   long each has been open; the page renders it read-only.
+8. **Pages** ([`pages.py`](quant/ui/pages.py)): Portfolio (header, chart, tasks,
+   the ONE list, holdings, invest block), Update holdings, History (ledger,
+   advice log, tax summary), Full analysis (Holdings analysis, Research, Market,
+   Pipeline health), Settings (savings day, Telegram, Refresh / Update / Back up).
+
+### Stored data (DuckDB in the data folder)
+
+| Table | Written by | Read by |
+|-------|-----------|---------|
+| `market_history` | refresh | analysis, mtm, review, drawer chart |
+| `fundamentals` | refresh | analysis (fundamental component), review |
+| `universe_master`, `funnel_survivors` | refresh | review, search |
+| `asset_registry` | refresh, registry repair, names backfill | everywhere (names, class, ISIN) |
+| `scores` | analysis chain | Research, Holdings analysis, threat floor, ideas |
+| `nlp_scores` | review (FinBERT cache by document hash) | review |
+| `nlp_evidence` | **nothing since v10.5.x** | analysis (sentiment), drawer News/SEC, nlp stage |
+| `trades`, `flows` | Confirm and save | mtm, tax summary, Modified Dietz |
+| `position_snapshots` | Confirm and save | value-series fallback |
+| `holdings_meta` | review (first-time seed) | mtm opening lots, positions, doctor |
+| `valuation`, `portfolio_total` | mtm backfill | chart, header, delta |
+| `splits` | **nothing** | mtm (no split adjustment of ledger shares) |
+| `run_manifest` | analysis chain, backfills | Pipeline health, empty states |
+| `advice_log` | writers via `today_list.persist`, Mark done | the ONE list, History |
+| `alerts` | daily job, `quant ack` | doctor, morning summary |
+| `meta` | regime stage, reminders, backfills | regime, reminders |
+| `portfolio_history` | review | History |
+| `rebalance_log`, `universe_events` | legacy / registry-repair script | review cooldown (legacy rows) / nothing |
+
+FX: `currency.get_eur_rate` tries Yahoo, then the ECB (frankfurter.dev), then
+the last live rate persisted in `outputs/fx_eurusd_last.json`; 1.0 only on an
+install that has never been online.
 
 ## Binding rules
 
@@ -124,9 +193,9 @@ and the last review's regime block. Consumers compare with
 - **R-C1 — cash is not an entity.** Uninvested cash is never a row, target,
   line, weight or verb. Free money exists only as the amount typed into the
   invest block and whatever sits at the broker, untracked. The only trace: a
-  sell with no buy to pair says "hold proceeds at the broker, untracked". The
-  allocator's `kind="cash"` leg is the unallocated part of a budget, reported as
-  "not allocated". `portfolio_total.cash_eur` is frozen audit data: written NULL,
+  sell with no buy to pair says "hold proceeds at the broker, untracked"; the
+  invest plan reports money it cannot place as "not allocated".
+  `portfolio_total.cash_eur` is frozen audit data: written NULL,
   never read (a grep guard enforces it).
 - **One value per datum.** The chart, the header delta and the totals read only
   the valuation store through the named helpers in
@@ -141,7 +210,7 @@ and the last review's regime block. Consumers compare with
 
 - **R-C3 — one weight math.** [`weights.instrument_weights` /
   `class_weights`](quant/engine/weights.py) (invested-only basis) are the single
-  source for the Holdings table, class table, drift, advice and the allocator. The
+  source for the Holdings table, class table, drift, advice and the invest plan. The
   legacy review audit (`portfolio.enhanced_portfolio_audit`, `quant run`) keeps its
   own per-row weight for the review artifact only.
 - **R-C2 — scoring degrades, never a dash.** [`composite_score`](quant/analytics/scoring.py)
@@ -234,9 +303,10 @@ database; `notify.toml` only with `--include-secrets`), keeps 5, and alone sets
 
 ## ADR notes
 
-- **Cash APY as the risk-free rate.** Trade Republic pays interest on uninvested
-  cash; that rate (not US Treasuries) is the opportunity cost used in the risk
-  math. It is a rate, not a tracked position (R-C1).
-- **Mean-CVaR over Sharpe.** The (currently unwired) optimizer minimizes
-  expected shortfall in the worst 5% tail; Sharpe is reported, not used for
-  sizing.
+- **Tail risk over correlation.** The review scoring penalizes an asset by its
+  empirical 95% VaR ([`risk.calculate_risk_penalty`](quant/portfolio/risk.py)),
+  not by a Pearson correlation; equity returns are fat-tailed.
+- **Remove what does not run (v10.8.10).** Code that no entry point reaches is
+  deleted with its tests, not kept "for later": the optimizer, allocator,
+  Buffett filter, routing, TCA, discovery, reconciliation, signal cache, cash-rate
+  schedule and disk cache went this way. Git history keeps them.

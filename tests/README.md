@@ -62,9 +62,9 @@ one release usually touched several features. This index is the feature view
 | Positions, ledger, editable history | `test_v10_8_0_positions.py`, `test_v10_8_0_ledger.py`, `test_v10_8_3.py` |
 | The ONE list: format, advice state, pairing, verbs | `test_v10_8_2_decisions.py`, `test_v10_8_4_phase2.py`, `test_v10_8_7_phase4.py`, `test_v10_8_5.py` (phase C), `test_v10_8_10.py`, `test_advice_grid.py`, `test_classification_grid.py` |
 | Read-only render (R-C4), regime vocabulary | `test_v10_8_10.py` |
-| Weights, invest plan, savings plan | `test_v10_8_7_phase3.py`, `test_v10_8_2_savings_plan.py`, `test_v10_8_4_phase3.py` |
+| Weights, invest plan | `test_v10_8_7_phase3.py`, `test_v10_8_4_phase3.py` |
 | Scoring, analysis chain, run manifest | `test_v10_8_7_phase2.py`, `test_v10_8_4_phase1.py`, `test_scoring.py`, `test_golden_snapshot.py` |
-| Valuation store, day delta, chart | `test_v10_8_4_phase1.py`, `test_v10_8_5.py` (phase B), `test_v10_8_6_invariants.py`, `test_v10_8_2_value_series.py`, `test_v10_8_9_phase2.py` |
+| Valuation store, day delta, chart, FX | `test_v10_8_4_phase1.py`, `test_v10_8_5.py` (phase B), `test_v10_8_6_invariants.py`, `test_v10_8_2_value_series.py`, `test_v10_8_9_phase2.py`, `test_v10_8_10.py` (FX); `store_readers.py` is the independent SQL oracle |
 | Cash is not an entity (R-C1) | `test_v10_8_2_no_cash.py` (despite the name, the v10.8.7 rule), `test_v10_8_7_phase1.py` |
 | Tables and column contract (R-F1, R-P1, R-P2) | `test_v10_8_8_phase1.py`, `test_v10_8_8_phase2.py`, `test_v10_8_9_phase1.py`, `test_v10_8_4_phase4.py` |
 | Copy, delta badge, palette | `test_copy_lints.py`, `test_ui_copy.py`, `test_v10_8_8_phase3.py`, `test_v10_8_0_palette.py`, `test_v10_8_2_verify.py` |
@@ -77,22 +77,13 @@ one release usually touched several features. This index is the feature view
 New tests go into the file of the feature they guard when one fits; a release
 that adds a new rule may add `test_v<version>.py` and a row here.
 
-## Contract guards (v10.6.0)
+## Contract guards from earlier cycles
 
-The load-bearing guards from the v10.6 review cycle:
-
-- [`test_run_to_ui.py`](test_run_to_ui.py) — the run→UI wire class.
 - [`test_ui_copy.py`](test_ui_copy.py) — banned tokens on every page (P2/P14).
 - [`test_registry_bounded.py`](test_registry_bounded.py) — `asset_registry == W`,
   idempotent membership, CSV ceiling, bulk-source refusal.
 - [`test_names_recorded_source.py`](test_names_recorded_source.py) — D1.
-- [`test_feedback_contract.py`](test_feedback_contract.py),
-  [`test_review_status.py`](test_review_status.py),
-  [`test_explore_news.py`](test_explore_news.py),
-  [`test_chart_rules.py`](test_chart_rules.py),
-  [`test_themes.py`](test_themes.py), [`test_news_format.py`](test_news_format.py),
-  [`test_h3_5.py`](test_h3_5.py), [`test_h3_6.py`](test_h3_6.py),
-  [`test_h3_7.py`](test_h3_7.py), [`test_h3_8.py`](test_h3_8.py),
+- [`test_themes.py`](test_themes.py), [`test_h3_5.py`](test_h3_5.py),
   [`test_doctor.py`](test_doctor.py).
 
 ## Golden snapshot

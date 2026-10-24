@@ -335,11 +335,13 @@ def _rebase(values):
 def _render_value_chart(history, holdings) -> None:
     """Portfolio value chart: Value | Growth (T3; v10.8.6 B3/B4/B5).
 
-    Value  = the absolute portfolio total from the valuation store, with cash and
-             one composed per-asset hover (total + cash + each held asset).
+    Value  = the absolute portfolio total from the valuation store, with one
+             composed per-asset hover (total + each held asset; no cash, R-C1).
     Growth = normalized to 100: a bold portfolio line plus one line per held asset.
-    The chart reads ONLY the store through the pure helpers in
-    quant.reporting.artifacts; it never recomputes shares/values inline (R1).
+    The chart reads the store through the pure helpers in
+    quant.reporting.artifacts and never recomputes shares/values inline (R1).
+    Fallbacks for a database without a store: the snapshot+flow value series,
+    then the review history.
     """
     import plotly.graph_objects as go
 

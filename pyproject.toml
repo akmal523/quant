@@ -170,5 +170,6 @@ pytest_add_cli_args_test_selection = [
     "tests/test_properties.py",
     "tests/test_regression_grid.py",
     "tests/test_fallback_registry.py",
+    "tests/test_rebalancing.py",      # trade_size gates
 ]
 runner = "python -m pytest -x -q -p no:cacheprovider"

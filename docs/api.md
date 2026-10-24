@@ -2,25 +2,13 @@
 
 Auto-generated from docstrings via `mkdocstrings`.
 
-## Portfolio optimization
+## Review scoring: trade-size gates, tail risk, data assertions
 
-::: quant.portfolio.optimizer
-
-## Risk
+::: quant.portfolio.trade_size
 
 ::: quant.portfolio.risk
 
-## Execution / TCA
-
-::: quant.execution.tca
-
-## Data quality assertions
-
 ::: quant.data.assertions
-
-## Analytics
-
-::: quant.analytics.metrics
 
 ## UI copy, search, cards (user-facing strings; instrument/theme search)
 
@@ -44,11 +32,9 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.data.news
 
-## Portfolio: history, cash rate
+## Portfolio history
 
 ::: quant.portfolio.history
-
-::: quant.portfolio.cash_rate
 
 ## The one workflow
 
@@ -61,8 +47,6 @@ Auto-generated from docstrings via `mkdocstrings`.
 ::: quant.engine.positions
 
 ::: quant.engine.ledger
-
-::: quant.engine.savings_plan
 
 ::: quant.engine.invest_plan
 
@@ -96,11 +80,9 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.engine.value_series
 
-## Errors, cache
+## Errors
 
 ::: quant.errors
-
-::: quant.analytics.cache
 
 ## Health check
 

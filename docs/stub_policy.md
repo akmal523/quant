@@ -8,9 +8,9 @@ value. This page is the policy for contributors.
 ## The distinction
 
 - A **legitimate fallback** is declared, marked, tested, and surfaced to the user.
-  Example: `score_asset_with_fallbacks` sets `data_quality = FALLBACK`; the
-  optimizer equal-weight fallback sets a marker the weekly report renders.
-  Legitimate fallbacks stay.
+  Example: a scoring component that cannot be read contributes
+  `SCORE_MISSING_PENALTY` and lowers the confidence tier shown next to the score;
+  an offline FX lookup uses the last live EUR/USD rate. Legitimate fallbacks stay.
 - A **stub** is undeclared, silent, untested, or returns success while computing
   nothing. Stubs must fail CI.
 
@@ -36,9 +36,11 @@ The auditor exits nonzero on any blocking finding. It runs in CI.
 
 ## The three tiers (R11)
 
-- **Tier S — blocking.** The narrow user-facing computation set (scoring, flows,
-  allocator, sizing, advice, alerts, valuation, news_pillar, optimizer, risk,
-  portfolio, account, cash_rate, and the listed loaders). Every `except` path
+- **Tier S — blocking.** The narrow user-facing computation set: scoring, flows,
+  sizing, advice, alerts, valuation, news_pillar, trade_size, risk, portfolio,
+  account, the ONE list (today_list, action_taxonomy, pairing, weights,
+  advice_state), invest_plan, the valuation store (mtm), the analysis chain, and
+  the listed loaders (`scripts/audit_allowlist.toml`). Every `except` path
   whose returned value can flow into a user-visible number or decision must be in
   `quant/engine/fallback_registry.py` with its marker and a triggering test.
 - **Tier C — pattern allowlist.** Trivial cleanup and IO shapes (pass-only,
@@ -65,7 +67,7 @@ killed by a test, not allowlisted.
 
 ## Mock boundary
 
-No test may patch the decision core (advice, allocator, flows, sizing, scoring,
-optimizer, risk). Fakes are allowed only at true I/O boundaries (network, clock,
+No test may patch the decision core (advice, flows, sizing, scoring,
+trade_size, risk). Fakes are allowed only at true I/O boundaries (network, clock,
 filesystem, subprocess, the database, the UI render layer) and heavy external
 solvers. `tests/test_mock_boundary.py` enforces this.
