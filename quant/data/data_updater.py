@@ -13,7 +13,6 @@ from quant.data.database import get_connection, init_db
 from quant.data.yf_utils import history_with_timeout, rate_limited
 from quant.execution.taxonomy import get_instrument_class, resolve_broker
 
-OUTPUT_FILE = "market_data.parquet"
 # Spacing between the (batched-friendly) per-symbol fetches. yfinance 1.x rate
 # limits aggressively; a modest delay + jitter avoids tripping it.
 REQUEST_DELAY = 0.8

@@ -135,13 +135,3 @@ def test_reconciliation_flag():
     row = res.iloc[0]
     assert row["Recon_Flag"] == "[!]", f"expected [!] flag, got {row['Recon_Flag']}"
     print("  [PASS] test_reconciliation_flag")
-
-
-if __name__ == "__main__":
-    test_get_fx_to_eur_eur_is_one()
-    test_get_fx_to_eur_usd_positive()
-    test_load_broker_data()
-    test_load_portfolio_new_schema()
-    test_enhanced_audit_broker_math()
-    test_reconciliation_flag()
-    print("\nAll FX/broker-sync audit tests passed.")

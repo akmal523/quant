@@ -57,64 +57,6 @@ def is_etf(symbol: str) -> bool:
     return False
 
 
-# ─── Geo Risk Tables ──────────────────────────────────────────────────────────
-
-GEO_BASE: dict[str, int] = {
-    "United States":              2,
-    "Germany":                    2,
-    "France":                     2,
-    "United Kingdom":             2,
-    "Netherlands":                2,
-    "Switzerland":                2,
-    "Norway":                     2,
-    "Denmark":                     2,
-    "Sweden":                     2,
-    "Finland":                    2,
-    "Canada":                     2,
-    "Australia":                  3,
-    "New Zealand":                2,
-    "Japan":                      3,
-    "South Korea":                5,
-    "Taiwan":                     6,
-    "Hong Kong":                  5,
-    "Singapore":                  3,
-    "China":                      7,
-    "India":                      4,
-    "Brazil":                     5,
-    "Mexico":                     5,
-    "South Africa":               5,
-    "Russia":                     10,
-    "Ukraine":                    10,
-    "Israel":                     7,
-    "Iran":                       10,
-    "Turkey":                     6,
-    "Austria":                    3,
-    "Belgium":                    2,
-    "Spain":                      3,
-    "Italy":                      3,
-    "Portugal":                   3,
-    "Greece":                     4,
-    "Poland":                     3,
-    "Hungary":                    4,
-    "Czech Republic":             3,
-    "Romania":                    4,
-    "Chile":                      4,
-    "Colombia":                   5,
-    "Peru":                       5,
-    "Kazakhstan":                 6,
-    "Zambia":                     6,
-    "Democratic Republic Congo":  7,
-}
-
-GEO_KEYWORDS: list[str] = [
-    "sanction",    "war",          "conflict",    "invasion",    "default",
-    "recession",   "fraud",        "investigation","ban",         "tariff",
-    "embargo",     "collapse",     "crisis",       "downgrade",   "lawsuit",
-    "bankruptcy",  "seizure",      "nationalise",  "nationalize", "fine",
-    "probe",       "scandal",      "corruption",   "coup",        "protest",
-    "strike",      "cyberattack",  "hack",         "data breach", "penalty",
-]
-
 # ─── Currency Display Symbols ─────────────────────────────────────────────────
 
 CURRENCY_SYMBOLS: dict[str, str] = {

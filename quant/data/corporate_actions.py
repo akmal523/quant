@@ -127,18 +127,6 @@ def adjust_for_split(df: pd.DataFrame, event: SplitEvent) -> pd.DataFrame:
     return out
 
 
-def adjust_cost_basis(avg_entry_price: float, ratio: float) -> float:
-    """Adjust a portfolio cost basis for a forward split ratio.
-
-    Intent: after a 2:1 split, shares double and price halves; the total cost is
-    unchanged so the per-share entry price must be divided by the ratio.
-    Invariants: returns >= 0; pure function (no I/O).
-    """
-    if avg_entry_price is None or ratio is None or ratio <= 0:
-        return avg_entry_price
-    return float(avg_entry_price) / float(ratio)
-
-
 def apply_corporate_actions(
     df: pd.DataFrame,
     events: list[SplitEvent] | None = None,

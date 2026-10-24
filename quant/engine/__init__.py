@@ -3,8 +3,9 @@ engine — the local engine that lets the system run by itself (v10.7.0).
 
 Intent: today nothing runs unless the user types a command. This package holds
 the daily job, the scheduler, alerts, notifications, flows, the ONE list
-(advice, taxonomy, pairing, weights), the invest plan and valuation. Modules are pure where possible; I/O lives at the
-edges (explicit connections, explicit paths).
+(advice, taxonomy, pairing, weights), the invest plan and valuation. Modules
+are pure where possible; I/O lives at the edges (explicit connections, explicit
+paths).
 
 Modules:
   - valuation.py  holdings metadata and estimated revaluation

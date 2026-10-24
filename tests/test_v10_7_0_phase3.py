@@ -39,22 +39,6 @@ def test_small_positions_untouchable():
     assert sizing.can_sell("ALPHA", 50.0, 200.0) is None
 
 
-def test_cooldown_blocks_sells_only():
-    assert sizing.cooldown_blocks_sell(True) is True
-    assert sizing.cooldown_blocks_sell(False) is False
-
-
-def test_buy_rounding_and_fees():
-    assert sizing.round_buy(147.0) == 140.0
-    assert sizing.buy_fee(is_savings_plan=True) == 0.0
-    assert sizing.buy_fee(is_savings_plan=False) == 1.0
-
-
-def test_cash_hurdle():
-    assert sizing.cash_hurdle(True) is True
-    assert sizing.cash_hurdle(False) is False
-
-
 # ── Alert conditions (Section 5) ──────────────────────────────────────────────
 
 def _clear_alerts():
@@ -116,7 +100,7 @@ def test_level_triggered_no_duplicate_open_alert():
     assert second == []
 
 
-def test_resolve_and_self_scoring():
+def test_resolve_alert_closes_it():
     conn = _clear_alerts()
     alerts.evaluate_alerts(
         conn, [{"symbol": "AMZN", "tier": "ALPHA", "value_eur": 500.0,
@@ -126,12 +110,7 @@ def test_resolve_and_self_scoring():
     alert_id = open_now[0]["id"]
     assert alerts.resolve_alert(conn, alert_id, "done", "sold", 100.0,
                                 today=date(2026, 1, 2))
-    # 30 days later the price is lower -> a done sell is correct.
-    scored = alerts.score_resolved_alerts(
-        conn, {"AMZN": 80.0}, today=date(2026, 2, 5))
-    assert scored == 1
-    row = conn.execute("SELECT verdict FROM alerts WHERE id = ?", [alert_id]).fetchone()
-    assert row[0] == "correct"
+    assert all(a["id"] != alert_id for a in alerts.open_alerts(conn))
 
 
 # ── Notifications (Section 4) ─────────────────────────────────────────────────
@@ -200,13 +179,3 @@ def test_staleness_status_with_fake_clock(tmp_path, monkeypatch):
     assert daily.staleness_status(date(2026, 10, 1)) is None
     # Monday 5 Oct, last run Tuesday 30 Sep -> stale.
     assert daily.staleness_status(date(2026, 10, 5)) is not None
-
-
-def test_morning_slot_does_not_recompute(tmp_path, monkeypatch):
-    from quant import paths
-
-    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    (tmp_path / "daily_2026-10-01.md").write_text("x", encoding="utf-8")
-    result = daily.run_morning(date(2026, 10, 1))
-    assert result.status == "ok"
-    assert "open action" in result.message

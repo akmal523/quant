@@ -26,19 +26,6 @@ FAR_FUTURE = date(2099, 1, 1)
 
 # ── Part 2.1: fee hurdle invariants ───────────────────────────────────────────
 
-FEE_HURDLE_MATRIX = [
-    # fee, expected alpha (bps), buy amount, allowed
-    (1.0, 50, 200.0, True),
-    (1.0, 50, 100.0, False),
-    (1.0, 200, 50.0, True),
-    (0.0, 10, 5.0, True),
-]
-
-
-@pytest.mark.parametrize("fee,alpha,amount,allowed", FEE_HURDLE_MATRIX)
-def test_fee_hurdle_law(fee, alpha, amount, allowed):
-    assert sizing.passes_fee_hurdle(alpha, amount, fee) is allowed
-
 
 def test_fee_hurdle_blocks_small_buy():
     holding_ = alpha_case(-0.10, value=1000.0, conviction=90.0, expected_alpha_bps=50)
@@ -119,3 +106,17 @@ def test_modified_dietz_negative_return_with_deposit():
     f = [{"date": date(2026, 1, 16), "type": "buy", "amount_eur": 500.0}]
     ret = flows.modified_dietz(1000.0, 1400.0, f, date(2026, 1, 1), date(2026, 1, 31))
     assert ret is not None and ret < 0
+
+
+FEE_HURDLE_MATRIX = [
+    # fee, expected alpha (bps), buy amount, allowed
+    (1.0, 50, 200.0, True),
+    (1.0, 50, 100.0, False),
+    (1.0, 200, 50.0, True),
+    (0.0, 10, 5.0, True),
+]
+
+
+@pytest.mark.parametrize("fee,alpha,amount,allowed", FEE_HURDLE_MATRIX)
+def test_fee_hurdle_law(fee, alpha, amount, allowed):
+    assert sizing.passes_fee_hurdle(alpha, amount, fee) is allowed

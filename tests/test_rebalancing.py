@@ -45,7 +45,7 @@ def test_target_weights_sum_to_one():
 
 def test_calculate_min_trade_size_floor():
     """Min trade size never below MIN_TRADE_SIZE_EUR."""
-    from quant.portfolio.optimizer import calculate_min_trade_size
+    from quant.portfolio.trade_size import calculate_min_trade_size
     size = calculate_min_trade_size(0.50, 0.50, 1000.0)  # zero drift
     assert size >= MIN_TRADE_SIZE_EUR
     print(f"  [PASS] test_calculate_min_trade_size_floor: {size:.0f}")
@@ -53,20 +53,12 @@ def test_calculate_min_trade_size_floor():
 
 def test_calculate_min_trade_size_drift_scales():
     """Larger drift -> larger min trade size (when drift dominates fee floor)."""
-    from quant.portfolio.optimizer import calculate_min_trade_size
+    from quant.portfolio.trade_size import calculate_min_trade_size
     # Portfolio 10000 EUR so drift value exceeds the 200 EUR fee floor.
     small = calculate_min_trade_size(0.50, 0.45, 10000.0)  # 5% drift = 500
     large = calculate_min_trade_size(0.50, 0.30, 10000.0)  # 20% drift = 2000
     assert large > small
     print(f"  [PASS] test_calculate_min_trade_size_drift_scales: {small:.0f} < {large:.0f}")
-
-
-def test_passes_fee_hurdle():
-    """Fee hurdle: 200 bps alpha needs >= 100 EUR to clear 2 EUR fee."""
-    from quant.portfolio.optimizer import passes_fee_hurdle
-    assert passes_fee_hurdle(200.0, 100.0) is True
-    assert passes_fee_hurdle(200.0, 99.0) is False
-    print("  [PASS] test_passes_fee_hurdle")
 
 
 # ── CORE Never SELL ───────────────────────────────────────────────────────────
@@ -110,7 +102,7 @@ def test_active_full_spectrum():
 
 def test_check_volume_liquidity():
     """Trade exceeding 1% of ADV is rejected."""
-    from quant.portfolio.optimizer import check_volume_liquidity
+    from quant.portfolio.trade_size import check_volume_liquidity
     df = pd.DataFrame({
         "Close": [100.0] * 30,
         "Volume": [1000.0] * 30,  # ADV = 1000 shares
@@ -122,10 +114,3 @@ def test_check_volume_liquidity():
     ok2, _ = check_volume_liquidity("TEST", 500.0, df)
     assert ok2
     print(f"  [PASS] test_check_volume_liquidity: {reason}")
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for t in tests:
-        t()
-    print(f"\nAll {len(tests)} rebalancing tests passed.")

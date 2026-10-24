@@ -138,33 +138,3 @@ class FinBERTBatchScorer:
             (scores[i] / counts[i]) * 100 if counts[i] > 0 else 0.0
             for i in range(len(texts))
         ]
-
-
-# ── Backward-compatible module-level API ───────────────────────────────────────
-# Kept for callers that still use init_worker()/score_corporate_document().
-_scorer: NLPScorer | None = None
-
-
-def init_worker() -> None:
-    """Initialise a module-level NLPScorer. Idempotent."""
-    global _scorer
-    if _scorer is None:
-        _scorer = NLPScorer()
-
-
-def unload_worker() -> None:
-    """Free the scorer from RAM to prevent multiprocessing fork inheritance."""
-    global _scorer
-    _scorer = None
-    import gc
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-
-def score_corporate_document(text: str) -> dict:
-    """Module-level convenience wrapper (uses global scorer)."""
-    global _scorer
-    if _scorer is None:
-        init_worker()
-    return _scorer.score_document(text)

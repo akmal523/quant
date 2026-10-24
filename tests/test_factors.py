@@ -49,24 +49,6 @@ def test_factor_scores_zscore_columns_present():
     print("  [PASS] test_factor_scores_zscore_columns_present")
 
 
-# ── No-Lookahead Fundamentals ─────────────────────────────────────────────────
-
-def test_get_fundamentals_as_of_no_lookahead():
-    """Only snapshots published on/before as_of_date should be returned."""
-    from quant.data.database import init_db
-    init_db()  # ensure fundamentals_history table exists
-    from quant.data.fundamentals import get_fundamentals_as_of, save_fundamentals_history
-
-    save_fundamentals_history("TEST", {"PE": 10.0, "ROE": 0.30}, "2024-01-01", "2024-01-01")
-    save_fundamentals_history("TEST", {"PE": 5.0, "ROE": 0.50}, "2024-06-01", "2024-06-01")
-
-    # As of 2024-03-01, only the Jan snapshot is known.
-    res = get_fundamentals_as_of("TEST", "2024-03-01")
-    assert res is not None
-    assert res["PE"] == 10.0, f"lookahead! got PE={res['PE']}"
-    print("  [PASS] test_get_fundamentals_as_of_no_lookahead")
-
-
 # ── Cost-Aware Backtest ───────────────────────────────────────────────────────
 
 def test_cost_aware_backtest_t1_execution():
@@ -102,10 +84,3 @@ def test_cost_aware_backtest_empty():
 
 
 # ── Liquidity & Validation ────────────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for t in tests:
-        t()
-    print(f"\nAll {len(tests)} tests passed.")

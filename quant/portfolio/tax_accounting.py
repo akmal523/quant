@@ -26,7 +26,6 @@ Dependencies: pandas, quant.data.database.
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 import pandas as pd
 
@@ -101,79 +100,3 @@ def calculate_yearly_tax_summary(year: int, filing_status: str = "single") -> di
         "taxable_income_eur": round(taxable_income, 2),
         "estimated_tax_eur": round(estimated_tax, 2),
     }
-
-
-def suggest_tax_loss_harvesting(year: int, holdings: pd.DataFrame) -> list[dict]:
-    """Suggest selling losers to offset gains before year-end.
-
-    Returns [] unless there are realized gains above the Sparerpauschbetrag and
-    at least one holding with an unrealized loss. Suggestions are sorted by tax
-    savings, highest first.
-    """
-    summary = calculate_yearly_tax_summary(year)
-
-    if summary["realized_gains_eur"] <= 0:
-        return []
-    if summary["sparerpauschbetrag_remaining_eur"] >= summary["realized_gains_eur"]:
-        return []
-    if holdings is None or holdings.empty or "Broker_PnL_EUR" not in holdings.columns:
-        return []
-
-    losers = holdings[pd.to_numeric(holdings["Broker_PnL_EUR"], errors="coerce") < 0]
-    suggestions: list[dict] = []
-    for _, holding in losers.iterrows():
-        unrealized_loss = -float(holding["Broker_PnL_EUR"])
-        tax_savings = unrealized_loss * ABGELTUNGSSTEUER_RATE
-        symbol = str(holding["Symbol"])
-        suggestions.append({
-            "symbol": symbol,
-            "name": str(holding.get("name", symbol)),
-            "unrealized_loss_eur": round(unrealized_loss, 2),
-            "tax_savings_eur": round(tax_savings, 2),
-            "reason": f"Selling {symbol} saves {tax_savings:.2f} EUR in taxes",
-        })
-
-    return sorted(suggestions, key=lambda x: x["tax_savings_eur"], reverse=True)
-
-
-def realized_gains_ytd(year: int | None = None) -> float:
-    """Sum of positive realized PnL for the year (0.0 when none)."""
-    y = year or date.today().year
-    sells = _load_trades(y, action="sell")
-    if sells.empty or "realized_pnl_eur" not in sells.columns:
-        return 0.0
-    pnl = pd.to_numeric(sells["realized_pnl_eur"], errors="coerce").fillna(0.0)
-    return float(pnl[pnl > 0].sum())
-
-
-def realized_losses_ytd(year: int | None = None) -> float:
-    """Sum of absolute negative realized PnL for the year (0.0 when none)."""
-    y = year or date.today().year
-    sells = _load_trades(y, action="sell")
-    if sells.empty or "realized_pnl_eur" not in sells.columns:
-        return 0.0
-    pnl = pd.to_numeric(sells["realized_pnl_eur"], errors="coerce").fillna(0.0)
-    return float(abs(pnl[pnl < 0].sum()))
-
-
-def record_trade(
-    date: str,
-    symbol: str,
-    action: str,
-    amount_eur: float,
-    shares: float | None = None,
-    price_eur: float | None = None,
-    fee_eur: float = 0,
-    realized_pnl_eur: float | None = None,
-) -> None:
-    """Record a buy, sell, or dividend in ONE transaction (both ledgers).
-
-    v10.8.0 (2.4): delegates to quant.engine.ledger so the flows and trades
-    ledgers are written together and a sell computes its FIFO realized gain.
-    """
-    from quant.engine.ledger import record_transaction
-
-    record_transaction(
-        when=date, action=action, symbol=symbol, amount_eur=amount_eur,
-        shares=shares, price_eur=price_eur, fee_eur=fee_eur,
-        realized_pnl_eur=realized_pnl_eur)

@@ -11,7 +11,6 @@ import pytest
 def _seed(tmp_path, monkeypatch):
     from quant import paths
     from quant.data import database
-    from quant.engine import plans
 
     csv = tmp_path / "portfolio.csv"
     csv.write_text(
@@ -29,7 +28,6 @@ def _seed(tmp_path, monkeypatch):
         conn.execute(
             "INSERT OR REPLACE INTO market_history (Date, Close, Symbol) "
             "VALUES (?, ?, ?)", ["2026-10-01", 200.0, "AMZN"])
-    plans.clear_pending_sync()
     return csv
 
 

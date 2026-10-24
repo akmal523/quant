@@ -9,68 +9,9 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from arch import arch_model
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-
-def calculate_log_returns(close_prices: pd.Series) -> pd.Series:
-    """Compute log returns for stationarity. Scaled x100 for GARCH optimizer stability."""
-    # v10.8.0: a non-positive price is invalid; suppress the log warning.
-    with np.errstate(invalid="ignore", divide="ignore"):
-        log_returns = np.log(close_prices / close_prices.shift(1)).dropna()
-    return log_returns * 100
-
-
-def garch_volatility(close_prices: pd.Series, horizon: int = 1) -> pd.Series | None:
-    """
-    GARCH(1,1) conditional volatility (annualized).
-    Auto-scales returns to unit variance before fitting to suppress DataScaleWarning
-    for low-price assets (e.g., ETFs priced < 1 EUR).
-    Returns None if data < 252 obs or model fails to converge.
-    """
-    if len(close_prices) < 252:
-        return None
-
-    returns = calculate_log_returns(close_prices)
-
-    if returns.empty or returns.std() == 0:
-        return None
-
-    try:
-        # Auto-scale weak returns to unit variance for GARCH numerical stability
-        std_est = returns.std()
-        if std_est < 1.0:
-            scale = max(std_est, 1e-8)
-            returns_scaled = returns / scale
-        else:
-            scale = 1.0
-            returns_scaled = returns
-
-        am = arch_model(returns_scaled, vol='Garch', p=1, q=1, mean='Zero', dist='t', rescale=True)
-        res = am.fit(update_freq=0, disp='off')
-        conditional_volatility = res.conditional_volatility * scale
-        annualized_vol = conditional_volatility * np.sqrt(252) / 100
-        vol_series = pd.Series(index=close_prices.index, dtype=float)
-        vol_series.update(annualized_vol)
-        return vol_series.bfill()
-    except Exception:
-        return None
-
-
-def ewma_volatility(close_prices: pd.Series, span: int = 20) -> pd.Series:
-    """
-    Exponentially weighted moving average volatility (annualized).
-    Used as fallback when GARCH cannot converge or data is too short.
-    """
-    with np.errstate(invalid="ignore", divide="ignore"):
-        returns = np.log(close_prices / close_prices.shift(1)).dropna()
-    ewma_std = returns.ewm(span=span).std()
-    annualized = ewma_std * np.sqrt(252)
-    vol_series = pd.Series(index=close_prices.index, dtype=float)
-    vol_series.update(annualized)
-    return vol_series.bfill().fillna(0.0)
 
 
 def fast_volatility(close_prices: pd.Series, span: int = 21) -> pd.Series:

@@ -18,6 +18,8 @@ from datetime import date
 
 import pytest
 
+from tests import store_readers
+
 # ── T1: cash is not an entity ─────────────────────────────────────────────────
 
 _INVESTED = {
@@ -61,7 +63,7 @@ def test_total_value_is_invested_only(invested_ledger):
     """T1 acceptance: Total = 1 082 (the money-in flow is not a cash balance)."""
     from quant.engine import mtm
 
-    assert abs(mtm.portfolio_total(_DAY) - 1082.0) < 1e-9
+    assert abs(store_readers.portfolio_total(_DAY) - 1082.0) < 1e-9
     latest = mtm.latest_total()
     assert abs(float(latest["value_eur"]) - 1082.0) < 1e-9
     assert "cash_eur" not in latest

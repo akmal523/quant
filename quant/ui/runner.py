@@ -27,7 +27,6 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 
 from quant.ui import copy as ui_copy
@@ -35,16 +34,9 @@ from quant.ui import copy as ui_copy
 # One lock per process: serializes UI-triggered runs across tabs.
 _LOCK = threading.Lock()
 
-# This process's identity (kept for backward compatibility; the shared lock
-# tracks ownership by pid).
-_OWNER = uuid.uuid4().hex
 
 # UI command buttons -> CLI subcommands (P2: command names never reach the UI).
 REFRESH = "update"
-REVIEW = "run"
-SAVE_AND_REVIEW = "all"
-REPAIR = "repair"
-SCHEDULE = "schedule"
 
 
 @dataclass
@@ -74,47 +66,11 @@ def is_running() -> bool:
 # same-process serialization and uses the shared lock's non-blocking mode so a
 # foreign live owner yields the other-tab sentence immediately.
 
-def _heartbeat_path() -> str:
-    from quant.engine import lock as lock_mod
-
-    return lock_mod.lock_path()
-
-
-def _read_heartbeat() -> dict | None:
-    from quant.engine import lock as lock_mod
-
-    return lock_mod.read_lock()
-
 
 def _write_heartbeat(command: str = "ui") -> None:
     from quant.engine import lock as lock_mod
 
     lock_mod.write_lock(command, refresh=True)
-
-
-def _clear_heartbeat() -> None:
-    from quant.engine import lock as lock_mod
-
-    lock_mod.release()
-
-
-def _heartbeat_live(hb: dict | None) -> bool:
-    from quant.engine import lock as lock_mod
-
-    if not hb:
-        return False
-    return lock_mod.pid_alive(hb.get("pid"))
-
-
-def _foreign_live_heartbeat() -> bool:
-    """True iff a DIFFERENT live process holds the lock.
-
-    v10.7.2: liveness is by pid (a dead pid is a stale lock to take over), not by
-    a heartbeat timestamp. This process's own lock returns False.
-    """
-    from quant.engine import lock as lock_mod
-
-    return lock_mod.is_foreign_live()
 
 
 def _latest_log_path() -> str | None:
@@ -125,36 +81,6 @@ def _latest_log_path() -> str | None:
         return None
     log = os.path.join(run_dir, "pipeline.log")
     return log if os.path.exists(log) else None
-
-
-def run_repair() -> RunResult:
-    """Run the ISIN registry repair in-process under the mutex. Never raises.
-
-    Intent (A6): the Settings Health Repair button re-checks after the repair, so
-    the repair runs in this process and shares the orchestrator lock. Writes only
-    data/broker_registry.csv, never the DB.
-    """
-    from quant.engine import lock as lock_mod
-
-    if not _LOCK.acquire(blocking=False):
-        return RunResult("busy", ui_copy.ERROR_RUNNING, None, -1)
-    t0 = time.time()
-    try:
-        res = lock_mod.acquire(REPAIR, blocking=False)
-        if not res.acquired:
-            return RunResult("busy", ui_copy.ERROR_ALREADY_RUNNING, None, -1)
-        from quant.data.registry_repair import repair_isins
-
-        summary = repair_isins()
-        message = (f"filled {summary['filled']} ISINs from market data, "
-                   f"{summary['not_found']} not found.")
-        return RunResult("ok", message, None, 0, time.time() - t0)
-    except Exception:  # noqa: BLE001
-        return RunResult("error", ui_copy.ERROR_REFRESH_FAILED, None, -1,
-                         time.time() - t0)
-    finally:
-        lock_mod.release()
-        _LOCK.release()
 
 
 def run(command: str = REFRESH) -> RunResult:

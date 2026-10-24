@@ -11,7 +11,6 @@ from __future__ import annotations
 from quant import paths
 from quant.engine import backup as backup_mod
 from quant.portfolio.account import load_account, write_account_fields
-from quant.ui.render import _plain_save_error
 
 
 def test_autosave_settings_persist_across_sessions(tmp_path, monkeypatch):
@@ -70,18 +69,3 @@ def test_snapshot_user_files_writes_and_prunes(tmp_path, monkeypatch):
     assert len(kept) == backup_mod.KEEP_SNAPSHOTS
     assert full.exists()
     assert backup_mod.read_meta().get("last_backup_at") == before
-
-
-def test_write_failure_reports_a_specific_reason():
-    """A2: a lock conflict names the cause; never a generic message."""
-    lock_msg = _plain_save_error(RuntimeError("database is locked by another writer"))
-    assert "Try again in a minute" in lock_msg
-    other = _plain_save_error(RuntimeError("disk full"))
-    assert "Nothing was written" in other
-
-
-def test_plain_save_error_never_says_success():
-    for exc in (RuntimeError("locked"), RuntimeError("boom"), OSError("io")):
-        msg = _plain_save_error(exc).lower()
-        assert "saved" not in msg
-        assert "success" not in msg

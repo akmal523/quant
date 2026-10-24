@@ -48,10 +48,8 @@ dependencies = [
     "polars>=1.0",
     # pyarrow: parquet run artifacts and polars -> pandas conversion.
     "pyarrow>=15.0",
-    "cvxpy>=1.4",
     "hmmlearn>=0.3",
     "scikit-learn>=1.4",
-    "arch>=6.0",
     "sec-edgar-downloader>=5.0",
     # jinja2: pandas Styler (the amber Entry-check rows).
     "jinja2>=3.1",
@@ -130,7 +128,6 @@ known-first-party = ["quant"]
 # Matrix notation (X, R, N, T) is the standard in the quant modules; renaming
 # these to lowercase would hurt readability of the linear-algebra code.
 "quant/analytics/scoring.py" = ["N806"]
-"quant/portfolio/optimizer.py" = ["N806"]
 "scripts/backtest.py" = ["N806"]
 "tests/test_institutional.py" = ["N806"]
 
@@ -161,7 +158,7 @@ only_mutate = [
     "quant/engine/flows.py",
     "quant/engine/sizing.py",
     "quant/engine/advice.py",
-    "quant/portfolio/optimizer.py",
+    "quant/portfolio/trade_size.py",
     "quant/portfolio/risk.py",
 ]
 # Only the tests that cover the math core run per mutant: fast, and free of the

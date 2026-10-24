@@ -17,16 +17,6 @@ from __future__ import annotations
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
-
-
-@dataclass
-class StepMetrics:
-    name: str
-    duration_ms: float = 0.0
-    status: str = "success"
-    symbols_processed: int = 0
-    errors: list = field(default_factory=list)
 
 
 class ObservabilityCollector:

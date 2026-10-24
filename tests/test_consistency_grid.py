@@ -73,9 +73,5 @@ def test_revalue_holdings_is_the_value_source():
     assert values["EUNL.DE"] == 1100.0
 
 
-def test_estimated_label_carries_estimated():
-    assert "estimated" in valuation.estimated_label(AS_OF)
-
-
 def test_broker_statement_label():
     assert "broker statement" in BROKER_STATEMENT_AS_OF.format(date="1 Oct 2026")

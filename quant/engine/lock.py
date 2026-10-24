@@ -266,15 +266,6 @@ def acquire(
 
 # ── Doctor / status ───────────────────────────────────────────────────────────
 
-def is_foreign_live() -> bool:
-    """True when a DIFFERENT live process holds the lock (UI busy check)."""
-    lock = read_lock()
-    if not lock:
-        return False
-    if lock.get("pid") == os.getpid():
-        return False
-    return pid_alive(lock.get("pid"))
-
 
 def status_line() -> str:
     """One plain doctor line for the runner lock.

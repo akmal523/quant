@@ -139,19 +139,3 @@ def test_historical_backtest_edge_cases():
 
 
 # ── Run 'em All ────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("  BACKTEST VALIDATION SUITE")
-    print("=" * 60)
-
-    test_survivorship_bias_warning_emitted()
-    test_survivorship_bias_warning_empty()
-    test_wfo_windows()
-    test_wfo_insufficient_data()
-    test_macro_backtest_returns_dict()
-    test_historical_backtest_edge_cases()
-
-    print("\n" + "=" * 60)
-    print("  ALL BACKTEST VALIDATION TESTS PASSED")
-    print("=" * 60)

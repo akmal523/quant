@@ -8,12 +8,10 @@ import json
 import urllib.request
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 
 from quant.cli.output import reporter
-from quant.data.universe import CURRENCY_SYMBOLS
 
 # Module-level EUR/USD rate cache (fetched once per process).
 _eur_rate_cache: float | None = None
@@ -57,11 +55,6 @@ def get_eur_rate() -> float:
     reporter.detail("  [FX] WARNING: could not fetch live EUR/USD rate; using fallback 1.0.")
     _eur_rate_cache = 1.0
     return _eur_rate_cache
-
-
-def currency_symbol(code: str) -> str:
-    """The display symbol for a currency code (falls back to the code)."""
-    return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "") + " ")
 
 
 def deduce_currency(symbol: str) -> str:
@@ -219,12 +212,3 @@ def apply_fx_conversion(
         h[c] = h[c] * multiplier
 
     return h
-
-
-def format_price(value: Any, currency_code: str) -> str:
-    """Format a price with its currency symbol; an em dash for a missing value."""
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return "\u2014"
-    v   = float(value)
-    sym = currency_symbol(currency_code)
-    return f"{sym}{v:,.4f}"

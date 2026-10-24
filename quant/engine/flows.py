@@ -23,7 +23,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-FLOW_TYPES = ("buy", "sell", "dividend")
 _FLOW_SIGN = {"buy": 1.0, "sell": -1.0, "dividend": -1.0}
 
 
@@ -116,34 +115,3 @@ def since_first_return(series: list[tuple], flows: list[dict]) -> float | None:
     start, end = _as_date(d0), _as_date(d1)
     later = [f for f in flows or [] if start < _as_date(f.get("date")) <= end]
     return modified_dietz(float(v0), float(v1), later, start, end)
-
-
-def performance_line(
-    v_start: float,
-    v_end: float,
-    flows: list[dict],
-    start: date,
-    end: date,
-) -> str:
-    """The Overview sentence: change, deposits, market move, and return.
-
-    Example: "Since 13 Sep: +20.84 EUR. Of that: you added 0.00 EUR, market
-    moved +20.84 EUR. Return: +2.4 percent."
-    """
-    from quant.ui import copy as ui_copy
-
-    net_flow = sum(
-        float(f.get("amount_eur", 0) or 0) * flow_sign(f.get("type", "buy"))
-        for f in flows
-    )
-    change = float(v_end) - float(v_start)
-    market = change - net_flow
-    ret = modified_dietz(v_start, v_end, flows, start, end)
-    ret_str = "n/a" if ret is None else f"{ret * 100:+.1f}"
-    return ui_copy.PERFORMANCE_LINE.format(
-        date=ui_copy.fmt_date(start),
-        change=f"{change:+.2f}",
-        added=f"{net_flow:+.2f}",
-        market=f"{market:+.2f}",
-        ret=ret_str,
-    )

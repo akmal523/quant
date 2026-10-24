@@ -24,17 +24,6 @@ from quant.ui.search import load_themes, resolve_theme_symbols
 
 # ── F2: dev vs production resolver ───────────────────────────────────────────
 
-def test_development_checkout_is_detected():
-    # The test runs from the source checkout (pyproject.toml + .git present).
-    assert paths.IS_DEVELOPMENT is True
-    # v10.8.1: the code root is the checkout; the writable root is NOT the repo.
-    assert paths.CODE_ROOT == paths.PACKAGE_DIR.parent
-    assert paths.PROJECT_ROOT != paths.CODE_ROOT
-
-
-def test_is_development_false_for_bare_dir(tmp_path):
-    assert paths._is_development(tmp_path) is False
-
 
 def test_user_data_dir_is_named_quant_ai():
     assert paths._user_data_dir().name == "quant-ai"

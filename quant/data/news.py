@@ -229,14 +229,6 @@ def load_news(symbol: str, fetcher: Any =None, now: float | None = None,
     return _normalize_items(items)
 
 
-def fetch_news_headlines(symbol: str) -> str:
-    """Legacy joined-headlines helper (review sentiment path)."""
-    items = load_news(symbol)
-    if not items:
-        return ""
-    return " | ".join(i["headline"] for i in items[:5])
-
-
 def _state_path() -> str:
     return os.path.join(str(paths.OUTPUTS_DIR), "news_state.json")
 
@@ -263,17 +255,3 @@ def record_fetch_result(success: bool, now: float | None = None) -> dict:
     except Exception:  # noqa: BLE001
         pass
     return state
-
-
-def outage_message() -> str | None:
-    """Health line after >=3 consecutive review-fetch failures, else None."""
-    state = _read_state()
-    if int(state.get("consecutive_failures", 0)) >= 3 and state.get("since"):
-        from datetime import datetime
-
-        from quant.ui import copy as C
-
-        d = datetime.fromtimestamp(float(state["since"]))
-        since = f"{d.strftime('%A')} {d.day} {d.strftime('%b')}"
-        return C.HEALTH_NEWS_OUTAGE.format(since=since)
-    return None

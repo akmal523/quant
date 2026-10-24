@@ -13,7 +13,6 @@ import pytest
 def _seed(tmp_path, monkeypatch):
     from quant import paths
     from quant.data import database
-    from quant.engine import plans
     from quant.reporting import artifacts
 
     # A stale audit artifact with a deliberately wrong value.
@@ -34,7 +33,6 @@ def _seed(tmp_path, monkeypatch):
     database.init_db()
     with database.write_connection() as conn:
         conn.execute("DELETE FROM holdings_meta")
-    plans.clear_pending_sync()
 
 
 def test_read_actions_overlays_live_value(tmp_path, monkeypatch):

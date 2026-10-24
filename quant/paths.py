@@ -28,11 +28,6 @@ PACKAGE_DIR: Path = Path(__file__).resolve().parent
 _DEV_ROOT: Path = PACKAGE_DIR.parent
 
 
-def _is_development(root: Path) -> bool:
-    """True for a source checkout: the project manifest or VCS sits next to it."""
-    return (root / "pyproject.toml").exists() or (root / ".git").exists()
-
-
 def _user_data_dir() -> Path:
     """Per-user writable dir for the app (never the repository, never site-packages)."""
     try:
@@ -59,7 +54,6 @@ def _resolve_root() -> Path:
 # The code checkout / install dir. Used for git operations, the scheduler's
 # working directory, and as the source of the one-time legacy migration.
 CODE_ROOT: Path = _DEV_ROOT
-IS_DEVELOPMENT: bool = _is_development(_DEV_ROOT)
 
 # Pre-10.8.1 in-repo data dir. Never a writable root; read by the one-time
 # migration (quant.data.user_data) and re-copy of shipped curated inputs.

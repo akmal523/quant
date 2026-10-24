@@ -17,48 +17,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-# ── Unclassified detection and auto-assignment ────────────────────────────────
-
-def test_detect_unclassified_assets(monkeypatch):
-    """Symbols in portfolio.csv but not tiers.csv are detected with a tier."""
-    import quant.execution.taxonomy as tax
-
-    monkeypatch.setattr(
-        tax, "get_instrument_class",
-        lambda s: "ETF" if s == "URTH" else "EQUITY",
-    )
-    from quant.portfolio.tier_manager import detect_unclassified_assets
-
-    portfolio_df = pd.DataFrame({
-        "Symbol": ["AAPL", "MSFT", "URTH"],
-        "Current_Value_EUR": [1000, 2000, 3000],
-    })
-    tiers_df = pd.DataFrame({
-        "symbol": ["AAPL"], "tier": ["ALPHA"],
-        "last_updated": [""], "notes": [""],
-    })
-    recs = detect_unclassified_assets(portfolio_df, tiers_df)
-    assert len(recs) == 2
-    assert recs[0]["symbol"] == "MSFT"
-    assert recs[1]["symbol"] == "URTH"
-    assert recs[1]["recommended_tier"] == "FORTRESS"
-
-
-def test_auto_assign_tiers():
-    """Recommendations are appended to the tiers frame."""
-    from quant.portfolio.tier_manager import auto_assign_tiers
-
-    recommendations = [
-        {"symbol": "URTH", "recommended_tier": "FORTRESS", "reason": "ETF"},
-        {"symbol": "NVDA", "recommended_tier": "ALPHA", "reason": "Stock"},
-    ]
-    tiers_df = pd.DataFrame(columns=["symbol", "tier", "last_updated", "notes"])
-    updated = auto_assign_tiers(recommendations, tiers_df)
-    assert len(updated) == 2
-    assert updated[updated["symbol"] == "URTH"]["tier"].iloc[0] == "FORTRESS"
-    assert updated[updated["symbol"] == "NVDA"]["tier"].iloc[0] == "ALPHA"
-
-
 # ── Tier validation and repair ────────────────────────────────────────────────
 
 def test_validate_tiers_csv_corrupted():
@@ -111,48 +69,3 @@ def test_tier_allocation_exceeds_limit():
     is_valid, errors = validate_tiers_csv(tiers_df, portfolio_df)
     assert not is_valid
     assert any("SPECULATIVE" in e and "exceeds" in e for e in errors)
-
-
-# ── Emergency liquidity edge cases ────────────────────────────────────────────
-
-def test_emergency_sell_empty_portfolio():
-    """An empty portfolio yields an empty plan with the full shortfall."""
-    from quant.portfolio.risk import emergency_sell_plan
-
-    result = emergency_sell_plan(5000, pd.DataFrame())
-    assert result["total_available"] == 0
-    assert result["shortfall"] == 5000
-    assert result["recommendations"] == []
-
-
-def test_emergency_sell_all_fortress():
-    """All-FORTRESS holdings produce a last-resort plan with a tax warning."""
-    from quant.portfolio.risk import emergency_sell_plan
-
-    portfolio_df = pd.DataFrame({
-        "Symbol": ["URTH", "SPY"],
-        "Tier": ["FORTRESS", "FORTRESS"],
-        "Current_Value_EUR": [3000, 2000],
-        "Liquidity_Score": [10, 10],
-        "Broker_PnL_EUR": [500, 300],
-    })
-    result = emergency_sell_plan(5000, portfolio_df)
-    assert result["fortress_warning"] is not None
-    assert "FORTRESS" in result["fortress_warning"]
-    assert result["total_available"] == 5000
-    assert all(r["priority"] == "LAST_RESORT" for r in result["recommendations"])
-
-
-def test_prioritize_sells_with_tax():
-    """Losers are sold first; winners use the Freistellungsauftrag."""
-    from quant.portfolio.risk import prioritize_sells_with_tax
-
-    recs = [
-        {"symbol": "AAPL", "pnl_eur": 500, "liquidity_score": 95},
-        {"symbol": "NVDA", "pnl_eur": -200, "liquidity_score": 90},
-        {"symbol": "TSM", "pnl_eur": 300, "liquidity_score": 85},
-    ]
-    out = prioritize_sells_with_tax(recs, tax_rate=0.25, freistellungsauftrag=1000)
-    assert out[0]["symbol"] == "NVDA"
-    assert out[0]["tax_impact"] < 0
-    assert "tax-free" in out[1]["tax_note"]

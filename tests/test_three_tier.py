@@ -25,23 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # ── Category 1: Look-Ahead Bias ───────────────────────────────────────────────
 
-def test_1_1_bitemporal_consistency():
-    """A fundamental published after as_of must never be visible."""
-    from quant.data.fundamentals import get_fundamentals_pit
-
-    # On the ephemeral test DB there is no history: the accessor must return
-    # None (no lookahead is possible), never a fabricated value.
-    assert get_fundamentals_pit("AAPL", "2020-01-01") is None
-
-    # The PIT contract: only rows with published_date <= as_of are eligible.
-    rows = [
-        {"as_of_date": "2019-12-31", "published_date": "2020-02-15", "PE": 20},
-        {"as_of_date": "2019-09-30", "published_date": "2019-11-01", "PE": 18},
-    ]
-    as_of = "2020-01-01"
-    visible = [r for r in rows if r["published_date"] <= as_of]
-    assert len(visible) == 1 and visible[0]["PE"] == 18
-
 
 def test_1_3_split_detection_no_crash_alert():
     """A 10:1 split must be detected, not treated as a crash."""
@@ -85,22 +68,6 @@ def test_2_2_five_year_listing_filter():
 
 
 # ── Category 3: Mathematical Soundness ────────────────────────────────────────
-
-
-def test_3_2_covariance_stability():
-    """A 1 percent covariance perturbation moves weights by less than 5 percent."""
-    from quant.portfolio.optimizer import optimize_portfolio
-
-    rng = np.random.default_rng(42)
-    n = 4
-    a = rng.normal(size=(n, n))
-    cov = a @ a.T / n + np.eye(n) * 0.1
-    mu = np.array([0.10, 0.12, 0.08, 0.11])
-
-    w1 = optimize_portfolio(mu, cov, max_weight=0.5)
-    w2 = optimize_portfolio(mu, cov * 1.01, max_weight=0.5)
-    assert np.allclose(w1.sum(), 1.0, atol=1e-4)
-    assert np.max(np.abs(w1 - w2)) < 0.05
 
 
 def test_3_3_hmm_convergence():
@@ -179,34 +146,12 @@ def test_5_2_recency_bias_not_exclusive():
     assert 0.0 <= score <= 15.0
 
 
-def test_5_3_disposition_effect_symmetric():
-    """Sell prioritization is symmetric: liquidity first, then losers."""
-    from quant.portfolio.risk import prioritize_sells
-
-    holdings = [
-        {"symbol": "WIN", "current_value_eur": 100.0, "pnl_eur": 50.0, "liquidity_score": 90.0},
-        {"symbol": "LOSS", "current_value_eur": 100.0, "pnl_eur": -50.0, "liquidity_score": 90.0},
-    ]
-    recs = prioritize_sells(holdings, 100.0)
-    # Equal liquidity -> the loser is sold first (tax-loss harvest).
-    assert recs[0]["symbol"] == "LOSS"
-
-
 # ── Category 6: Economic Realism ──────────────────────────────────────────────
-
-def test_6_1_transaction_cost_reality():
-    """A trade must clear the 2 EUR round-trip fee plus slippage."""
-    from quant.portfolio.optimizer import minimum_trade_size, passes_fee_hurdle
-
-    # 200 bps alpha -> 100 EUR minimum to clear the 2 EUR fee.
-    assert abs(minimum_trade_size(200.0) - 100.0) < 1e-6
-    assert passes_fee_hurdle(200.0, 100.0) is True
-    assert passes_fee_hurdle(200.0, 99.0) is False
 
 
 def test_6_2_liquidity_constraint():
     """A 10k EUR order on a 50k-share ADV name is rejected."""
-    from quant.portfolio.optimizer import check_volume_liquidity
+    from quant.portfolio.trade_size import check_volume_liquidity
 
     df = pd.DataFrame({
         "Close": [1.0] * 30,

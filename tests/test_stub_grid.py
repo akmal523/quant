@@ -26,33 +26,13 @@ from quant.analytics.scoring import (
     stewardship_score_v2,
 )
 from quant.engine import flows, sizing
-from quant.features.indicators import atr, garch_volatility, rsi
 from quant.portfolio.risk import (
-    calculate_liquidity_score,
     calculate_risk_penalty,
-    emergency_sell_plan,
 )
 
 
 def _series(values) -> pd.Series:
     return pd.Series(values, index=pd.date_range("2024-01-01", periods=len(values), freq="D"))
-
-
-def _calm(n: int = 300, seed: int = 1) -> pd.Series:
-    rng = np.random.default_rng(seed)
-    return _series(100.0 + np.cumsum(rng.normal(0.0, 0.1, n)))
-
-
-def _violent(n: int = 300, seed: int = 1) -> pd.Series:
-    rng = np.random.default_rng(seed)
-    return _series(100.0 + np.cumsum(rng.normal(0.0, 2.0, n)))
-
-
-def _price_hist(volume: float, close: float = 100.0, n: int = 30) -> pd.DataFrame:
-    return pd.DataFrame({
-        "Volume": [volume] * n, "Close": [close] * n,
-        "High": [close * 1.01] * n, "Low": [close * 0.99] * n,
-    })
 
 
 # ── Structural grade ──────────────────────────────────────────────────────────
@@ -124,53 +104,12 @@ def test_modified_dietz_deposit_is_not_profit():
     assert abs(ret) < 1e-9
 
 
-# ── Liquidity score ───────────────────────────────────────────────────────────
-
-def test_liquidity_score_sensitive_and_bounded():
-    low = calculate_liquidity_score("X", _price_hist(10_000.0))
-    high = calculate_liquidity_score("X", _price_hist(1_000_000.0))
-    assert high >= low  # non-decreasing in volume
-    for vol in (0.0, 10_000.0, 1_000_000.0):
-        assert 0.0 <= calculate_liquidity_score("X", _price_hist(vol)) <= 100.0
-
-
-# ── Emergency sell plan ───────────────────────────────────────────────────────
-
-def _emergency_df() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"Symbol": "A1", "Tier": "ALPHA", "Current_Value_EUR": 300.0,
-         "Liquidity_Score": 90.0, "Broker_PnL_EUR": 0.0},
-        {"Symbol": "A2", "Tier": "ALPHA", "Current_Value_EUR": 300.0,
-         "Liquidity_Score": 20.0, "Broker_PnL_EUR": 0.0},
-    ])
-
-
-def test_emergency_plan_monotone_in_amount():
-    small = emergency_sell_plan(100.0, _emergency_df())
-    large = emergency_sell_plan(500.0, _emergency_df())
-    assert large["total_available"] >= small["total_available"]
-    assert [r["symbol"] for r in small["recommendations"]] == \
-        [r["symbol"] for r in large["recommendations"]][:len(small["recommendations"])]
-
-
 # ── Sizing ────────────────────────────────────────────────────────────────────
 
 def test_sell_amount_monotone_and_capped():
     assert sizing.sell_amount(50.0, 1000.0) >= sizing.sell_amount(30.0, 1000.0)
     assert sizing.sell_amount(2000.0, 1000.0) <= 1000.0 - 1.0
     assert sizing.can_sell("ALPHA", 50.0, 200.0) is None  # below 100 EUR
-
-
-# ── Indicators ────────────────────────────────────────────────────────────────
-
-def test_indicators_differ_calm_vs_violent():
-    calm, violent = _calm(), _violent()
-    assert rsi(calm) != rsi(violent)
-    assert atr(calm, calm, calm) != atr(violent, violent, violent)
-    calm_vol = garch_volatility(calm)
-    violent_vol = garch_volatility(violent)
-    assert calm_vol is not None and violent_vol is not None
-    assert violent_vol.mean() > calm_vol.mean()
 
 
 # ── Market regime ─────────────────────────────────────────────────────────────

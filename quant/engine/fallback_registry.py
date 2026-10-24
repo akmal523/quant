@@ -41,8 +41,6 @@ FALLBACKS: dict[str, dict] = {
                              "test_fallback_alerts_open_alerts"),
     "alerts.resolve_alert": _e("unwritable alerts table", False, "none",
                                "test_fallback_alerts_resolve_alert"),
-    "alerts.score_resolved_alerts": _e("unreadable alerts table", 0, "none",
-                                       "test_fallback_alerts_score_resolved"),
     # ── flows ─────────────────────────────────────────────────────────────────
     "flows.load_flows": _e("unreadable flows table", [], "empty",
                            "test_fallback_flows_load_flows"),
@@ -65,8 +63,6 @@ FALLBACKS: dict[str, dict] = {
                                    "test_fallback_valuation_compute_shares"),
     "valuation._lookup": _e("price lookup raised", None, "none",
                             "test_fallback_valuation_lookup"),
-    "valuation.sync_from_portfolio_csv": _e("portfolio CSV unreadable", 0, "none",
-                                            "test_fallback_valuation_sync_csv"),
     "valuation._last_sync_date": _e("unreadable holdings_meta", None, "none",
                                     "test_fallback_valuation_last_sync_date"),
     "valuation._meta_get": _e("unreadable meta table", None, "none",
@@ -82,14 +78,6 @@ FALLBACKS: dict[str, dict] = {
     # ── cash_rate ─────────────────────────────────────────────────────────────
     "cash_rate.fetch_live_cash_apy": _e("live fetch failed", None, "fallback",
                                         "test_fallback_cash_rate_fetch"),
-    # ── optimizer ─────────────────────────────────────────────────────────────
-    "optimizer.optimize_portfolio": _e("solver failed", "equal weight within caps",
-                                       "optimizer fallback: equal weight",
-                                       "test_fallback_optimizer_portfolio"),
-    "optimizer.optimize_portfolio_cvar": _e("solver failed",
-                                            "equal weight within caps",
-                                            "optimizer fallback: equal weight",
-                                            "test_fallback_optimizer_cvar"),
     # ── portfolio ─────────────────────────────────────────────────────────────
     "portfolio.load_portfolio": _e("portfolio CSV unreadable", "empty frame",
                                    "empty", "test_fallback_portfolio_load"),
@@ -100,18 +88,12 @@ FALLBACKS: dict[str, dict] = {
     "portfolio.get_last_rebalance": _e("unreadable rebalance_log", None, "none",
                                        "test_fallback_portfolio_last_rebalance"),
     # ── risk ──────────────────────────────────────────────────────────────────
-    "risk.estimate_spread_bps": _e("unusable price history", 50.0, "fallback",
-                                   "test_fallback_risk_estimate_spread"),
-    "risk.calculate_liquidity_score": _e("unusable price history", 0.0, "fallback",
-                                         "test_fallback_risk_liquidity_score"),
     # ── tier_manager ──────────────────────────────────────────────────────────
     "tier_manager.load_tiers": _e("tiers.csv unreadable", "empty frame", "empty",
                                   "test_fallback_tier_manager_load_tiers"),
     # ── persistence (v10.8.1) ─────────────────────────────────────────────────
     "user_data._copy_if_missing": _e("missing or unreadable source file", False,
                                      "none", "test_fallback_user_data_copy_if_missing"),
-    "render._rows_differ": _e("uncomparable table frames", False, "none",
-                              "test_fallback_render_rows_differ"),
     "notify._load_state": _e("missing or invalid notify state", {}, "empty",
                              "test_fallback_notify_load_state"),
     # ── the ONE list / regime (v10.8.10) ──────────────────────────────────────
@@ -135,8 +117,3 @@ def register_fallback(name: str, failure: str, default: Any, marker: str) -> Non
     FALLBACKS.setdefault(name, {
         "failure": failure, "default": default, "marker": marker, "test": "",
     })
-
-
-def is_registered(name: str) -> bool:
-    """True when a qualified ``module.function`` name is in the registry."""
-    return name in FALLBACKS

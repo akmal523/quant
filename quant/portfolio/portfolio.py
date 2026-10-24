@@ -193,24 +193,6 @@ def get_last_rebalance(symbol: str) -> str | None:
         return None
 
 
-def set_last_rebalance(symbol: str, date_str: str) -> None:
-    """Upsert last rebalance date for a symbol into rebalance_log.
-
-    Intent: persist rebalance timing so CORE/SATELLITE/SECTOR respect their
-    frequency windows. Dependencies: database.get_connection.
-    """
-    try:
-        from quant.data.database import get_connection
-        conn = get_connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO rebalance_log (symbol, last_rebalance_date) "
-            "VALUES (?, ?)",
-            [symbol, date_str],
-        )
-    except Exception:
-        pass
-
-
 def enhanced_portfolio_audit(
     portfolio_df: pd.DataFrame,
     scan_df: pd.DataFrame,
@@ -228,7 +210,7 @@ def enhanced_portfolio_audit(
     optimizer.calculate_min_trade_size / check_volume_liquidity.
     """
     from quant.analytics.scoring import generate_signal_for_tier
-    from quant.portfolio.optimizer import calculate_min_trade_size, check_volume_liquidity
+    from quant.portfolio.trade_size import calculate_min_trade_size, check_volume_liquidity
 
     broker_pnl = load_broker_data()
     scan_map = scan_df.set_index("Symbol").to_dict("index")

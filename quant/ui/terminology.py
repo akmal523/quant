@@ -21,13 +21,6 @@ CLASS_LABELS = {
     "SPECULATIVE": CLASS_SPECULATIVE,
 }
 
-# The descriptive form (used where a one-line explanation is needed).
-CLASS_DESCRIPTIONS = {
-    "FORTRESS": "Long-term (never sell)",
-    "ALPHA": "Active (may sell)",
-    "SPECULATIVE": "Speculative (high risk)",
-}
-
 
 def class_word(tier: str) -> str:
     """The canonical UI word for a tier key (falls back to the key)."""

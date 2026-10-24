@@ -33,12 +33,6 @@ _ACTION_WORD = {
     "change_savings_plan": ui_copy.ADVICE_TOP_UP,
     "keep": ui_copy.ADVICE_KEEP,
 }
-_STATUS_WORD = {
-    "sell_part": ui_copy.STATUS_TRIM,
-    "buy": ui_copy.STATUS_ADD,
-    "change_savings_plan": ui_copy.STATUS_ADD,
-    "keep": ui_copy.STATUS_ON_TRACK,
-}
 
 
 def _pct(value) -> float:
@@ -195,8 +189,3 @@ def format_action_line(a: dict) -> str:
     amount = a.get("amount_eur")
     amount_str = f"{amount:.0f} EUR" if amount else ""
     return f"    {a['action']:<22} {a['symbol']:<9} {amount_str:<10} {a['reason']}"
-
-
-def build_tier_actions(audit_df: pd.DataFrame | None) -> list[dict]:
-    """Deprecated alias: the tier-aware list is now the one advice pipeline."""
-    return build_actions(audit_df)

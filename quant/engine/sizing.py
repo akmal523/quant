@@ -23,11 +23,9 @@ import math
 from typing import Any
 
 from quant.config import (
-    ACTIVE_TRADE_FEE_EUR,
     BUY_ROUND_STEP_EUR,
     SELL_MIN_EUR,
     SELL_ROUND_STEP_EUR,
-    SPARPLAN_BUY_FEE_EUR,
     UNTOUCHABLE_POSITION_EUR,
 )
 
@@ -84,21 +82,6 @@ def can_sell(tier: str, position_value_eur: float, drift_eur: float) -> float | 
 def round_buy(amount_eur: float) -> float:
     """Round a buy amount to 10 EUR steps (down)."""
     return round_down(amount_eur, BUY_ROUND_STEP_EUR)
-
-
-def buy_fee(is_savings_plan: bool) -> float:
-    """0 EUR for a savings-plan leg, 1 EUR for an active buy."""
-    return SPARPLAN_BUY_FEE_EUR if is_savings_plan else ACTIVE_TRADE_FEE_EUR
-
-
-def cooldown_blocks_sell(is_sell: bool) -> bool:
-    """Cooldown blocks sells only (Law 4). Buys and alert sells are never blocked."""
-    return bool(is_sell)
-
-
-def cash_hurdle(conviction_high: bool) -> bool:
-    """True when an active buy is allowed (HIGH conviction); else cash (Law 6)."""
-    return bool(conviction_high)
 
 
 def passes_fee_hurdle(expected_alpha_bps: Any, amount_eur: Any, fee_eur: Any) -> bool:

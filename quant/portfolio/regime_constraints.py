@@ -15,8 +15,6 @@ Dependencies: config.REGIME_CONSTRAINTS.
 """
 from __future__ import annotations
 
-from quant.config import REGIME_CONSTRAINTS
-
 # HMM bull-probability thresholds. >= 0.60 is a bull regime; <= 0.40 is bear;
 # the middle band is chop (uncertain).
 BULL_THRESHOLD = 0.60
@@ -57,23 +55,3 @@ def regime_key(regime) -> str | None:
 def is_bear(regime) -> bool:
     """True when ``regime`` (label or dict, either vocabulary) is a bear market."""
     return regime_key(regime) == "bear"
-
-
-def constraints_for_regime(regime: str) -> dict:
-    """Return the risk limits for a regime.
-
-    Intent: single lookup so the optimizer and reporting agree on the caps.
-    Invariants: always returns a dict with max_single_weight and max_leverage;
-    unknown regimes fall back to the conservative chop limits.
-    """
-    return REGIME_CONSTRAINTS.get(regime, REGIME_CONSTRAINTS["chop"])
-
-
-def apply_regime_constraints(max_weight: float, regime: str) -> float:
-    """Cap a requested max single-asset weight by the regime limit.
-
-    Intent: the optimizer's per-asset cap must never exceed the regime cap.
-    Invariants: returns min(max_weight, regime cap); pure function (no I/O).
-    """
-    cap = constraints_for_regime(regime)["max_single_weight"]
-    return float(min(max_weight, cap))

@@ -25,7 +25,7 @@ DECISION_MODULES = {
     "quant.engine.flows",
     "quant.engine.sizing",
     "quant.analytics.scoring",
-    "quant.portfolio.optimizer",
+    "quant.portfolio.trade_size",
     "quant.portfolio.risk",
 }
 

@@ -15,7 +15,7 @@ tier_s_modules = [
     "quant/engine/alerts.py",
     "quant/engine/valuation.py",
     "quant/engine/news_pillar.py",
-    "quant/portfolio/optimizer.py",
+    "quant/portfolio/trade_size.py",
     "quant/portfolio/risk.py",
     "quant/portfolio/portfolio.py",
     "quant/portfolio/account.py",

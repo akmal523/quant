@@ -27,12 +27,6 @@ def test_compute_shares_from_value_and_price():
     assert valuation.compute_shares(None, 100.0) is None
 
 
-def test_estimated_label_is_visible():
-    label = valuation.estimated_label(date(2026, 10, 1))
-    assert "estimated" in label
-    assert "1 Oct 2026" in label
-
-
 def test_sync_holdings_meta_writes_shares():
     conn = get_connection()
     conn.execute("DELETE FROM holdings_meta")
@@ -99,20 +93,6 @@ def test_revalue_holdings_uses_latest_close():
     assert values["EUNL.DE"] == 1100.0
 
 
-def test_sync_reminder_after_threshold():
-    conn = get_connection()
-    conn.execute("DELETE FROM holdings_meta")
-    # v10.7.4 (R7): clear the 7-day throttle stamp so the reminder can fire.
-    conn.execute("DELETE FROM meta")
-    df = pd.DataFrame([{"Symbol": "EUNL.DE", "Current_Value_EUR": 1000.0,
-                        "Invested_EUR": 900.0}])
-    valuation.sync_holdings_meta(conn, df, {"EUNL.DE": 100.0}, date(2026, 1, 1))
-    assert valuation.days_since_last_sync(conn, date(2026, 1, 20)) == 19
-    assert valuation.sync_reminder_line(conn, date(2026, 1, 20)) is None
-    line = valuation.sync_reminder_line(conn, date(2026, 3, 1))
-    assert line is not None and "broker sync" in line
-
-
 # ── Flows and Modified Dietz ──────────────────────────────────────────────────
 
 def test_modified_dietz_excludes_deposit():
@@ -144,21 +124,6 @@ def test_modified_dietz_market_move_only():
     end = date(2026, 10, 1)
     ret = flows.modified_dietz(1000.0, 1100.0, [], start, end)
     assert abs(ret - 0.10) < 1e-9
-
-
-def test_performance_line_mentions_deposits_and_market():
-    start = date(2026, 9, 1)
-    end = date(2026, 10, 1)
-    line = flows.performance_line(
-        1000.0, 1200.0,
-        [{"date": date(2026, 9, 16), "type": "buy", "amount_eur": 200.0}],
-        start, end)
-    assert "you added" in line
-    assert "market moved" in line
-    assert "Return" in line
-
-
-# ── Retention ─────────────────────────────────────────────────────────────────
 
 
 # ── Daily-run marker ──────────────────────────────────────────────────────────

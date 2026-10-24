@@ -2,14 +2,11 @@
 
 Intent (v10.7.5, Part 3): a LEGITIMATE FALLBACK is declared, marked, tested, and
 surfaced. This test iterates ``FALLBACKS`` so a new entry without a triggering
-test fails CI automatically. It also proves cache correctness (a cached result
-equals a cold computation) and the optimizer fallback marker.
+test fails CI automatically.
 
 Invariants:
   - Every registry entry has a trigger and a test id.
   - Each trigger returns the documented default.
-  - The optimizer fallback sets a marker the weekly report renders.
-  - disk_cache: cold and warm results are identical on fresh inputs.
 """
 from __future__ import annotations
 
@@ -50,9 +47,8 @@ def _triggers() -> dict[str, tuple]:
         today_list,
         valuation,
     )
-    from quant.portfolio import account, cash_rate, optimizer, portfolio, risk, tier_manager
+    from quant.portfolio import account, cash_rate, portfolio, tier_manager
     from quant.reporting import artifacts
-    from quant.ui import render
 
     def _persist_broken():
         with mock.patch("quant.engine.holdings_view.holdings_view", side_effect=_raise):
@@ -69,14 +65,6 @@ def _triggers() -> dict[str, tuple]:
     def _model_available_broken():
         with mock.patch("importlib.util.find_spec", side_effect=RuntimeError("boom")):
             return news_pillar.model_available()
-
-    def _optimize_broken():
-        with mock.patch("cvxpy.Problem.solve", side_effect=RuntimeError("boom")):
-            return optimizer.optimize_portfolio(np.array([0.1, 0.2]), np.eye(2))
-
-    def _optimize_cvar_broken():
-        with mock.patch("cvxpy.Problem.solve", side_effect=RuntimeError("boom")):
-            return optimizer.optimize_portfolio_cvar(np.array([0.1, 0.2]), np.eye(2))
 
     def _last_rebalance_broken():
         with mock.patch("quant.data.database.get_connection", side_effect=RuntimeError("boom")):
@@ -97,8 +85,6 @@ def _triggers() -> dict[str, tuple]:
             lambda: alerts._has_unrearmed_dismissal(_BrokenConn(), "X", "k"), False),
         "alerts.open_alerts": (lambda: alerts.open_alerts(_BrokenConn()), []),
         "alerts.resolve_alert": (lambda: alerts.resolve_alert(_BrokenConn(), 1, "done"), False),
-        "alerts.score_resolved_alerts": (
-            lambda: alerts.score_resolved_alerts(_BrokenConn(), {}), 0),
         "flows.load_flows": (lambda: flows.load_flows(_BrokenConn()), []),
         "news_pillar._read_cache": (_read_cache_broken, {}),
         "news_pillar.model_available": (_model_available_broken, False),
@@ -108,8 +94,6 @@ def _triggers() -> dict[str, tuple]:
         "sizing.passes_fee_hurdle": (lambda: sizing.passes_fee_hurdle("bad", "bad", 1.0), True),
         "valuation.compute_shares": (lambda: valuation.compute_shares("bad", 100.0), None),
         "valuation._lookup": (lambda: valuation._lookup(_BrokenLookup(), "X"), None),
-        "valuation.sync_from_portfolio_csv": (
-            lambda: valuation.sync_from_portfolio_csv(_BrokenConn(), {}), 0),
         "valuation._last_sync_date": (lambda: valuation._last_sync_date(_BrokenConn()), None),
         "valuation._meta_get": (lambda: valuation._meta_get(_BrokenConn(), "k"), None),
         "valuation.record_snapshot": (
@@ -118,10 +102,6 @@ def _triggers() -> dict[str, tuple]:
             lambda: account.load_account("/nonexistent/account.yaml").loaded, False),
         "cash_rate.fetch_live_cash_apy": (
             lambda: cash_rate.fetch_live_cash_apy(fetcher=_raise, parser=lambda _h: None), None),
-        "optimizer.optimize_portfolio": (
-            _optimize_broken, np.full(2, min(0.5, 0.10))),
-        "optimizer.optimize_portfolio_cvar": (
-            _optimize_cvar_broken, np.full(2, min(0.5, 0.10))),
         "portfolio.load_portfolio": (
             lambda: portfolio.load_portfolio("/nonexistent/portfolio.csv").empty, True),
         "portfolio.portfolio_issues": (
@@ -129,9 +109,6 @@ def _triggers() -> dict[str, tuple]:
         "portfolio.load_broker_data": (
             lambda: portfolio.load_broker_data("/nonexistent/portfolio.csv"), {}),
         "portfolio.get_last_rebalance": (_last_rebalance_broken, None),
-        "risk.estimate_spread_bps": (lambda: risk.estimate_spread_bps(None), 50.0),
-        "risk.calculate_liquidity_score": (
-            lambda: risk.calculate_liquidity_score("X", None), 0.0),
         "tier_manager.load_tiers": (
             lambda: tier_manager.load_tiers("/nonexistent/tiers.csv").empty, True),
         "account.write_account_fields": (
@@ -140,7 +117,6 @@ def _triggers() -> dict[str, tuple]:
         "user_data._copy_if_missing": (
             lambda: user_data._copy_if_missing(
                 "/nonexistent/src", "/nonexistent/dst"), False),
-        "render._rows_differ": (lambda: render._rows_differ(None, None), False),
         "notify._load_state": (
             lambda: _load_state_missing(), {}),
         "today_list._rows": (
@@ -168,33 +144,3 @@ def test_fallback_returns_its_default(key):
         assert np.allclose(actual, expected)
     else:
         assert actual == expected
-
-
-def test_optimizer_fallback_marker_and_report_line():
-    from quant.portfolio import optimizer
-
-    optimizer.clear_optimizer_fallback()
-    assert optimizer.optimizer_fallback_line() is None
-    with mock.patch("cvxpy.Problem.solve", side_effect=RuntimeError("boom")):
-        optimizer.optimize_portfolio(np.array([0.1, 0.2]), np.eye(2))
-    assert optimizer.optimizer_fallback_used()
-    assert optimizer.optimizer_fallback_line() == "optimizer fallback: equal weight"
-    optimizer.clear_optimizer_fallback()
-
-
-def test_disk_cache_cold_equals_warm(tmp_path, monkeypatch):
-    from quant.analytics import cache
-
-    monkeypatch.setattr(cache, "cache_dir", lambda: tmp_path)
-    calls = {"n": 0}
-
-    @cache.disk_cache(max_age_days=7)
-    def _square(x: int) -> int:
-        calls["n"] += 1
-        return x * x
-
-    cache.clear_cache()
-    cold = _square(7)
-    warm = _square(7)
-    assert cold == warm == 49
-    assert calls["n"] == 1  # the warm call was served from disk

@@ -310,31 +310,6 @@ def _render_broker_editor(portfolio, live=None) -> pd.DataFrame:
     )
 
 
-def _plain_save_error(exc: Exception) -> str:
-    """One specific line: what was not saved and why (v10.8.1, A2)."""
-    msg = str(exc).lower()
-    if "lock" in msg or "conflict" in msg or "busy" in msg:
-        return ("Could not save: the daily check or another tab is writing. "
-                "Try again in a minute.")
-    return ("Could not save your holdings. Nothing was written; "
-            "your edit is still on screen.")
-
-
-def _rows_differ(edited, saved) -> bool:
-    """True when the edited table differs from the saved one (v10.8.1, A2)."""
-    def _norm(df):
-        if df is None or getattr(df, "empty", True):
-            return []
-        cols = [c for c in _EDIT_COLS if c in df.columns]
-        return sorted(
-            tuple(str(r.get(c, "")) for c in cols) for _, r in df[cols].iterrows())
-
-    try:
-        return _norm(edited) != _norm(saved)
-    except Exception:  # noqa: BLE001
-        return False
-
-
 # ── Value chart helpers (spec 3.1; pure where possible) ───────────────────────
 _RANGE_DAYS = {"1M": 31, "3M": 92, "1Y": 365, "Max": None}
 
@@ -355,43 +330,6 @@ def _rebase(values):
     if not base:
         return values
     return values / base * 100.0
-
-
-def _range_annotation(df: pd.DataFrame, growth: bool = False) -> str:
-    """`+4.2% since 1 Jun 2026 (34.80 EUR)` from the range endpoints.
-
-    H3.8 (M3): Growth mode is percent-only (no EUR parenthetical).
-    """
-    if df.empty or len(df) < 2:
-        return ""
-    first, last = df.iloc[0], df.iloc[-1]
-    if not first["value_eur"]:
-        return ""
-    pct = (last["value_eur"] / first["value_eur"] - 1.0) * 100.0
-    sign = "+" if pct >= 0 else ""
-    if growth:
-        return C.CHART_SINCE_PCT.format(sign=sign, pct=f"{pct:.1f}",
-                                        date=C.fmt_date(first["review_ts"]))
-    abs_ = last["value_eur"] - first["value_eur"]
-    return C.CHART_SINCE.format(sign=sign, pct=f"{pct:.1f}",
-                                date=C.fmt_date(first["review_ts"]), amount=f"{abs_:.2f}")
-
-
-def _axis_tickformat(df) -> str:
-    """H3.7 (L5): sub-3-day ranges label by hh:mm, else by day."""
-    try:
-        span = (df["review_ts"].max() - df["review_ts"].min()).days
-    except Exception:  # noqa: BLE001
-        return "%d %b"
-    return "%H:%M" if span < 3 else "%d %b"
-
-
-def _annotation_kwargs(text: str) -> dict:
-    """H3.7 (L5): the in-plot annotation, in the top margin on a white box."""
-    return dict(xref="paper", yref="paper", x=0.0, y=1.0, xanchor="left",
-                yanchor="bottom", text=text, showarrow=False, align="left",
-                font=dict(size=12, color=P.ANNOTATION_TEXT),
-                bgcolor=P.ANNOTATION_BG)
 
 
 def _render_value_chart(history, holdings) -> None:

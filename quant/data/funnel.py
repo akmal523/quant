@@ -19,9 +19,6 @@ Dependencies: config thresholds, yfinance (lazy), pandas, ThreadPoolExecutor.
 """
 from __future__ import annotations
 
-import contextlib
-import os
-
 import pandas as pd
 
 from quant.cli.output import reporter
@@ -33,48 +30,7 @@ from quant.config import (
     FUNNEL_TOP_N,
 )
 
-
-@contextlib.contextmanager
-def _silence_yfinance():
-    """Suppress yfinance's stderr noise (delisted-symbol warnings).
-
-    Intent: the broad universe contains some delisted/bad tickers (e.g. BRK.B,
-    BF.B from the Russell 1000 list). yfinance prints '$SYM: possibly delisted'
-    to stderr for each one. These are non-fatal (the funnel skips them) but
-    flood the console. Redirect stderr to devnull for the duration of a fetch.
-    Invariants: restores stderr on exit, even on exception.
-    """
-    stderr_fd = os.dup(2)
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(devnull, 2)
-        yield
-    finally:
-        os.dup2(stderr_fd, 2)
-        os.close(devnull)
-        os.close(stderr_fd)
-
-
 # ── Stage 1: Liquidity & Viability ────────────────────────────────────────────
-
-def fetch_snapshot(symbol: str) -> tuple[str, float, float] | None:
-    """Fetch a 1-day price/volume snapshot for a symbol.
-
-    Intent: cheap Stage 1 probe. Only 1 day of data, so 1000+ tickers load fast.
-    Invariants: returns (symbol, price, volume) or None on failure/no data.
-    Dependencies: yfinance (lazy import keeps pure logic testable).
-    """
-    try:
-        from quant.data.yf_utils import history_with_timeout
-        with _silence_yfinance():
-            df = history_with_timeout(symbol, period="1d", auto_adjust=True)
-        if df is None or df.empty or "Close" not in df.columns:
-            return None
-        price = float(df["Close"].iloc[-1])
-        volume = float(df["Volume"].iloc[-1]) if "Volume" in df.columns else 0.0
-        return symbol, price, volume
-    except Exception:
-        return None
 
 
 def _stage1_keep(price: float, volume: float,
@@ -126,23 +82,6 @@ def stage1_liquidity(
 
 
 # ── Stage 2: Trend & Momentum ─────────────────────────────────────────────────
-
-def fetch_history(symbol: str, period: str = "1y") -> pd.DataFrame | None:
-    """Fetch 1y OHLCV history for a survivor.
-
-    Intent: Stage 2 needs enough history for moving averages / RSI / MACD.
-    Invariants: returns a df with a non-empty Close column, or None.
-    Dependencies: yfinance (lazy).
-    """
-    try:
-        from quant.data.yf_utils import history_with_timeout
-        with _silence_yfinance():
-            df = history_with_timeout(symbol, period=period, auto_adjust=True)
-        if df is None or df.empty or "Close" not in df.columns:
-            return None
-        return df.dropna(subset=["Close"])
-    except Exception:
-        return None
 
 
 def momentum_score(close: pd.Series) -> float:

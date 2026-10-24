@@ -20,6 +20,3 @@ def test_market_db():
     finally:
         conn.execute("DROP TABLE IF EXISTS market_history_bridge_test")
     print("Task 3 validation passed. Pandas <-> DuckDB bridge operational.")
-
-if __name__ == "__main__":
-    test_market_db()

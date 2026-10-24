@@ -115,14 +115,6 @@ def read_manifest(conn: Any = None, run_id: str | None = None) -> list[dict]:
     return out
 
 
-def stage_status(stage: str, conn: Any = None) -> str:
-    """The latest status for one stage (missing when unrecorded)."""
-    for row in read_manifest(conn):
-        if row["stage"] == stage:
-            return row["status"]
-    return STATUS_MISSING
-
-
 def coverage_text(line: str | list | tuple | None) -> str:
     """Format a coverage value as ``n/N symbols`` (T7/R3)."""
     if line is None:
@@ -156,27 +148,6 @@ def coverage_line(conn: Any = None) -> str:
     if when:
         return f"coverage: {cov}, as of {when}"
     return f"coverage: {cov}"
-
-
-def confidence_flag(present: int, total: int) -> str:
-    """The data-confidence flag carried on every score (T7).
-
-    ``low`` when most inputs are missing (the documented penalty applies); the
-    score still exists. A stage that FAILED is a manifest failure, not a low flag.
-    """
-    try:
-        total = int(total)
-        present = int(present)
-    except (TypeError, ValueError):
-        return "low"
-    if total <= 0:
-        return "low"
-    ratio = present / total
-    if ratio >= 0.8:
-        return "high"
-    if ratio >= 0.5:
-        return "medium"
-    return "low"
 
 
 def empty_state_reason(stage: str, conn: Any = None) -> str:

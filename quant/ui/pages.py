@@ -936,15 +936,6 @@ def _render_market() -> None:
         st.caption(C.MARKET_NEWS_OFF)
 
 
-def _db_size_mb() -> float:
-    import os
-
-    try:
-        return os.path.getsize(paths.DB_FILE) / (1024 * 1024)
-    except Exception:  # noqa: BLE001
-        return 0.0
-
-
 def _run_analysis() -> None:
     """The "Run analysis" button: fetch fresh data, then score (v10.8.10).
 

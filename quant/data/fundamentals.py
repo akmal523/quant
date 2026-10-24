@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any
 
 import requests
 import yfinance as yf
@@ -34,9 +33,6 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
-def evaluate_index_grade(hmm_prob: Any) -> float:
-    """Grade a Core ETF purely from the HMM regime probability (0-100)."""
-    return hmm_prob * 100
 
 def _get_from_cache(symbol: str) -> dict | None:
     conn = get_connection()
@@ -98,43 +94,6 @@ def save_fundamentals_history(symbol: str, data: dict, as_of_date: str,
             data.get("EBIT"), data.get("InterestExpense"),
         ]
     )
-
-
-def get_fundamentals_as_of(symbol: str, as_of_date: str) -> dict | None:
-    """Return the most recent fundamentals snapshot known by as_of_date.
-
-    Intent: no-lookahead. Only rows with published_date <= as_of_date are used.
-    Returns None if no snapshot is available by that date.
-    """
-    conn = get_connection()
-    row = conn.execute(
-        """SELECT pe, peg, roe, debt_to_equity, ebit, interest_expense
-           FROM fundamentals_history
-           WHERE symbol = ? AND published_date <= ?
-           ORDER BY published_date DESC
-           LIMIT 1""",
-        [symbol, as_of_date]
-    ).fetchone()
-    if not row:
-        return None
-    pe, peg, roe, de, ebit, interest_exp = row
-    return {
-        "PE": pe, "PEG": peg, "ROE": roe,
-        "DebtToEquity": de,
-        "EBIT": ebit, "InterestExpense": interest_exp,
-    }
-
-
-def get_fundamentals_pit(symbol: str, as_of_date: str) -> dict | None:
-    """Point-in-time fundamentals accessor for backtests (v10.4.0, Phase 1).
-
-    Intent: a backtest must NEVER see a fundamental before the market did. This
-    is the ONLY accessor backtests should use. It returns the snapshot whose
-    published_date <= as_of_date, or None (fail-closed, no lookahead fallback).
-    Invariants: never returns a snapshot published after as_of_date.
-    Dependencies: get_fundamentals_as_of.
-    """
-    return get_fundamentals_as_of(symbol, as_of_date)
 
 
 # ── ICR Computation ───────────────────────────────────────────────────────────

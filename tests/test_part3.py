@@ -84,10 +84,3 @@ def test_observability_captures_error():
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for t in tests:
-        t()
-    print(f"\nAll {len(tests)} Part 3 tests passed.")

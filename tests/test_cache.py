@@ -20,6 +20,3 @@ def test_caches():
     assert _compute_icr(fund_res) == 10.0, f"ICR computation failed: {_compute_icr(fund_res)}"
 
     print("Cache validation passed. Fundamentals cache + ICR computation operational.")
-
-if __name__ == "__main__":
-    test_caches()

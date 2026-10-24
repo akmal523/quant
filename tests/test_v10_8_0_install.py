@@ -51,13 +51,3 @@ def test_no_hardcoded_briefing_date_or_placeholder_cash():
     src = (ROOT / "quant" / "main.py").read_text()
     assert "2026-09-09" not in src
     assert "placeholder cash" not in src
-
-
-def test_news_outage_message_after_three_failures(tmp_path, monkeypatch):
-    from quant import paths
-    from quant.data import news
-
-    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    for _ in range(3):
-        news.record_fetch_result(False)
-    assert news.outage_message() is not None

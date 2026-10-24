@@ -22,23 +22,6 @@ def test_load_tiers_safe_missing(tmp_path, monkeypatch):
     assert isinstance(warnings, list)
 
 
-def test_repair_corrupted_csv(tmp_path):
-    """A corrupted tiers file is recovered by parsing valid rows."""
-    from quant.portfolio.tier_manager import _repair_corrupted_csv
-
-    path = tmp_path / "tiers.csv"
-    path.write_text(
-        "garbage line without commas\n"
-        "symbol,tier,last_updated,notes\n"
-        "AAPL,ALPHA,2026-10-01,\n"
-        "MSFT,FORTRESS,2026-10-01,\n",
-        encoding="utf-8",
-    )
-    df = _repair_corrupted_csv(str(path))
-    assert set(df["symbol"]) == {"AAPL", "MSFT"}
-    assert df[df["symbol"] == "MSFT"]["tier"].iloc[0] == "FORTRESS"
-
-
 def test_health_check_runs():
     """The health check returns a valid status and a list of checks."""
     from quant.cli.health import run_health_check

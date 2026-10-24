@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from tests import store_readers
+
 pytest.importorskip("streamlit")
 
 from streamlit.testing.v1 import AppTest  # noqa: E402
@@ -232,7 +234,7 @@ def test_invariant_tail_matches_latest_close(valuation_store):
     """Invariant 1: the valuation tail equals the latest close date."""
     from quant.engine import mtm
 
-    assert mtm.latest_price_date() == mtm.latest_market_date()
+    assert mtm.latest_price_date() == store_readers.latest_market_date()
 
 
 def test_invariant_one_point_per_trading_day(valuation_store):
@@ -254,7 +256,7 @@ def test_invariant_day_delta_equals_valuation_difference(valuation_store):
     from quant.reporting.artifacts import compute_day_delta
 
     d_last, d_prev = V_DAYS[-1], V_DAYS[-2]
-    expected = mtm.portfolio_total(d_last) - mtm.portfolio_total(d_prev)
+    expected = store_readers.portfolio_total(d_last) - store_readers.portfolio_total(d_prev)
     eur, _pct, when = mtm.day_delta()
     assert abs(eur - expected) < 1e-9, f"delta {eur} != {expected}"
     assert str(when)[:10] == str(d_last)
@@ -274,7 +276,7 @@ def test_invariant_chart_tail_equals_portfolio_total(valuation_store):
     d = mtm.latest_price_date()
     chart = read_portfolio_total()
     chart_tail = float(chart["value_eur"].iloc[-1])
-    assert abs(chart_tail - mtm.portfolio_total(d)) < 1e-9
+    assert abs(chart_tail - store_readers.portfolio_total(d)) < 1e-9
 
 
 def test_invariant_growth_view_has_portfolio_and_per_asset(valuation_store):
@@ -339,7 +341,7 @@ def test_catch_up_aligns_tail_to_latest_price(valuation_store):
     assert mtm.latest_price_date() == _d(2026, 10, 8)
     res = mtm.catch_up(retries=1, base_delay=0.0)
     assert res["ok"] is True
-    assert mtm.latest_price_date() == mtm.latest_market_date()
+    assert mtm.latest_price_date() == store_readers.latest_market_date()
 
 
 def test_catch_up_retries_then_marks_stale(valuation_store, monkeypatch):

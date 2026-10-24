@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import duckdb
-import pandas as pd
 
 from quant import paths
 
@@ -747,71 +746,3 @@ def init_db() -> None:
         sync_registry_to_working_universe(conn)
     except Exception:  # noqa: BLE001
         pass
-
-
-# ── v10.6.5: Batch query and lazy load ────────────────────────────────────────
-
-def batch_query_portfolio_data(symbols: list[str]) -> dict:
-    """Load market history for many symbols in a single query (v10.6.5).
-
-    Intent: replace N per-symbol queries with one ``IN (...)`` query. Prices come
-    from ``market_history``; fundamentals and news are loaded by their own
-    modules (they are not in this table), so those keys are empty here.
-
-    Invariants: returns ``{"prices": {symbol: DataFrame}, "fundamentals": {},
-    "news": {}}``; never raises (an empty dict on failure).
-    """
-    empty = {"prices": {}, "fundamentals": {}, "news": {}}
-    if not symbols:
-        return empty
-    try:
-        with read_only_connection() as conn:
-            placeholders = ", ".join(["?"] * len(symbols))
-            df = conn.execute(
-                "SELECT Date, Open, High, Low, Close, Volume, Symbol, Sector, "
-                "Instrument_Class FROM market_history "
-                f"WHERE Symbol IN ({placeholders}) ORDER BY Symbol, Date",
-                list(symbols),
-            ).df()
-    except Exception:  # noqa: BLE001
-        return empty
-    if df is None or df.empty:
-        return empty
-    prices = {
-        str(sym): group.reset_index(drop=True)
-        for sym, group in df.groupby("Symbol")
-    }
-    return {"prices": prices, "fundamentals": {}, "news": {}}
-
-
-def load_prices_lazy(
-    symbol: str,
-    start_date: str | None = None,
-    end_date: str | None = None,
-    chunk_size: int = 10000,
-) -> Iterator[pd.DataFrame]:
-    """Yield ``market_history`` rows for a symbol in chunks (v10.6.5).
-
-    Intent: bound memory for very long histories by streaming rows instead of
-    loading them all at once. Invariants: a generator; yields DataFrames of at
-    most ``chunk_size`` rows; yields nothing on failure.
-    """
-    try:
-        with read_only_connection() as conn:
-            query = ("SELECT Date, Open, High, Low, Close, Volume, Symbol, Sector, "
-                     "Instrument_Class FROM market_history WHERE Symbol = ?")
-            params: list = [symbol]
-            if start_date:
-                query += " AND Date >= ?"
-                params.append(start_date)
-            if end_date:
-                query += " AND Date <= ?"
-                params.append(end_date)
-            query += " ORDER BY Date"
-            df = conn.execute(query, params).df()
-    except Exception:  # noqa: BLE001
-        return
-    if df is None or df.empty:
-        return
-    for offset in range(0, len(df), int(chunk_size)):
-        yield df.iloc[offset:offset + int(chunk_size)].reset_index(drop=True)

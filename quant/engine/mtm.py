@@ -153,34 +153,7 @@ def _split_rows(conn: Any) -> list:
         return []
 
 
-def reconstruct_shares(conn: Any, as_of: date | None = None,
-                       opening: dict | None = None,
-                       trades: list | None = None,
-                       splits: list | None = None) -> dict[str, float]:
-    """Shares per symbol as of ``as_of``, reconstructed from the ledger.
-
-    ``opening`` / ``trades`` / ``splits`` may be injected (tests, pure use);
-    otherwise they are read from the connection.
-    """
-    as_of = as_of or date.today()
-    if opening is None:
-        opening = _opening_lots(conn)
-    if trades is None:
-        trades = _trade_rows(conn)
-    if splits is None:
-        splits = _split_rows(conn)
-    return reconstruct_from_rows(opening, trades, splits, as_of)
-
-
 # ── Price / FX resolution ─────────────────────────────────────────────────────
-
-def _native_price(symbol: str, as_of: date, conn: Any) -> float | None:
-    try:
-        from quant.data.currency import _native_close
-
-        return _native_close(symbol, as_of=as_of, conn=conn)
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _fx_rate(symbol: str) -> float:
@@ -190,53 +163,6 @@ def _fx_rate(symbol: str) -> float:
         return float(get_fx_to_eur(symbol))
     except Exception:  # noqa: BLE001
         return 1.0
-
-
-# ── The writer ────────────────────────────────────────────────────────────────
-
-def write_valuation(conn: Any, as_of: date | None = None,
-                    price_lookup: Any = None, fx_lookup: Any = None,
-                    source: str = SOURCE_DAILY) -> int:
-    """Write one valuation row per held symbol for ``as_of`` (idempotent).
-
-    ``price_lookup`` and ``fx_lookup`` are optional callables ``(symbol) -> float``
-    (tests inject them). By default the native close comes from ``market_history``
-    and the FX multiplier from :func:`quant.data.currency.get_fx_to_eur`.
-
-    Also upserts the day's ``portfolio_total`` (invested value only; v10.8.7, R-C1:
-    ``cash_eur`` is frozen audit data and is written NULL). Returns the number of
-    per-symbol rows written. Never raises on a missing price.
-    """
-    as_of = as_of or date.today()
-    shares = reconstruct_shares(conn, as_of)
-    total = 0.0
-    written = 0
-    for sym, sh in shares.items():
-        native = price_lookup(sym) if callable(price_lookup) else \
-            _native_price(sym, as_of, conn)
-        if native is None:
-            continue
-        fx = float(fx_lookup(sym)) if callable(fx_lookup) else _fx_rate(sym)
-        native = float(native)
-        fx = float(fx) if fx else 1.0
-        value = round(sh * native * fx, 2)
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO valuation "
-                "(date, symbol, shares, price_eur, fx, value_eur, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [as_of, sym, sh, native, fx, value, str(source)])
-            written += 1
-            total += value
-        except Exception:  # noqa: BLE001
-            continue
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
-            "VALUES (?, ?, NULL)", [as_of, round(total, 2)])
-    except Exception:  # noqa: BLE001
-        pass
-    return written
 
 
 # ── Per-trading-day backfill (v10.8.5, T2/D3/D7) ──────────────────────────────
@@ -400,21 +326,6 @@ def read_series(symbol: str | None = None, start: Any = None, end: Any = None,
             for r in rows]
 
 
-def portfolio_total(as_of: Any, conn: Any = None) -> float:
-    """The stored portfolio total (invested value only) for ``as_of`` (B2).
-
-    0.0 when no row exists for that exact date (no forward-fill). v10.8.7 (R-C1):
-    cash is not an entity; the total is the sum of invested position values.
-    """
-    d = _as_date(as_of)
-    if d is None:
-        return 0.0
-    rows = _query(conn, "SELECT value_eur FROM portfolio_total WHERE date = ?", [d])
-    if not rows:
-        return 0.0
-    return round(_num(rows[0][0]), 2)
-
-
 def held_symbols(as_of: Any = None, conn: Any = None) -> list[str]:
     """The symbols held on the latest stored valuation date <= ``as_of`` (B3)."""
     target = _as_date(as_of) or date.today()
@@ -425,14 +336,6 @@ def held_symbols(as_of: Any = None, conn: Any = None) -> list[str]:
     srows = _query(conn, "SELECT DISTINCT symbol FROM valuation WHERE date = ? "
                          "ORDER BY symbol", [d])
     return [str(r[0]) for r in srows]
-
-
-def latest_market_date(conn: Any = None) -> date | None:
-    """The most recent date present in ``market_history``, or None."""
-    rows = _query(conn, "SELECT MAX(Date) FROM market_history")
-    if not rows or rows[0][0] is None:
-        return None
-    return _as_date(rows[0][0])
 
 
 def latest_total(conn: Any = None) -> dict:
@@ -531,20 +434,6 @@ def catch_up(retries: int = 3, base_delay: float = 0.5) -> dict:
                     pass
     _mark_valuation_stale(last_err)
     return {"ok": False, "error": str(last_err)}
-
-
-def holdings_at(conn: Any, as_of: date | None = None) -> list[dict]:
-    """The stored valuation rows for ``as_of`` (or the latest stored date)."""
-    if as_of is None:
-        rows = _query(conn, "SELECT MAX(date) FROM valuation")
-        if not rows or rows[0][0] is None:
-            return []
-        as_of = _as_date(rows[0][0])
-    rows = _query(conn, "SELECT symbol, shares, price_eur, fx, value_eur, source "
-                        "FROM valuation WHERE date = ? ORDER BY symbol", [as_of])
-    return [{"symbol": str(r[0]), "shares": _num(r[1]), "price_eur": _num(r[2]),
-             "fx": _num(r[3]), "value_eur": _num(r[4]), "source": str(r[5])}
-            for r in rows]
 
 
 def latest_price_date(conn: Any = None) -> date | None:

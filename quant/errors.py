@@ -18,23 +18,3 @@ class QuantError(Exception):
 
 class DataError(QuantError):
     """Data is missing, corrupted, or invalid."""
-
-
-class TierError(QuantError):
-    """Tier assignments are invalid or inconsistent."""
-
-
-class AllocationError(QuantError):
-    """Tier allocations violate their constraints."""
-
-
-class CacheError(QuantError):
-    """A cache operation failed."""
-
-
-class DatabaseError(QuantError):
-    """A database operation failed."""
-
-
-class ExternalAPIError(QuantError):
-    """An external API (yfinance, SEC EDGAR) failed."""

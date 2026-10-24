@@ -147,16 +147,6 @@ def _extract_rows_from_table(df: pd.DataFrame) -> list[tuple[str, str]]:
     return out
 
 
-def _extract_symbols_from_table(df: pd.DataFrame) -> list[str]:
-    """Pull ticker symbols from a single parsed HTML table.
-
-    Thin wrapper over ``_extract_rows_from_table`` (kept for callers/tests that
-    only need the symbols).
-    Invariants: returns a list of normalized, non-empty Yahoo-style symbols.
-    """
-    return [sym for sym, _ in _extract_rows_from_table(df)]
-
-
 def _fetch_html(url: str) -> str:
     """Fetch a URL's HTML with a browser User-Agent.
 

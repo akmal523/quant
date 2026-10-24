@@ -10,7 +10,6 @@ import sys as _sys
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import pandas as pd
 
 
 def test_normalize():
@@ -22,26 +21,6 @@ def test_normalize():
     print("  [PASS] test_normalize")
 
 
-def test_extract_symbols_from_table():
-    """Ticker column is detected regardless of exact header casing."""
-    from quant.data.universe_builder import _extract_symbols_from_table
-    df = pd.DataFrame({"Ticker symbol": ["AAPL", "MSFT", "NVDA"]})
-    assert _extract_symbols_from_table(df) == ["AAPL", "MSFT", "NVDA"]
-    df2 = pd.DataFrame({"Company": ["Apple"], "Symbol": ["aapl"]})
-    assert _extract_symbols_from_table(df2) == ["AAPL"]
-    print("  [PASS] test_extract_symbols_from_table")
-
-
-def test_extract_symbols_skips_empty():
-    """Empty/NaN symbols are dropped; no ticker column returns []."""
-    from quant.data.universe_builder import _extract_symbols_from_table
-    df = pd.DataFrame({"Ticker symbol": ["AAPL", None, "", "MSFT"]})
-    assert _extract_symbols_from_table(df) == ["AAPL", "MSFT"]
-    df2 = pd.DataFrame({"Company": ["Apple"]})  # no ticker column
-    assert _extract_symbols_from_table(df2) == []
-    print("  [PASS] test_extract_symbols_skips_empty")
-
-
 def test_broad_etfs_present():
     """The curated broad-ETF list is non-empty and includes core ETFs."""
     from quant.data.universe_builder import BROAD_ETFS
@@ -49,11 +28,3 @@ def test_broad_etfs_present():
     assert "EUNL.DE" in BROAD_ETFS.values()
     assert "IWDA.AS" in BROAD_ETFS.values()
     print(f"  [PASS] test_broad_etfs_present: {len(BROAD_ETFS)} ETFs")
-
-
-if __name__ == "__main__":
-    test_normalize()
-    test_extract_symbols_from_table()
-    test_extract_symbols_skips_empty()
-    test_broad_etfs_present()
-    print("\nAll universe_builder tests passed.")

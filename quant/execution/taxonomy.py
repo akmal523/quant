@@ -33,17 +33,11 @@ BROKER_REGISTRY_PATH = paths.DATA_BROKER_REGISTRY
 # log_universe_event) without deadlocking.
 _DB_WRITE_LOCK = threading.RLock()
 
-# Instrument classes that bypass the heavy Fundamentals/NLP pipeline.
-ETF_CLASSES = {"ETF"}
-COMMODITY_CLASSES = {"COMMODITY"}
-CASH_CLASSES = {"CASH"}
 
 # ── Universe State Machine (Phase 5 / v10.2) ──────────────────────────────────
 # CORE is immutable: never graduated, never demoted. Only ACTIVE (graduated
 # satellites) age out. DELISTED stops all fetching.
 CORE_STATUSES = {"CORE"}
-DEMOTABLE_STATUSES = {"ACTIVE"}
-ALL_STATUSES = {"CORE", "ACTIVE", "WATCHLIST", "DELISTED"}
 
 # Structure flags: INVERSE/LEVERAGED products decay over time and must never be
 # accumulation vehicles (never SPARPLAN, never CORE bucket).
@@ -64,30 +58,6 @@ def load_broker_registry(path: str = BROKER_REGISTRY_PATH) -> pd.DataFrame:
             "yahoo_ticker", "isin", "tr_ticker", "exchange", "currency", "instrument_class",
         ])
     return pd.read_csv(path)
-
-
-def validate_isin(isin: str) -> bool:
-    """Validate an ISIN checksum (ISO 6166).
-
-    Intent (Phase 5 / v10.2): catch typos in broker_registry.csv at test time
-    instead of at order entry. The TR app searches by ISIN, so a bad ISIN makes
-    an instruction unexecutable.
-    Invariants: returns True iff the 12-char alphanumeric ISIN passes the
-    Luhn-style checksum. Pure function (no I/O).
-    """
-    if len(isin) != 12 or not isin.isalnum():
-        return False
-    body, check = isin[:-1], int(isin[-1])
-    digits = "".join(str(int(c, 36)) for c in body)
-    total = 0
-    for i, ch in enumerate(reversed(digits)):
-        d = int(ch)
-        if i % 2 == 0:
-            d *= 2
-            if d > 9:
-                d -= 9
-        total += d
-    return (total + check) % 10 == 0
 
 
 def sync_broker_registry(path: str = BROKER_REGISTRY_PATH) -> int:
@@ -279,26 +249,6 @@ def set_core(symbol: str) -> None:
         log_universe_event(symbol, "PIN", "set to CORE (immutable sleeve)")
 
 
-def add_to_watchlist(symbol: str, instrument_class: str = "EQUITY") -> None:
-    """Add a symbol to the WATCHLIST (lightweight scan).
-
-    Intent (Phase 5 / v10.2): manual add from the dashboard. New symbols default
-    to WATCHLIST; only graduation or pin promotes to ACTIVE.
-    Invariants: status becomes WATCHLIST; event logged.
-    """
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO asset_registry (symbol, instrument_class, universe_status, updated_at)
-           VALUES (?, ?, 'WATCHLIST', ?)
-           ON CONFLICT (symbol) DO UPDATE SET
-             instrument_class = excluded.instrument_class,
-             universe_status = 'WATCHLIST',
-             updated_at = excluded.updated_at""",
-        [symbol, instrument_class, time.time()],
-    )
-    log_universe_event(symbol, "ADD", "added to watchlist")
-
-
 def mark_delisted(symbol: str, reason: str = "consecutive fetch failures") -> None:
     """Mark a symbol DELISTED and stop all fetching.
 
@@ -317,25 +267,6 @@ def mark_delisted(symbol: str, reason: str = "consecutive fetch failures") -> No
         [symbol, time.time()],
     )
     log_universe_event(symbol, "DELIST", reason)
-
-
-def get_structure(symbol: str) -> str:
-    """Return the structure flag (PLAIN/INVERSE/LEVERAGED) for a symbol.
-
-    Intent (Phase 5 / v10.2): routing must know whether a product is inverse or
-    leveraged so it is never routed to SPARPLAN. Defaults to PLAIN.
-    Invariants: returns one of ALL_STRUCTURES; never raises.
-    """
-    try:
-        conn = get_connection()
-        row = conn.execute(
-            "SELECT structure FROM asset_registry WHERE symbol = ?", [symbol]
-        ).fetchone()
-        if row and row[0] in ALL_STRUCTURES:
-            return row[0]
-    except Exception:
-        pass
-    return PLAIN_STRUCTURE
 
 
 def set_structure(symbol: str, structure: str) -> None:
@@ -357,18 +288,3 @@ def set_structure(symbol: str, structure: str) -> None:
         [symbol, structure, time.time()],
     )
     log_universe_event(symbol, "ADD", f"structure set to {structure}")
-
-
-def is_etf_class(symbol: str, name: str = "") -> bool:
-    """True if instrument is an ETF (bypasses Fundamentals/NLP)."""
-    return classify_instrument(symbol, name) in ETF_CLASSES
-
-
-def is_commodity_class(symbol: str, name: str = "") -> bool:
-    """True if instrument is a commodity/ETC (macro-scored)."""
-    return classify_instrument(symbol, name) in COMMODITY_CLASSES
-
-
-def is_cash_class(symbol: str, name: str = "") -> bool:
-    """True if instrument is a cash-equivalent (e.g. XEON money-market ETF)."""
-    return classify_instrument(symbol, name) in CASH_CLASSES

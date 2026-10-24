@@ -17,8 +17,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from quant.config import SYNC_REMINDER_DAYS
-
 
 def compute_shares(value_eur: Any, price_eur: Any) -> float | None:
     """shares = value / price. None when price is missing or non-positive."""
@@ -30,13 +28,6 @@ def compute_shares(value_eur: Any, price_eur: Any) -> float | None:
     if price <= 0:
         return None
     return value / price
-
-
-def estimated_label(as_of: date | str | None) -> str:
-    """The visible label for an estimated value: 'estimated, as of <date>'."""
-    from quant.ui import copy as ui_copy
-
-    return ui_copy.ESTIMATED_LABEL.format(date=ui_copy.fmt_date(as_of))
 
 
 def _lookup(price_lookup: Any, symbol: str) -> float | None:
@@ -135,27 +126,6 @@ def record_snapshot(conn: Any, when: date | None = None) -> int:
     return written
 
 
-def sync_from_portfolio_csv(
-    conn: Any,
-    price_lookup: Any,
-    sync_date: date | None = None,
-    filepath: str | None = None,
-    first_time_only: bool = False,
-) -> int:
-    """Load the broker CSV and sync holdings_meta. Returns rows written.
-
-    Convenience wrapper for the daily job and the review path. Never raises.
-    """
-    try:
-        from quant.portfolio.portfolio import load_portfolio
-
-        df = load_portfolio(filepath) if filepath else load_portfolio()
-    except Exception:  # noqa: BLE001
-        return 0
-    return sync_holdings_meta(conn, df, price_lookup, sync_date,
-                              first_time_only=first_time_only)
-
-
 def revalue_holdings(conn: Any, price_lookup: Any) -> dict[str, float]:
     """Estimated value = shares * latest close. Returns {symbol: value}.
 
@@ -239,60 +209,3 @@ def _meta_set(conn, key: str, value: str) -> None:
                      [key, str(value)])
     except Exception:  # noqa: BLE001
         pass
-
-
-def pending_position_names(conn: Any) -> list[str]:
-    """Display names of positions recorded since the last CSV sync (R7)."""
-    raw = _meta_get(conn, "pending_symbols") or ""
-    out: list[str] = []
-    for symbol in [s for s in str(raw).split(",") if s]:
-        try:
-            from quant.data.names import display_name
-
-            out.append(display_name(symbol))
-        except Exception:  # noqa: BLE001
-            out.append(symbol)
-    return out
-
-
-def sync_reminder_line(conn: Any, today: date | None = None) -> str | None:
-    """One gentle line when the last broker sync is older than the threshold.
-
-    v10.7.3 (Part 3.4): when positions were recorded since the last CSV sync
-    (the pending-sync marker), the reminder mentions them explicitly.
-    v10.7.4 (R7): the reminder appears at most once per 7 days, never on the
-    same day as a successful sync, and lists pending positions by name.
-    """
-    from quant.ui import copy as ui_copy
-
-    today = today or date.today()
-    days = days_since_last_sync(conn, today)
-    if days is None or days <= SYNC_REMINDER_DAYS:
-        return None
-    # Never on the same day as a successful sync.
-    if _last_sync_date(conn) == today:
-        return None
-    # At most once per 7 days.
-    last_reminder = _meta_get(conn, "sync_reminder_last")
-    if last_reminder:
-        try:
-            delta = (today - date.fromisoformat(str(last_reminder)[:10])).days
-            # Only a reminder within the last 7 days suppresses; a future or
-            # stale stamp never does.
-            if 0 <= delta < 7:
-                return None
-        except ValueError:
-            pass
-    _meta_set(conn, "sync_reminder_last", today.isoformat())
-    try:
-        from quant.engine import plans
-
-        if plans.is_pending_sync():
-            names = pending_position_names(conn)
-            if names:
-                return ui_copy.SYNC_REMINDER_PENDING_NAMES.format(
-                    n=days, names=", ".join(names))
-            return ui_copy.SYNC_REMINDER_PENDING.format(n=days)
-    except Exception:  # noqa: BLE001
-        pass
-    return ui_copy.SYNC_REMINDER.format(n=days)

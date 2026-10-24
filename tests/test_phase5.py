@@ -14,7 +14,6 @@ import unittest
 import pandas as pd
 
 from quant.analytics.scoring import etf_quality_score, etf_tactical_grade
-from quant.execution.taxonomy import validate_isin
 
 
 class TestDelistTracking(unittest.TestCase):
@@ -38,20 +37,6 @@ class TestDelistTracking(unittest.TestCase):
         conn.execute("DELETE FROM asset_registry WHERE symbol = 'TEST_DELIST'")
 
 
-class TestValidateIsin(unittest.TestCase):
-    def test_valid_isin(self):
-        self.assertTrue(validate_isin("IE00B4L5Y983"))
-
-    def test_corrupted_checksum(self):
-        self.assertFalse(validate_isin("IE00B4L5Y984"))
-
-    def test_wrong_length(self):
-        self.assertFalse(validate_isin("IE00B4L5Y98"))
-
-    def test_non_alnum(self):
-        self.assertFalse(validate_isin("IE00B4L5Y98-"))
-
-
 class TestEtfScoreDifferentiation(unittest.TestCase):
     def test_etf_scores_not_identical(self):
         """ETF scores differ when inputs differ (regression for the 93.6 tie)."""
@@ -69,7 +54,3 @@ class TestEtfScoreDifferentiation(unittest.TestCase):
         """ETF tactical grade is continuous, not binary."""
         grades = {etf_tactical_grade(0.99, z) for z in [-1.0, 0.0, 1.0]}
         self.assertGreater(len(grades), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

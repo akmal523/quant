@@ -10,7 +10,6 @@ Dependencies: pandas, polars, json, logging.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 from datetime import date, datetime
@@ -42,11 +41,6 @@ def new_run_dir() -> str:
     os.makedirs(path, exist_ok=True)
     _RUN_DIR = path
     return path
-
-
-def current_run_dir() -> str | None:
-    """Return the run dir created in this process, or None if none yet."""
-    return _RUN_DIR
 
 
 def latest_run() -> str | None:
@@ -156,27 +150,6 @@ def latest_review(ok_only: bool = False) -> dict:
     return {}
 
 
-def latest_ok_run_dir() -> str | None:
-    """Newest timestamped review dir that is ok under the L1 rule (else None)."""
-    for run in _review_run_dirs():
-        m = _read_metrics(run)
-        if m is not None and m.get("review_status") != "failed":
-            return run
-    return None
-
-
-def latest_ok_review_ts() -> datetime | None:
-    """Timestamp parsed from the newest ok review dir name (H3.7, L3)."""
-    run = latest_ok_run_dir()
-    if not run:
-        return None
-    name = os.path.basename(run)                 # run_YYYY-MM-DD_HHMMSS
-    try:
-        return datetime.strptime(name[4:], "%Y-%m-%d_%H%M%S")
-    except ValueError:
-        return None
-
-
 def _update_state_path() -> str:
     return os.path.join(OUTPUTS_DIR, "update_state.json")
 
@@ -188,18 +161,6 @@ def write_update_state(payload: dict) -> None:
             json.dump(payload, f)
     except Exception:  # noqa: BLE001
         pass
-
-
-def read_update_state() -> dict:
-    """Read outputs/update_state.json ({} when absent)."""
-    path = _update_state_path()
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:  # noqa: BLE001
-        return {}
 
 
 def _analysis_regime() -> dict:
@@ -360,57 +321,6 @@ def read_score_row(symbol: str) -> dict:
         "sentiment": res[4], "stewardship": res[5],
         "present": int(res[6] or 0), "total": int(res[7] or 0),
     }
-
-
-def read_scores(symbol: str) -> dict:
-    """Return {structural_grade, tactical_grade, active_score} for a symbol.
-
-    Source order (v10.8.7, T2): the ``scores`` store, then the latest run's
-    scores artifact, then asset_registry. Invariants: returns the keys with None
-    when nothing is known.
-    """
-    row = read_score_row(symbol)
-    if row:
-        return {
-            "structural_grade": row.get("structural_grade"),
-            "tactical_grade": row.get("tactical_grade"),
-            "active_score": row.get("composite"),
-        }
-    keys = {"structural_grade": None, "tactical_grade": None, "active_score": None}
-    # H3.6 (N1): read the most recent SUCCESSFUL review, not the latest attempt.
-    run = latest_ok_run_dir()
-    if run:
-        path = os.path.join(run, "scores.parquet")
-        if os.path.exists(path):
-            try:
-                df = pd.read_parquet(path)
-                m = df[df["Symbol"].astype(str) == str(symbol)]
-                if not m.empty:
-                    r = m.iloc[0]
-                    return {
-                        "structural_grade": float(r.get("Structural_Grade", 0) or 0),
-                        "tactical_grade": float(r.get("Tactical_Grade", 0) or 0),
-                        "active_score": float(r.get("Active_Score", 0) or 0),
-                    }
-            except Exception:  # noqa: BLE001
-                pass
-    try:
-        from quant.data.database import read_only_connection
-
-        with read_only_connection() as conn:
-            res = conn.execute(
-                "SELECT structural_grade, tactical_grade, active_score "
-                "FROM asset_registry WHERE symbol = ?", [symbol]
-            ).fetchone()
-        if res:
-            return {
-                "structural_grade": float(res[0] or 0),
-                "tactical_grade": float(res[1] or 0),
-                "active_score": float(res[2] or 0),
-            }
-    except Exception:  # noqa: BLE001
-        pass
-    return keys
 
 
 def read_history() -> pd.DataFrame:
@@ -639,32 +549,3 @@ def compute_value_view_hover(as_of, portfolio, per_symbol: dict,
             out[str(sym)] = round(float(v), 2)
     out["total"] = round(sum(out.values()), 2)
     return out
-
-
-# ── Structured Logging ────────────────────────────────────────────────────────
-
-class StructuredLogger:
-    """JSON-structured logger wrapper. Emits one JSON object per record."""
-
-    def __init__(self, name: str = "quant") -> None:
-        self.logger = logging.getLogger(name)
-
-    def _emit(self, level: int, event: str, **fields) -> None:
-        record = {"event": event, **fields}
-        self.logger.log(level, json.dumps(record, default=str))
-
-    def info(self, event: str, **fields) -> None:
-        """Emit an INFO record."""
-        self._emit(logging.INFO, event, **fields)
-
-    def warning(self, event: str, **fields) -> None:
-        """Emit a WARNING record."""
-        self._emit(logging.WARNING, event, **fields)
-
-    def error(self, event: str, **fields) -> None:
-        """Emit an ERROR record."""
-        self._emit(logging.ERROR, event, **fields)
-
-
-# Module-level singleton for convenience.
-structured_log = StructuredLogger()

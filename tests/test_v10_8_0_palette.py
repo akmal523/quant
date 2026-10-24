@@ -14,15 +14,6 @@ UI = ROOT / "quant" / "ui"
 _HEX = re.compile(r"#[0-9A-Fa-f]{6}\b")
 
 
-def test_palette_has_named_colors():
-    from quant.ui import palette
-
-    for name in ("ACCENT", "ACCENT_LIGHT", "TEXT", "TEXT_MUTED", "GAIN",
-                 "LOSS", "WARNING", "BASELINE", "BENCHMARK"):
-        assert _HEX.fullmatch(getattr(palette, name)), name
-    assert palette.SERIES and all(_HEX.fullmatch(c) for c in palette.SERIES)
-
-
 def test_no_hex_literals_outside_the_palette():
     offenders = []
     for path in UI.glob("*.py"):

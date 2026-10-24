@@ -24,7 +24,6 @@ from quant.analytics.scoring import evaluate_structural_grade, evaluate_tactical
 from quant.data.database import get_connection
 from quant.engine import alerts
 from quant.engine.advice import build_advice
-from quant.portfolio.optimizer import optimize_portfolio
 from tests.fixtures.live_portfolio import holding, live_shaped, live_tiers
 
 AS_OF = date(2026, 10, 2)
@@ -71,16 +70,6 @@ def test_advice_pipeline_produces_a_spread():
     fortress_sells = [a for a in advice
                       if a["kind"] == "sell_part" and tiers.get(a.get("symbol")) == "FORTRESS"]
     assert not fortress_sells
-
-
-def test_optimizer_binds_a_constraint():
-    # One high-return asset: the optimizer wants to concentrate, so the cap binds.
-    n = 4
-    expected = np.array([0.50, 0.10, 0.10, 0.10])
-    cov = np.eye(n) * 0.01
-    weights = optimize_portfolio(expected, cov, max_weight=0.30)
-    assert abs(weights.sum() - 1.0) < 1e-3
-    assert np.isclose(weights.max(), 0.30, atol=1e-3)
 
 
 def test_alerts_fire_and_stay_silent():

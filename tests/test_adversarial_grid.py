@@ -24,7 +24,7 @@ from quant.engine import lock, notify, valuation
 from quant.engine.advice import build_advice
 from quant.errors import DataError
 from quant.portfolio.portfolio import load_portfolio, portfolio_issues
-from quant.portfolio.tier_manager import get_asset_tier, validate_tiers_csv
+from quant.portfolio.tier_manager import validate_tiers_csv
 from quant.ui.copy import DB_BUSY_RETRY
 from tests.fixtures.live_portfolio import holding
 
@@ -91,11 +91,6 @@ def test_orphan_tier_warning():
     portfolio = pd.DataFrame([{"Symbol": "AMZN", "Current_Value_EUR": 1000.0}])
     _valid, errors = validate_tiers_csv(tiers, portfolio)
     assert any("not in portfolio" in error for error in errors)
-
-
-def test_missing_tier_uses_default():
-    empty = pd.DataFrame(columns=["symbol", "tier", "last_updated", "notes"])
-    assert get_asset_tier("UNKNOWN", empty) == "ALPHA"
 
 
 def test_unpriceable_symbols():

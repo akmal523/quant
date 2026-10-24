@@ -56,8 +56,3 @@ def test_golden_snapshot_matches():
             f"Golden drift on {key}: current={cv} golden={gv} "
             f"({rel:.4%} > {TOLERANCE:.2%})"
         )
-
-
-if __name__ == "__main__":
-    test_golden_snapshot_matches()
-    print("Golden snapshot OK")

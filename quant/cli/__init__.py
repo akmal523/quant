@@ -528,28 +528,6 @@ def _cmd_repair_tiers(_args: argparse.Namespace) -> int:
     return 1
 
 
-def _cmd_clear_cache(_args: argparse.Namespace) -> int:
-    """Clear all cached calculations (v10.6.5)."""
-    from quant.analytics.cache import clear_cache, get_cache_stats
-
-    before = get_cache_stats()
-    removed = clear_cache()
-    print(f"Cleared {removed} cache entries ({before['total_size_mb']:.2f} MB).")
-    return 0
-
-
-def _cmd_cache_stats(_args: argparse.Namespace) -> int:
-    """Show cache statistics (v10.6.5)."""
-    from quant.analytics.cache import get_cache_stats
-
-    stats = get_cache_stats()
-    print("Cache statistics:")
-    print(f"  Entries: {stats['num_entries']}")
-    print(f"  Total size: {stats['total_size_mb']:.2f} MB")
-    print(f"  Location: {stats['cache_dir']}")
-    return 0
-
-
 def _cmd_health_check(_args: argparse.Namespace) -> int:
     """Run the system health check (v10.6.4)."""
     from quant.cli.health import run_health_check
@@ -669,8 +647,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("validate-tiers", help=hidden)
     sub.add_parser("repair-tiers", help=hidden)
     sub.add_parser("health-check", help=hidden)
-    sub.add_parser("clear-cache", help=hidden)
-    sub.add_parser("cache-stats", help=hidden)
     sched = sub.add_parser("schedule", help=hidden)
     sched.add_argument("--off", action="store_true")
     sched.add_argument("--status", action="store_true")
@@ -776,8 +752,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "validate-tiers": _cmd_validate_tiers,
         "repair-tiers": _cmd_repair_tiers,
         "health-check": _cmd_health_check,
-        "clear-cache": _cmd_clear_cache,
-        "cache-stats": _cmd_cache_stats,
         "schedule": _cmd_schedule,
         "notify-setup": _cmd_notify_setup,
         "daily": _cmd_daily,

@@ -121,7 +121,22 @@ def test_write_connection_raises_after_budget(monkeypatch):
 
 # ── Graceful failure ──────────────────────────────────────────────────────────
 
-def test_failed_run_writes_marker_and_morning_retries(tmp_path, monkeypatch):
+
+def test_no_traceback_in_user_output(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
+    from quant.cli import _cmd_daily
+
+    monkeypatch.setattr(lock, "acquire",
+                        lambda *a, **k: lock.LockResult(False, "held by live process"))
+
+    rc = _cmd_daily(None)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert C.DB_BUSY_RETRY in out
+    assert "Traceback" not in out
+
+
+def test_failed_run_writes_marker(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
     from quant.data import database
 
@@ -138,29 +153,3 @@ def test_failed_run_writes_marker_and_morning_retries(tmp_path, monkeypatch):
     assert failed is not None
     assert failed["reason"] == C.DB_BUSY_RETRY
     assert failed.get("at")
-
-    # The morning slot retries (no artifact was written by the failed run).
-    called = {"yes": False}
-
-    def fake_run_daily(*_a, **_k):
-        called["yes"] = True
-        return daily.DailyResult("ok", "retried")
-
-    monkeypatch.setattr(daily, "run_daily", fake_run_daily)
-    res2 = daily.run_morning(date(2026, 10, 1))
-    assert called["yes"] is True
-    assert res2.status == "ok"
-
-
-def test_no_traceback_in_user_output(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(paths, "OUTPUTS_DIR", tmp_path)
-    from quant.cli import _cmd_daily
-
-    monkeypatch.setattr(lock, "acquire",
-                        lambda *a, **k: lock.LockResult(False, "held by live process"))
-
-    rc = _cmd_daily(None)
-    out = capsys.readouterr().out
-    assert rc == 1
-    assert C.DB_BUSY_RETRY in out
-    assert "Traceback" not in out

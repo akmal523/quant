@@ -10,14 +10,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-import pandas as pd
 import pytest
 
 from quant.portfolio.tax_accounting import (
     ABGELTUNGSSTEUER_RATE,
     calculate_yearly_tax_summary,
-    record_trade,
-    suggest_tax_loss_harvesting,
 )
 
 _MARKER = "TAXTEST"
@@ -94,72 +91,3 @@ def test_yearly_tax_summary_married():
     assert summary["sparerpauschbetrag_used_eur"] == 1500.0
     assert summary["taxable_income_eur"] == 0.0
     assert summary["estimated_tax_eur"] == 0.0
-
-
-def test_suggest_tax_loss_harvesting_no_gains():
-    """No realized gains means no harvesting suggestions."""
-    holdings = pd.DataFrame([{"Symbol": "AAPL", "Broker_PnL_EUR": -100.0}])
-    with mock_trades([]):
-        suggestions = suggest_tax_loss_harvesting(2005, holdings)
-    assert suggestions == []
-
-
-def test_suggest_tax_loss_harvesting_within_allowance():
-    """Gains within the allowance need no harvesting."""
-    holdings = pd.DataFrame([{"Symbol": "AAPL", "Broker_PnL_EUR": -100.0}])
-    with mock_trades([
-        {"date": "2006-05-01", "action": "sell", "realized_pnl_eur": 500.0},
-    ]):
-        suggestions = suggest_tax_loss_harvesting(2006, holdings)
-    assert suggestions == []
-
-
-def test_suggest_tax_loss_harvesting_above_allowance():
-    """Gains above the allowance plus losers yields sorted suggestions."""
-    holdings = pd.DataFrame([
-        {"Symbol": "AAPL", "Broker_PnL_EUR": -200.0},
-        {"Symbol": "MSFT", "Broker_PnL_EUR": -100.0},
-    ])
-    with mock_trades([
-        {"date": "2007-07-15", "action": "sell", "realized_pnl_eur": 1200.0},
-    ]):
-        suggestions = suggest_tax_loss_harvesting(2007, holdings)
-
-    assert len(suggestions) == 2
-    assert suggestions[0]["symbol"] == "AAPL"
-    assert suggestions[0]["tax_savings_eur"] == pytest.approx(
-        round(200.0 * ABGELTUNGSSTEUER_RATE, 2))
-    assert suggestions[1]["symbol"] == "MSFT"
-    assert suggestions[1]["tax_savings_eur"] == pytest.approx(
-        round(100.0 * ABGELTUNGSSTEUER_RATE, 2))
-
-
-def test_record_trade_persists():
-    """A recorded trade appears in the trades ledger."""
-    from quant.data.database import read_only_connection
-
-    record_trade(
-        date="2008-10-07",
-        symbol=_MARKER,
-        action="buy",
-        amount_eur=1000.0,
-        shares=5.0,
-        price_eur=200.0,
-        fee_eur=1.0,
-    )
-    try:
-        with read_only_connection() as conn:
-            result = conn.execute(
-                "SELECT action, amount_eur FROM trades WHERE symbol = ?",
-                [_MARKER],
-            ).df()
-        assert len(result) == 1
-        assert result.iloc[0]["action"] == "buy"
-        assert float(result.iloc[0]["amount_eur"]) == 1000.0
-    finally:
-        from quant.data.database import write_connection
-
-        with write_connection() as conn:
-            conn.execute("DELETE FROM trades WHERE symbol = ?", [_MARKER])
-
-

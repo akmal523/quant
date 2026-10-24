@@ -82,13 +82,3 @@ def holdings_view(conn: Any = None) -> list[dict]:
         h["target_weight"] = target_weight(h["symbol"])
         h["drift"] = h["current_weight"] - h["target_weight"]
     return out
-
-
-def class_totals(holdings: list[dict]) -> dict[str, float]:
-    """The invested value per tier (FORTRESS / ALPHA / SPECULATIVE)."""
-    out = {"FORTRESS": 0.0, "ALPHA": 0.0, "SPECULATIVE": 0.0}
-    for h in holdings or []:
-        tier = str(h.get("tier", DEFAULT_TIER)).upper()
-        if tier in out:
-            out[tier] += float(h.get("value_eur") or 0)
-    return out

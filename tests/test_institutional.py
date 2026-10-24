@@ -16,28 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-
-
-def test_corporate_actions_detect_and_adjust():
-    from quant.data.corporate_actions import (
-        adjust_cost_basis,
-        apply_corporate_actions,
-        detect_split,
-    )
-    dates = pd.bdate_range("2024-01-01", periods=10)
-    close = pd.Series([100, 101, 102, 103, 104, 52, 53, 54, 55, 56], index=dates, dtype=float)
-    volume = pd.Series([1e6] * 5 + [2e6] * 5, index=dates, dtype=float)
-    events = detect_split(close, volume)
-    assert len(events) == 1, f"expected 1 split, got {len(events)}"
-    assert abs(events[0].ratio - 2.0) < 0.01
-
-    df = pd.DataFrame({"Close": close, "Volume": volume}, index=dates)
-    adjusted, evs = apply_corporate_actions(df)
-    # Pre-split close 100 -> 50 after 2:1 adjustment.
-    assert abs(adjusted["Close"].iloc[0] - 50.0) < 0.01
-    assert abs(adjust_cost_basis(100.0, 2.0) - 50.0) < 1e-9
 
 
 def test_assertions_hard_gate():
@@ -81,41 +60,6 @@ def test_assertions_hard_gate():
     assert run_assertions(clean, "X") == ["no_duplicate_timestamps", "no_unexplained_drop"]
 
 
-def test_mean_cvar_optimizer():
-    from quant.portfolio.optimizer import cvar_of_weights, optimize_portfolio_cvar
-    rng = np.random.RandomState(0)
-    R = rng.normal(0.0005, 0.01, size=(250, 4))
-    exp_ret = np.array([0.001, 0.0008, 0.0006, 0.0004])
-    w = optimize_portfolio_cvar(exp_ret, R, max_weight=0.5)
-    assert abs(w.sum() - 1.0) < 1e-4, f"weights sum {w.sum()}"
-    assert (w >= -1e-6).all()
-    cvar = cvar_of_weights(w, R)
-    assert cvar >= 0.0
-
-
-def test_regime_constraints():
-    from quant.portfolio.regime_constraints import (
-        apply_regime_constraints,
-        regime_from_bull_prob,
-    )
-    assert regime_from_bull_prob(0.9) == "bull"
-    assert regime_from_bull_prob(0.1) == "bear"
-    assert regime_from_bull_prob(0.5) == "chop"
-    # Bear caps single weight at 2%.
-    assert apply_regime_constraints(0.10, "bear") == 0.02
-    assert apply_regime_constraints(0.10, "bull") == 0.10
-
-
-def test_vol_aware_min_trade_size():
-    from quant.portfolio.optimizer import (
-        minimum_trade_size,
-        minimum_trade_size_vol_aware,
-    )
-    base = minimum_trade_size(200.0)
-    scaled = minimum_trade_size_vol_aware(200.0, 0.30)
-    assert scaled > base, "higher vol must raise the fee floor"
-
-
 def test_event_bus_new_events():
     from quant.infra.event_bus import EVENTS, EventBus
     assert EVENTS["MARKET_CLOSE_DATA_READY"] == "market_close_data_ready"
@@ -136,21 +80,3 @@ def test_observability_metrics():
     j = obs.to_json()
     assert j["metrics"]["duckdb_query_ms"]["mean"] == 10.0
     assert j["counters"]["api_rate_limit_hits"] == 1
-
-
-def _run_all():
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"  PASS {t.__name__}")
-        except Exception as e:  # noqa: BLE001
-            failed += 1
-            print(f"  FAIL {t.__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    return failed
-
-
-if __name__ == "__main__":
-    raise SystemExit(1 if _run_all() else 0)

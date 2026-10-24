@@ -8,7 +8,7 @@ from quant.cli import build_parser
 USER_COMMANDS = {"dash", "refresh", "daily", "upgrade", "backup", "doctor"}
 HIDDEN = {"run", "all", "news-doctor",
           "validate-tiers", "repair-tiers", "health-check",
-          "clear-cache", "cache-stats", "schedule",
+          "schedule",
           "notify-setup", "ack"}
 
 

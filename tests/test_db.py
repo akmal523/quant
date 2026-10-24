@@ -24,6 +24,3 @@ def test_db_init():
     assert res_nlp[0] == 85.0, "NLP I/O failed."
 
     print("db.py validation passed.")
-
-if __name__ == "__main__":
-    test_db_init()

@@ -58,17 +58,9 @@ def _csv_mtime_date() -> date | None:
 def _estimate_is_fresher(meta: dict) -> bool:
     """True when holdings_meta is newer than the broker CSV.
 
-    A pending-sync marker (actuals or a quick event recorded since the last CSV
-    export) always means the estimate is fresher. Otherwise the newest
-    holdings_meta sync_date is compared to the CSV file's modification date.
+    The newest holdings_meta sync_date is compared to the CSV file's
+    modification date.
     """
-    try:
-        from quant.engine import plans
-
-        if plans.is_pending_sync():
-            return True
-    except Exception:  # noqa: BLE001
-        pass
     csv_day = _csv_mtime_date()
     if csv_day is None:
         return False

@@ -342,25 +342,3 @@ def run_daily(
     write_last_daily_run(today)
     clear_last_failed_run()
     return result
-
-
-def run_morning(today: date | None = None, **kwargs: Any) -> DailyResult:
-    """The 07:45 lightweight slot: at most one heavy computation per day.
-
-    If today's artifact already exists, do not recompute; only send pending
-    alerts plus the one-line morning summary. Otherwise run the full job first.
-    """
-    today = today or date.today()
-    artifact = os.path.join(str(paths.OUTPUTS_DIR), f"daily_{today.isoformat()}.md")
-    if os.path.exists(artifact):
-        from quant.data.database import get_connection
-        from quant.engine import alerts as alerts_mod
-
-        conn = kwargs.get("conn") or get_connection()
-        open_now = alerts_mod.open_alerts(conn)
-        return DailyResult(
-            status="ok",
-            message=f"Today: {len(open_now)} open action(s).",
-            alerts_created=0,
-        )
-    return run_daily(today, **kwargs)

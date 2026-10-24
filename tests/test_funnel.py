@@ -59,12 +59,3 @@ def test_stage1_liquidity_rule():
     assert _stage1_keep(0.5, 10_000_000, 5.0, 1_000_000) is False  # price < $5
     assert _stage1_keep(20.0, 100, 5.0, 1_000_000) is False        # 2k $ vol
     print("  [PASS] test_stage1_liquidity_rule")
-
-
-if __name__ == "__main__":
-    test_momentum_score_uptrend_high()
-    test_momentum_score_downtrend_low()
-    test_momentum_score_short_series_low()
-    test_momentum_score_flat_series()
-    test_stage1_liquidity_rule()
-    print("\nAll funnel tests passed.")
