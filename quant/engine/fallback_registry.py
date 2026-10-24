@@ -31,6 +31,9 @@ FALLBACKS: dict[str, dict] = {
                                 "test_fallback_sizing_is_untouchable"),
     "sizing.sell_amount": _e("non-numeric drift or value", None, "none",
                              "test_fallback_sizing_sell_amount"),
+    # ── score_model ───────────────────────────────────────────────────────────
+    "score_model._num": _e("non-numeric score input", None, "none",
+                           "test_fallback_score_model_num"),
     # ── account ───────────────────────────────────────────────────────────────
     "account.load_account": _e("missing or invalid account.yaml",
                                "AccountState(EUR, None, balanced, loaded=False)",

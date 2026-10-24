@@ -29,16 +29,15 @@ reports ten finding kinds:
 | `trivial_complexity` | a docstring verb but complexity 1 and no calls |
 | `test_branch` | an `os.environ` read of a TEST / MOCK / FAKE / STUB key |
 | `vacuous_constraint` | a weight cap >= 1.0, a score threshold <= 0, a fee < 0 |
-| `canary_number` | a float literal equal to a known live or golden value |
+| `canary_number` | a float literal equal to a known live value |
 | `undeclared_fallback` | an `except` returning a default not in the registry |
 
 The auditor exits nonzero on any blocking finding. It runs in CI.
 
 ## The three tiers (R11)
 
-- **Tier S — blocking.** The narrow user-facing computation set: scoring, flows,
-  sizing, advice, alerts, valuation, news_pillar, trade_size, risk, portfolio,
-  account, the ONE list (today_list, action_taxonomy, pairing, weights,
+- **Tier S — blocking.** The narrow user-facing computation set: score_model,
+  flows, sizing, positions, portfolio, account, the ONE list (today_list, action_taxonomy, pairing, weights,
   advice_state), invest_plan, the valuation store (mtm), the analysis chain, and
   the listed loaders (`scripts/audit_allowlist.toml`). Every `except` path
   whose returned value can flow into a user-visible number or decision must be in
@@ -67,7 +66,7 @@ killed by a test, not allowlisted.
 
 ## Mock boundary
 
-No test may patch the decision core (advice, flows, sizing, scoring,
-trade_size, risk). Fakes are allowed only at true I/O boundaries (network, clock,
+No test may patch the decision core (score_model, flows, sizing,
+action_taxonomy). Fakes are allowed only at true I/O boundaries (network, clock,
 filesystem, subprocess, the database, the UI render layer) and heavy external
 solvers. `tests/test_mock_boundary.py` enforces this.

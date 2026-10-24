@@ -2,11 +2,7 @@
 
 Auto-generated from docstrings via `mkdocstrings`.
 
-## Review scoring: trade-size gates, tail risk, data assertions
-
-::: quant.portfolio.trade_size
-
-::: quant.portfolio.risk
+## Data assertions
 
 ::: quant.data.assertions
 
@@ -18,13 +14,11 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.ui.cards
 
-## Reporting artifacts (the five UI accessors) and actions
+## Reporting artifacts (the UI accessors)
 
 ::: quant.reporting.artifacts
 
-::: quant.reporting.actions
-
-## Data: names, registry repair, news
+## Data: names, registry repair, news, currency
 
 ::: quant.data.names
 
@@ -32,9 +26,7 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.data.news
 
-## Portfolio history
-
-::: quant.portfolio.history
+::: quant.data.currency
 
 ## The one workflow
 
@@ -56,8 +48,6 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.engine.decisions
 
-::: quant.engine.advice
-
 ::: quant.engine.action_taxonomy
 
 ::: quant.engine.pairing
@@ -66,13 +56,21 @@ Auto-generated from docstrings via `mkdocstrings`.
 
 ::: quant.engine.weights
 
+::: quant.engine.sizing
+
+## Daily job and Telegram digest
+
+::: quant.engine.daily
+
+::: quant.engine.notify
+
 ## Analysis chain, scoring, valuation
 
 ::: quant.engine.analysis
 
 ::: quant.engine.manifest
 
-::: quant.analytics.scoring
+::: quant.engine.score_model
 
 ::: quant.engine.mtm
 

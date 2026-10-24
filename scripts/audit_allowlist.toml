@@ -8,15 +8,10 @@
 # returned value can flow into a user-visible number or decision must be in
 # quant/engine/fallback_registry.py with a triggering test.
 tier_s_modules = [
-    "quant/analytics/scoring.py",
+    "quant/engine/score_model.py",
     "quant/engine/flows.py",
     "quant/engine/sizing.py",
-    "quant/engine/advice.py",
-    "quant/engine/alerts.py",
-    "quant/engine/valuation.py",
-    "quant/engine/news_pillar.py",
-    "quant/portfolio/trade_size.py",
-    "quant/portfolio/risk.py",
+    "quant/engine/positions.py",
     "quant/portfolio/portfolio.py",
     "quant/portfolio/account.py",
     # v10.8.10: the ONE list and the valuation store feed every on-screen decision.

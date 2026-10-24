@@ -6,10 +6,9 @@ What costs time in Quant-AI, and how the code keeps it bounded on an old laptop.
 
 | Step | Cost | How it is bounded |
 |:--|:--|:--|
-| `refresh` (market data + funnel) | network-bound, minutes | The 1000+ symbol `universe_master` is filtered once per cycle (Stage 1 price/liquidity, Stage 2 trend) to about 24 survivors cached in `funnel_survivors`; `quant run` reads the cache instead of re-running the funnel. Price history is fetched as ranges, so a missed day is backfilled in one call. |
-| `quant run` (review scoring) | CPU-bound | Survivors + holdings + CORE ETFs are scored in a process pool; the market-regime HMM is fitted once on one broad index, not per asset. |
-| FinBERT news sentiment | heavy (torch) | Optional `news` extra. Texts are scored in the main process with one model instance and cached by document hash (`nlp_scores`); the daily job only imports torch on the Friday run that recomputes the news-pillar status. |
-| Analysis chain (`daily`, Run analysis) | seconds | Fetch stages reuse stored data younger than their TTL (prices 1 trading day, fundamentals 7 days, nlp 1 day). |
+| `refresh` (market data + funnel) | network-bound, minutes | The 1000+ symbol `universe_master` is filtered once per cycle (Stage 1 price/liquidity, Stage 2 trend) to about 24 survivors cached in `funnel_survivors` and reused for 7 days. Price history is fetched as ranges, so a missed day is backfilled in one call; only held symbols and symbols with a new split are refetched in full. |
+| FinBERT news sentiment | heavy (torch) | Optional `news` extra. Only new headlines are scored, once, by one model instance during refresh; the scores are stored in `nlp_evidence` and pruned after 60 days. Without torch the news step is skipped and sentiment is left out of the score. |
+| Analysis chain (`daily`, `quant run`, Run analysis) | seconds | Pure scoring from stored prices, fundamentals and headlines; fetch stages only check freshness against their TTL (prices 1 trading day, fundamentals 7 days, nlp 1 day). |
 | Pages | fast | Every page read opens a short-lived read-only DuckDB connection; the render path never writes (R-C4). |
 
 ## Database concurrency
@@ -34,8 +33,7 @@ daily run writes a marker the doctor shows, and the next timer slot retries.
 ## Monitoring
 
 ```bash
-.venv/bin/python -m quant.cli doctor          # read-only, safe to paste
-.venv/bin/python -m quant.cli health-check    # data freshness, tiers, database
+.venv/bin/python -m quant.cli doctor    # read-only, safe to paste: data freshness, tiers, database, news, Telegram
 ```
 
 The Full analysis page's **Pipeline health** tab shows every analysis stage with

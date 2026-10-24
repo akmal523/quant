@@ -21,12 +21,10 @@ TESTS = ROOT / "tests"
 
 # The decision core: patching any of these in a test is forbidden.
 DECISION_MODULES = {
-    "quant.engine.advice",
+    "quant.engine.score_model",
     "quant.engine.flows",
     "quant.engine.sizing",
-    "quant.analytics.scoring",
-    "quant.portfolio.trade_size",
-    "quant.portfolio.risk",
+    "quant.engine.action_taxonomy",
 }
 
 

@@ -25,11 +25,13 @@ ONE list in the broker → repeat.**
 | **Holdings table** | `portfolio.csv`: `Symbol, Avg_Entry_Price, Current_Value_EUR, Broker_PnL_EUR` (+ optional `Plan_EUR_month`). The ONLY input. Derived, never typed: invested = Value − Profit; shares = invested / average cost per share (fee-inclusive, Trade Republic "Buy In"). |
 | **Class** (tier) | `FORTRESS` / `ALPHA` / `SPECULATIVE`, shown as **Long-term / Active / Speculative** (descriptive "Speculative (high risk)") via the one map in [`quant/ui/terminology.py`](quant/ui/terminology.py). "Small bets" and "FORTRESS" are banned in UI strings. |
 | **Instrument class** | Stock / Fund (ETF) / Commodity (`EQUITY` / `ETF` / `COMMODITY`); automatic with one override; never "cash". |
-| **Composite** | The 0–100 score from technical (0.40), fundamental (0.30), sentiment (0.20) and stewardship (0.10) components, plus a confidence tier. |
+| **Target** | A holding's wanted share of the invested pool, kept in `tiers.csv` (`target_pct`) and edited under Update holdings → Class and target. No target means no drift advice. |
+| **Composite** | The 0–100 score from technical (0.50), fundamental (0.35, stocks only) and news sentiment (0.15), averaged over the parts that exist, plus a confidence tier ([`score_model.py`](quant/engine/score_model.py)). |
 | **Idea** | A watched (not held) symbol with composite ≥ `IDEA_FLOOR` (55). |
 | **The ONE list** | Every action the user should take, grouped **Today** / **This month**; each item is one verb, one name + ticker, one amount, one reason, one evidence pointer. |
-| **Regime** | The market trend from an HMM fit on a broad index: engine keys `bull` / `bear` / `chop`, shown as rising / falling / mixed. |
-| **Valuation store** | `valuation` + `portfolio_total` (+ `splits`): one mark-to-market point per trading day. |
+| **Regime** | The market trend of a broad index (`URTH`): `bull` / `bear` when it closed more than 2% above / below its 200-day average on each of the last 3 days, else `chop`; shown as rising / falling / mixed. |
+| **Valuation store** | `valuation` + `portfolio_total` (+ `splits`): one mark-to-market point per trading day, rebuilt from the saved holdings tables. |
+| **Digest** | The one Telegram message per trading morning: value, day change, return, market, the ONE list, holdings vs target, news, problems. |
 | **Run manifest** | `run_manifest`: one row per analysis stage per run, with status, coverage and error. |
 | **Data folder** | The per-user writable root (`PROJECT_ROOT`), e.g. `~/.local/share/quant-ai`; `QUANT_DATA_DIR` overrides it. Never inside the code checkout. |
 
@@ -40,7 +42,7 @@ ONE list in the broker → repeat.**
                  │ reads
    ┌─────────────┼───────────────────────────────────────────────┐
    │ holdings_view   today_list.build_items   artifacts.read_*   │  quant/engine,
-   │ (positions +    (advice + taxonomy +     (scores, regime,   │  quant/reporting
+   │ (positions +    (action_taxonomy +       (scores, regime,   │  quant/reporting
    │  tiers+targets)  pairing; weights.py)     value series)     │
    └─────────────┬───────────────────────────────────────────────┘
                  │ DuckDB (quant_cache.duckdb in the data folder)
@@ -52,8 +54,9 @@ ONE list in the broker → repeat.**
   Update holdings, History, Full analysis (Holdings analysis / Research / Market /
   Pipeline health tabs), Settings.
 - **CLI** ([`quant/cli/__init__.py`](quant/cli/__init__.py)): `dash`, `refresh`,
-  `daily`, `upgrade`, `backup`, `doctor` (plus hidden maintenance commands, e.g.
-  `run`, `schedule`). Without an activated venv: `.venv/bin/python -m quant.cli`.
+  `daily`, `upgrade`, `backup`, `doctor` (plus hidden maintenance commands:
+  `run` = the analysis chain, `all` = refresh + run, `schedule`,
+  `notify-setup`). Without an activated venv: `.venv/bin/python -m quant.cli`.
 - **Paths** ([`quant/paths.py`](quant/paths.py)): `CODE_ROOT` is the checkout,
   `PROJECT_ROOT` the data folder. A one-time, copy-only migration
   ([`quant/data/user_data.py`](quant/data/user_data.py)) brought pre-10.8.1 repo
@@ -62,8 +65,9 @@ ONE list in the broker → repeat.**
 ### Analysis chain
 
 [`quant/engine/analysis.py`](quant/engine/analysis.py): `prices → fundamentals →
-nlp → regime → scoring → optimization`, run by the daily job and by **Run
-analysis** (which runs `refresh` then `run`). Every stage writes one
+nlp → regime → scoring → optimization`, run by the daily job, by `quant run` and
+by **Run analysis** (which runs `refresh` then `run`). The universe is the
+holdings table + the registry + the funnel survivors. Every stage writes one
 `run_manifest` row:
 
 | Status | Meaning |
@@ -79,13 +83,26 @@ chain, so production runs normally show `ok-reused`. TTLs: prices 1 **trading**
 day (Friday's close is fresh over the weekend), fundamentals 7 days, nlp 1 day.
 The `optimization` stage only checks that scores exist (coverage); there is no
 portfolio optimizer in the product (the unused mean-CVaR optimizer was removed
-in v10.8.10).
+in v10.8.10). A fetch stage with nothing newer than its TTL says so and points
+at Refresh prices.
 
-The regime stage fits on `URTH` (`fit_market_regime(..., max_points=1.0)` is a
-probability), maps it with `regime_from_bull_prob` (≥ 0.60 bull, ≤ 0.40 bear) and
-stores it in `meta`; `artifacts.read_regime` returns the newer of that estimate
-and the last review's regime block. Consumers compare with
-`regime_constraints.is_bear` / `regime_key`, which accept both vocabularies.
+The regime stage computes `score_model.trend_regime` on `URTH` and stores it in
+`meta` (`analysis_regime`); `artifacts.read_regime` reads it (neutral default
+when absent). Consumers compare with `regime_constraints.is_bear` /
+`regime_key`, which accept both vocabularies.
+
+Scores ([`score_model.py`](quant/engine/score_model.py), pure):
+
+- **technical** (≥ 200 closes): 12-minus-1-month momentum and price vs the
+  200-day average.
+- **fundamental** (stocks only, ≥ 3 of 5 inputs): P/E, PEG, ROE, debt/equity,
+  interest cover.
+- **sentiment** (≥ 3 headlines in 30 days): FinBERT P(positive) − P(negative)
+  per headline, weighted with a 7-day half-life.
+- **composite**: the weighted mean of the parts present (no penalty for a
+  missing part); confidence high when the present parts carry ≥ 80% of the
+  weight that applies to the instrument, medium ≥ 50%, else low. Only a medium
+  or high score can trigger the score floor; only a high score makes an Idea.
 
 ## How it works, end to end
 
@@ -103,59 +120,62 @@ and the last review's regime block. Consumers compare with
    and persists the ONE list.
 3. **Refresh** (`quant refresh`, Settings → Refresh prices,
    [`data_updater.py`](quant/data/data_updater.py)): builds/updates the
-   `universe_master`, runs the funnel to about 24 survivors, fetches price ranges
-   into `market_history` (split-checked), fundamentals into `fundamentals`, then
-   persists the ONE list.
-4. **Run** (`quant run`, [`main.py`](quant/main.py)): reads the stored prices,
-   scores survivors + holdings in a process pool (structural / tactical grades,
-   FinBERT sentiment when the `news` extra is installed), seeds `holdings_meta`
-   for new holdings, audits the table, writes a timestamped review (scores,
-   audit, regime block, metrics), sends the legacy Telegram briefing, runs the
-   analysis chain and persists the ONE list. **Run analysis** = refresh + run.
-5. **Daily job** (`quant daily`, systemd timer at 18:45 and 07:45,
-   [`daily.py`](quant/engine/daily.py)): refresh, revalue, analysis chain,
-   valuation backfill, level-triggered alerts (sent to Telegram one by one),
-   the ONE list, a daily Markdown artifact; skips weekends; a busy database
-   writes a failed-run marker and the next slot retries.
-6. **Valuation store** ([`mtm.py`](quant/engine/mtm.py)): shares per day =
-   opening lot (`holdings_meta`; a trade on or before its date is already in it)
-   + later ledger trades, × the day's close × FX (current EUR rate per symbol);
-   one row per held symbol per trading day in `valuation`, the sum in
-   `portfolio_total`. The chart, the header and the day delta read only this.
-7. **The ONE list** ([`today_list.py`](quant/engine/today_list.py)): drift
-   advice + threat / swap / plan-change items, paired sells, annotated with how
-   long each has been open; the page renders it read-only.
-8. **Pages** ([`pages.py`](quant/ui/pages.py)): Portfolio (header, chart, tasks,
-   the ONE list, holdings, invest block), Update holdings, History (ledger,
-   advice log, tax summary), Full analysis (Holdings analysis, Research, Market,
-   Pipeline health), Settings (savings day, Telegram, Refresh / Update / Back up).
+   `universe_master`, runs the funnel to about 24 survivors (reused for 7 days),
+   fetches prices into `market_history`, then enriches: names, fundamentals for
+   stocks, and news headlines (Yahoo RSS) scored by FinBERT into `nlp_evidence`
+   (kept 60 days). Held symbols are always fetched in full. A split reported by
+   Yahoo inside the incremental window forces a full refetch of that symbol and
+   is recorded in `splits`; the instrument currency goes to `asset_registry`. A
+   symbol that fails a data check is skipped, not the whole refresh.
+4. **Run** (`quant run`): the analysis chain on the stored data, then the ONE
+   list is persisted. **Run analysis** = refresh + run.
+5. **Daily job** (`quant daily`, systemd timer at 07:45 and 18:45,
+   [`daily.py`](quant/engine/daily.py)): refresh → analysis chain → valuation
+   backfill → persist the ONE list → `outputs/daily_<date>.md` → the Telegram
+   digest (morning slot only, once per price date). Skips non-trading days; a
+   busy database writes a failed-run marker and the next slot retries.
+6. **Valuation store** ([`mtm.py`](quant/engine/mtm.py)): shares on a day = the
+   latest saved holdings table on or before it (`position_snapshots`), restated
+   by later splits (`mtm.restate`), × the day's close × FX (current EUR rate per
+   symbol). Rebuilt in full on every backfill; one row per held symbol per
+   trading day in `valuation`, the sum in `portfolio_total`. The chart, the
+   header and the day delta read only this.
+7. **Positions** ([`positions.py`](quant/engine/positions.py)): per holding,
+   invested = typed value − typed profit, shares = invested / average cost,
+   value = the store's latest value (typed value until the symbol has a price).
+8. **The ONE list** ([`today_list.py`](quant/engine/today_list.py)):
+   [`action_taxonomy.build`](quant/engine/action_taxonomy.py) over the holdings,
+   scores, ideas and regime; sells paired; annotated with how long each item has
+   been open; the page renders it read-only.
+9. **Pages** ([`pages.py`](quant/ui/pages.py)): Portfolio (header, chart, tasks,
+   the ONE list, holdings, invest block), Update holdings (editor, Entry check,
+   Class and target), History (ledger, advice log, tax summary), Full analysis
+   (Holdings analysis, Research, Market, Pipeline health), Settings (savings
+   day, Telegram, Refresh / Update / Back up).
 
 ### Stored data (DuckDB in the data folder)
 
 | Table | Written by | Read by |
 |-------|-----------|---------|
-| `market_history` | refresh | analysis, mtm, review, drawer chart |
-| `fundamentals` | refresh | analysis (fundamental component), review |
-| `universe_master`, `funnel_survivors` | refresh | review, search |
-| `asset_registry` | refresh, registry repair, names backfill | everywhere (names, class, ISIN) |
-| `scores` | analysis chain | Research, Holdings analysis, threat floor, ideas |
-| `nlp_scores` | review (FinBERT cache by document hash) | review |
-| `nlp_evidence` | **nothing since v10.5.x** | analysis (sentiment), drawer News/SEC, nlp stage |
-| `trades`, `flows` | Confirm and save | mtm, tax summary, Modified Dietz |
-| `position_snapshots` | Confirm and save | value-series fallback |
-| `holdings_meta` | review (first-time seed) | mtm opening lots, positions, doctor |
-| `valuation`, `portfolio_total` | mtm backfill | chart, header, delta |
-| `splits` | **nothing** | mtm (no split adjustment of ledger shares) |
-| `run_manifest` | analysis chain, backfills | Pipeline health, empty states |
+| `market_history` | refresh | analysis, mtm, drawer chart, 7-day change |
+| `fundamentals` | refresh (stocks) | analysis (fundamental component) |
+| `universe_master`, `funnel_survivors` | refresh | analysis universe, search |
+| `asset_registry` | refresh, registry repair, names backfill | everywhere (names, class, ISIN, currency) |
+| `scores` | analysis chain | Research, Holdings analysis, threat floor, swap, ideas, digest |
+| `nlp_evidence` | refresh (`news.ingest`) | analysis (sentiment), drawer News, digest, nlp stage |
+| `trades`, `flows` | Confirm and save | tax summary, Modified Dietz |
+| `position_snapshots` | Confirm and save | valuation store (shares per day) |
+| `valuation`, `portfolio_total` | mtm backfill | chart, header, delta, positions |
+| `splits` | refresh | mtm (restates older snapshots), Review changes (Split rows) |
+| `run_manifest` | analysis chain, backfills | Pipeline health, empty states, digest |
 | `advice_log` | writers via `today_list.persist`, Mark done | the ONE list, History |
-| `alerts` | daily job, `quant ack` | doctor, morning summary |
 | `meta` | regime stage, reminders, backfills | regime, reminders |
-| `portfolio_history` | review | History |
-| `rebalance_log`, `universe_events` | legacy / registry-repair script | review cooldown (legacy rows) / nothing |
 
-FX: `currency.get_eur_rate` tries Yahoo, then the ECB (frankfurter.dev), then
-the last live rate persisted in `outputs/fx_eurusd_last.json`; 1.0 only on an
-install that has never been online.
+FX: `currency.eur_rate` tries Yahoo, then the ECB (frankfurter.dev), then the
+last live rate persisted in `outputs/fx_rates_last.json`; 1.0 only on an install
+that has never been online. The instrument currency comes from the registry
+(Yahoo's reported currency) before any suffix guess; GBp is converted from
+pence.
 
 ## Binding rules
 
@@ -210,44 +230,49 @@ install that has never been online.
 
 - **R-C3 — one weight math.** [`weights.instrument_weights` /
   `class_weights`](quant/engine/weights.py) (invested-only basis) are the single
-  source for the Holdings table, class table, drift, advice and the invest plan. The
-  legacy review audit (`portfolio.enhanced_portfolio_audit`, `quant run`) keeps its
-  own per-row weight for the review artifact only.
-- **R-C2 — scoring degrades, never a dash.** [`composite_score`](quant/analytics/scoring.py)
-  scores whatever components exist; each missing component contributes
-  `SCORE_MISSING_PENALTY` (12/100). This is deliberately **below** neutral: a
-  symbol with prices only tops out at 47.2 and cannot become an Idea. Confidence:
-  present/total ≥ 0.8 high, ≥ 0.5 medium, else low. The composite is stored in
-  `scores` for every symbol with a price, and every table (Research, Holdings
-  analysis) and every decision (threat floor, swap) reads that composite.
-- **The four verb classes** ([`action_taxonomy.py`](quant/engine/action_taxonomy.py)),
-  thresholds in [`quant/config.py`](quant/config.py):
-  - **Rebalance** — drift beyond the class threshold (from `build_advice`, which
-    also yields the paired drift buy/sell).
-  - **Threat** — Speculative stop-loss / take-profit; drawdown from cost beyond
-    `THREAT_DRAWDOWN`; composite below `SCORE_FLOOR`; a bear regime (de-risk the
-    Active part).
+  source for the Holdings table, class table, drift, the ONE list and the invest
+  plan.
+- **R-C2 — honest scores.** A score is computed only from the parts that have
+  enough data; a missing part is left out, never imputed or penalized, and the
+  confidence says how much was missing. The composite is stored in `scores`, and
+  every table (Research, Holdings analysis) and every decision (threat floor,
+  swap, ideas) reads that composite.
+- **The four verb classes** ([`action_taxonomy.py`](quant/engine/action_taxonomy.py),
+  the only rule set), thresholds in [`quant/config.py`](quant/config.py):
+  - **Rebalance** — an Active or Speculative holding with a target, more than
+    `REBALANCE_DRIFT_THRESHOLD` (5 pp) off it: sell the excess (Today) or buy
+    the gap (This month; no Active buys in a bear market).
+  - **Plan change** — a Long-term holding more than `PLAN_CHANGE_GAP` (10 pp)
+    below / above target: raise / lower its savings plan. Long-term holdings are
+    never sold.
+  - **Threat** — Speculative stop-loss (−50%) / take-profit (+100%); down
+    `THREAT_DRAWDOWN` (20%) from cost (not Long-term); a fall of
+    `THREAT_CRASH_7D` (15%) in 7 days; a medium/high-confidence composite below
+    `SCORE_FLOOR` (40; not Long-term); the Speculative part above `BETS_MAX`; a
+    bear market.
   - **Swap** — a scored **Active or Speculative** holding whose composite trails
     the best Idea by more than `SWAP_HURDLE`. Rendered as one paired item; a
     swapped symbol carries no standalone buy/sell.
-  - **Plan change** — a Long-term holding more than `PLAN_CHANGE_GAP` under target
-    for `PLAN_CHANGE_MONTHS` consecutive month-ends, counted from the valuation
-    store (`today_list.months_under_target`).
+- **Sizing** ([`sizing.py`](quant/engine/sizing.py)): sells round down to 5 EUR,
+  never below 25 EUR, never from a position under 100 EUR; buys round to 10 EUR.
 - **Pairing** ([`pairing.route_sell`](quant/engine/pairing.py)): a sell's proceeds
   go to the largest underweight holding, else the best Idea, else "hold proceeds
   at the broker, untracked".
 - **Stateful advice** (`advice_log`): an item keeps `open_since` while it is
-  produced; "Mark done" closes it (History keeps it); an item that is produced
-  again later opens a new row.
-- **Notifications**: Telegram only, at most two messages per local day, only when
-  the list changed ([`quant/engine/notify.py`](quant/engine/notify.py)).
+  produced; "Mark done" closes it (History keeps it) and snoozes the same item
+  for 7 days; an item no longer produced is closed; one produced again later
+  opens a new row.
+- **Notifications** ([`notify.py`](quant/engine/notify.py)): Telegram only (no
+  mail), one daily digest from the morning slot, at most once per price date
+  (`outputs/notify_state.json`). Settings → Telegram saves the bot token and
+  chat id and sends a test.
 
 ### UI and copy
 
 - **R-F1 — column contract.** [`quant/ui/columns.py`](quant/ui/columns.py)
   `TABLE_SPECS` is the one registry of table columns: non-empty headers, the
   currency in money headers, a column budget ≤ 8, low-priority detail in the
-  drawer. Specs: editor (`Name | Instrument | Avg cost / share (paid ccy) | Value
+  drawer. Specs: targets (`Holding | Class | Target %`), editor (`Name | Instrument | Avg cost / share (paid ccy) | Value
   (EUR) | Profit (EUR) | Plan (EUR/m)`), entry_check (`Instrument | Shares
   (derived) | Typed value (EUR) | Live value (EUR) | Delta %`, amber when
   \|Delta\| > 1%), research (`Symbol | Class | Stage | Score | Confidence | News |
@@ -263,8 +288,8 @@ install that has never been online.
   [`manifest.coverage_line`](quant/engine/manifest.py)) are computed, never
   placeholders; unknown means a reasoned empty state, never a bare "-".
 - **Inspect drawer.** Each Full-analysis tab has one lazy "Inspect" select; the
-  drawer renders five sections in a fixed order (price chart, score + components,
-  news, SEC, open advice), each with an explicit empty state. Widget keys are
+  drawer renders four sections in a fixed order (price chart, score + components,
+  news, open advice), each with an explicit empty state. Widget keys are
   scoped per tab (`ha_*` / `rs_*`); each tab body has an error boundary.
 - **R-P3 — one delta badge.** [`copy.delta_badge`](quant/ui/copy.py) owns every
   delta: icon/color from the sign of EUR (neutral when \|EUR\| < 0.5), text
@@ -292,21 +317,23 @@ database; `notify.toml` only with `--include-secrets`), keeps 5, and alone sets
 
 | Rule | Guard |
 |------|-------|
-| Read-only render, list logic, regime, badge | `tests/test_v10_8_10.py` |
+| Read-only render, scores, news, FX, splits, digest, targets | `tests/test_v10_8_10.py` |
+| The ONE list rules and sizing | `tests/test_decision_rules.py` |
 | Declared fallbacks / no stubs | `scripts/audit_stubs.py`, `tests/test_fallback_registry.py`, `tests/test_audit_stubs.py` ([policy](docs/stub_policy.md)) |
 | Decision core is never mocked | `tests/test_mock_boundary.py` |
 | Valuation invariants | `tests/test_v10_8_6_invariants.py` |
 | Column contract | `tests/test_v10_8_9_phase1.py` |
 | Copy lint | `tests/test_copy_lints.py` |
 | No `cash_eur` reads | `tests/test_v10_8_2_no_cash.py` |
-| Deterministic scoring | `tests/test_golden_snapshot.py` |
 
 ## ADR notes
 
-- **Tail risk over correlation.** The review scoring penalizes an asset by its
-  empirical 95% VaR ([`risk.calculate_risk_penalty`](quant/portfolio/risk.py)),
-  not by a Pearson correlation; equity returns are fat-tailed.
+- **Simple, explainable scores.** Momentum, the 200-day trend, five
+  fundamentals and headline sentiment, each documented in one pure module. The
+  HMM regime, VaR penalty and filing-text NLP of the old review were removed in
+  v10.8.10: no page or rule used their output.
 - **Remove what does not run (v10.8.10).** Code that no entry point reaches is
   deleted with its tests, not kept "for later": the optimizer, allocator,
   Buffett filter, routing, TCA, discovery, reconciliation, signal cache, cash-rate
-  schedule and disk cache went this way. Git history keeps them.
+  schedule, disk cache, the old review pipeline, the separate alerts engine and
+  SEC filings went this way. Git history keeps them.

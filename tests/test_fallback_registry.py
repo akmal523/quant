@@ -35,6 +35,7 @@ def _triggers() -> dict[str, tuple]:
         analysis,
         flows,
         mtm,
+        score_model,
         sizing,
         today_list,
     )
@@ -62,6 +63,7 @@ def _triggers() -> dict[str, tuple]:
         "flows.load_flows": (lambda: flows.load_flows(_BrokenConn()), []),
         "sizing.is_untouchable": (lambda: sizing.is_untouchable("bad"), True),
         "sizing.sell_amount": (lambda: sizing.sell_amount("bad", 100.0), None),
+        "score_model._num": (lambda: score_model._num("n/a"), None),
         "account.load_account": (
             lambda: account.load_account("/nonexistent/account.yaml").loaded, False),
         "portfolio.load_portfolio": (

@@ -12,7 +12,7 @@ Kinds:
   6. trivial_complexity   docstring verb but complexity 1 and no calls
   7. test_branch          os.environ reads of TEST/MOCK/FAKE/STUB keys
   8. vacuous_constraint   cap >= 1.0, threshold <= 0, fee < 0
-  9. canary_number        float literals equal to known live/golden values
+  9. canary_number        float literals equal to known live values
  10. undeclared_fallback  except returning a default in a Tier S module not in
                           the fallback registry
 
@@ -45,10 +45,8 @@ ROOT = Path(__file__).resolve().parent.parent
 QUANT = ROOT / "quant"
 ALLOWLIST = ROOT / "scripts" / "audit_allowlist.toml"
 WARN_BASELINE = ROOT / "tests" / "warn_baseline.txt"
-GOLDEN = ROOT / "tests" / "golden" / "backtest_2024.json"
 
 CANARY_NUMBERS = {852.23, 143.53, 287.19, 270.49, 150.03, 10400.0, 19.33}
-TRIVIAL_NUMBERS = {0.0, 1.0, -1.0, 2.0, 100.0, 0.5, 10.0, 1000.0}
 DOC_VERBS = ("compute", "calculate", "optimize", "score", "evaluate",
              "allocate", "reconcile")
 LOG_ATTRS = {"warning", "error", "info", "debug", "exception", "critical", "warn"}
@@ -228,32 +226,6 @@ def _registry_names() -> set[str]:
     return names
 
 
-def _golden_numbers() -> set[float]:
-    if not GOLDEN.exists():
-        return set()
-    try:
-        data = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return set()
-    out: set[float] = set()
-
-    def _walk(obj):
-        if isinstance(obj, dict):
-            for v in obj.values():
-                _walk(v)
-        elif isinstance(obj, list):
-            for v in obj:
-                _walk(v)
-        elif isinstance(obj, float):
-            # Only distinctive values (more than 2 decimals) are canaries; a
-            # round number like 0.3 or 20.0 is not a hardcoded answer.
-            if round(obj, 3) != round(obj, 2):
-                out.add(obj)
-
-    _walk(data)
-    return out
-
-
 def _comments(path: Path) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     try:
@@ -287,8 +259,7 @@ def _tier_c_match(cfg: Config, handler: ast.ExceptHandler, try_node: ast.Try) ->
     return None
 
 
-def audit_file(path: Path, cfg: Config, registry: set[str],
-               golden: set[float]) -> list[Finding]:
+def audit_file(path: Path, cfg: Config, registry: set[str]) -> list[Finding]:
     """Audit one file and return its findings."""
     rel = _rel(path)
     try:
@@ -316,8 +287,7 @@ def audit_file(path: Path, cfg: Config, registry: set[str],
     # Kind 9: canary numbers.
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, float):
-            if node.value in CANARY_NUMBERS or (
-                    node.value in golden and node.value not in TRIVIAL_NUMBERS):
+            if node.value in CANARY_NUMBERS:
                 findings.append(Finding(rel, node.lineno, "canary_number",
                                         f"literal {node.value} matches a known value"))
 
@@ -422,12 +392,11 @@ def run() -> list[Finding]:
     """Audit the whole quant/ tree."""
     cfg = load_config()
     registry = _registry_names()
-    golden = _golden_numbers()
     findings: list[Finding] = []
     for path in sorted(QUANT.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        findings.extend(audit_file(path, cfg, registry, golden))
+        findings.extend(audit_file(path, cfg, registry))
     return findings
 
 
