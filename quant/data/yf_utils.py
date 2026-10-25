@@ -34,7 +34,7 @@ def _silence_yf_output():
     Intent: the broad universe contains bad/class-share tickers Yahoo does not
     carry; yfinance prints '$SYM: possibly delisted' to stderr (and logs it at
     ERROR). These are non-fatal (the symbol is simply omitted) but flood the
-    console and appear as [ERROR] in main.py's log. Raise the yfinance logger
+    console and appear as [ERROR] in the refresh log. Raise the yfinance logger
     and redirect stderr to devnull for the duration of the fetch.
     Invariants: restores the logger level and stderr on exit, even on exception.
     """

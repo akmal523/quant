@@ -1,13 +1,12 @@
 """
 regime_constraints.py — the market-regime vocabulary (v10.4.0; v10.8.10).
 
-Intent: one place maps an HMM bull probability to a regime key and normalises
-the two label vocabularies in use (engine keys bull/bear/chop; the review's
-human words rising/falling/mixed), so every consumer (advice, alerts, the ONE
-list) recognises a bear market the same way.
+Intent: one place normalises the two label vocabularies in use (engine keys
+bull/bear/chop; the human words rising/falling/mixed), so every consumer (the
+ONE list rules, the Holdings analysis alerts, the digest) recognises a bear
+market the same way.
 
 Invariants:
-  - regime_from_bull_prob returns one of {bull, bear, chop}.
   - regime_key / is_bear accept a label or a regime dict in either vocabulary.
   - Pure functions (no I/O).
 """

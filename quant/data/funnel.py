@@ -8,7 +8,7 @@ for every ticker:
   Stage 2 (trend/momentum): 1y history on survivors -> rank -> top N.
 
 State Transition: universe_master -> Stage1 survivors -> Stage2 top-N -> heavy
-analysis (main.py) + portfolio merge.
+analysis chain (quant.engine.analysis) + portfolio merge.
 
 Invariants:
   - Stage 1 returns a subset of the input symbols (never adds new ones).
@@ -175,9 +175,9 @@ def save_survivors(survivors: list[str], scores: dict[str, float] | None = None)
     """Persist the funnel survivor list to DuckDB (funnel_survivors table).
 
     Intent: the funnel is the one expensive, network-bound step. data_updater.py
-    runs it once per cycle and saves the result here so main.py can read the
-    survivors without re-fetching the 1000+ universe (the documented 2-step
-    flow: data_updater -> main).
+    runs it at most once per SURVIVOR_TTL_DAYS and saves the result here so the
+    analysis chain and later refreshes read the survivors without re-fetching
+    the 1000+ universe.
     Invariants: replaces the previous survivor set; best-effort (never raises).
     """
     import time

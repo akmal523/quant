@@ -28,15 +28,23 @@ the database.
    average cost per share) and confirm. Saving is the only way data enters.
 2. **Portfolio**: total value, the day's change, and the ONE list of what to do,
    grouped into *Today* and *This month*. Each item is one action with one reason.
+   Set each holding's class and target under **Update holdings → Class and
+   target**; a holding without a target gets no buy/sell advice.
 3. **Full analysis**: per-holding drill-down, the research funnel (ideas), the
-   market trend and the pipeline health. **Run analysis** fetches fresh prices
-   and rescores everything.
-4. **History** and **Settings**: the trade ledger, the advice log, Telegram
-   alerts, Refresh prices, Update software, Back up now.
+   market trend and the pipeline health. **Run analysis** fetches fresh prices,
+   fundamentals and news headlines and rescores everything.
+4. **History** and **Settings**: the trade ledger, the advice log, the Telegram
+   bot, Refresh prices, Update software, Back up now.
+
+Scores are simple and explained: price trend (momentum and the 200-day
+average), five fundamentals for stocks, and the tone of recent news headlines
+(FinBERT, optional `news` extra). A part without enough data is left out and the
+confidence drops; it is never guessed.
 
 An optional daily timer (`schedule`, see below; Linux with systemd) refreshes
-prices and re-evaluates the list once per trading day, and sends Telegram alerts
-when something changed.
+prices and re-evaluates the list on trading days, and each morning sends one
+Telegram digest: value, day change, the market trend, what to do, holdings vs
+target, notable news and any problems. Mail is not supported.
 
 ## Where your data lives
 

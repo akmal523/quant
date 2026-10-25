@@ -395,9 +395,8 @@ def init_db() -> None:
 
     # ── Plan 3 (Phase 1): Funnel survivors cache ─────────────────────────────
     # data_updater.py runs the (expensive, 1000+ symbol) funnel once per cycle
-    # and persists the top survivors here. main.py then reads this table instead
-    # of re-running the funnel, keeping the documented 2-step flow
-    # (data_updater -> main) without duplicating the network fetch.
+    # and persists the top survivors here. The analysis chain reads this table
+    # instead of re-running the funnel.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS funnel_survivors (
             symbol VARCHAR PRIMARY KEY,

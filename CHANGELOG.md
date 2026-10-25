@@ -100,6 +100,75 @@ live code were kept (about 9,000 lines of code and tests removed).
   PATH after `./install.sh`). The doctor lists stale pre-10.8.1 copies of user
   data left in the code checkout.
 
+### Second pass: a real daily tool (same release)
+
+A review of every function against one question: does it help the investor
+decide, does it work on real data, or should it go. Several items above were
+superseded by this pass (the month-count plan change, the HMM regime, the
+`trade_size` gates).
+
+#### Added
+
+- **Daily Telegram digest** ([`notify.py`](quant/engine/notify.py)): one message
+  per trading morning with the total, the day change, the return since first
+  purchase, the market trend, the ONE list, holdings vs target with their score,
+  up to three notable headlines and any failed analysis stage. Sent once per
+  price date from the 07:45 run; also written to `outputs/daily_<date>.md`.
+  Settings → Telegram saves the bot and sends a test. Mail is not supported.
+- **Editable targets**: Update holdings → Class and target writes `tiers.csv`
+  (`target_pct`). The four hard-coded targets migrate there once. A holding
+  without a target gets no drift advice (it used to count as a 0% target).
+- **Stock splits**: refresh reads Yahoo's split events into `splits`; a split
+  inside the incremental window refetches that symbol in full. The valuation
+  store restates older saved tables by later splits, and Review changes shows a
+  "Split" row instead of a fake buy/sell.
+- **Crash threat**: a fall of 15% within 7 days.
+- **Mark done** snoozes the same item for 7 days.
+
+#### Changed
+
+- **Scores** ([`score_model.py`](quant/engine/score_model.py)): technical =
+  12-1 momentum + price vs the 200-day average; fundamental (stocks only) = P/E,
+  PEG, ROE, debt/equity, interest cover; sentiment = FinBERT on recent headlines
+  with a 7-day half-life. Weights 0.50 / 0.35 / 0.15 over the parts present; the
+  12-point penalty for a missing part is gone, confidence carries it instead.
+  Ideas need high confidence; the score floor needs medium or better.
+- **Regime**: the index more than 2% above / below its 200-day average on three
+  consecutive closes (bull / bear), else chop. Replaces the HMM fit.
+- **News**: Yahoo RSS headlines per symbol, deduplicated, scored once by
+  FinBERT during refresh and stored in `nlp_evidence` (60 days). The table had
+  had no writer since v10.5, so sentiment was always missing.
+- **One rule set**: [`action_taxonomy.py`](quant/engine/action_taxonomy.py) is
+  the only decision code (rebalance, plan change, threat, swap). Plan change is
+  a plain gap from target.
+- **Positions** use the latest market value from the valuation store, and
+  shares = invested / average cost (they were value / cost).
+- **Valuation store** is rebuilt from the saved holdings tables
+  (`position_snapshots`) instead of a reconstructed trade ledger, which had
+  drifted to about half the real value.
+- **Currencies**: the instrument currency comes from Yahoo via the registry;
+  every currency (not only USD) has the Yahoo → ECB → last-known-rate chain.
+- **Refresh** skips a symbol that fails a data check instead of aborting, keeps
+  funnel survivors for 7 days, and fetches fundamentals only for stocks.
+- `quant run` is the analysis chain. `health-check` is folded into `doctor`.
+
+#### Removed
+
+- The old review pipeline (`quant/main.py`, `analytics/`, process-pool scoring,
+  the HMM, VaR penalty, filing-text NLP, the audit CSV and run artifacts): no
+  page or rule read its output.
+- The separate alerts engine and `advice.build_advice` (a second and third rule
+  set; Active buys needed a field that never existed).
+- SEC filings (`sec_edgar`, the drawer's SEC section), `async_fetcher`,
+  `trade_size`, `risk`, `history`, the review notifier, `features/`, `infra/`,
+  `utils/`.
+- CLI: `reconcile`, `ack`, `news-doctor`, `health-check`, `validate-tiers`,
+  `repair-tiers`, `cache-stats`, `clear-cache`; mail in `notify-setup`.
+- Scripts `backtest.py`, `make_golden.py`, `repair_registry.py`, the golden
+  workflow and its CI step.
+- New databases no longer create `nlp_scores`, `portfolio_history`,
+  `universe_events`, `rebalance_log`, `alerts`, `holdings_meta`.
+
 ## [10.8.9] - 2026-10-13
 
 "Close the defect register." The P3 residuals shared one pattern: mechanisms were

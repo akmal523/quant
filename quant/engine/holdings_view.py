@@ -9,7 +9,7 @@ one-workflow never produces it, so Holdings and Full analysis were empty.
 This module builds one list of holding dicts from the live position source
 (:func:`quant.engine.positions.positions_now`) plus the tier map and the per-symbol
 targets. It is the single input to the Portfolio table, the Full analysis table
-and :func:`quant.engine.advice.build_advice`.
+and :func:`quant.engine.action_taxonomy.build` (the ONE list).
 
 Invariants:
   - Pure read: no writes.
