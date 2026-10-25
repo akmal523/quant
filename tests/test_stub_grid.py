@@ -38,4 +38,4 @@ def test_modified_dietz_deposit_is_not_profit():
 def test_sell_amount_monotone_and_capped():
     assert sizing.sell_amount(50.0, 1000.0) >= sizing.sell_amount(30.0, 1000.0)
     assert sizing.sell_amount(2000.0, 1000.0) <= 1000.0 - 1.0
-    assert sizing.can_sell("ALPHA", 50.0, 200.0) is None  # below 100 EUR
+    assert sizing.is_untouchable(50.0)  # below 100 EUR

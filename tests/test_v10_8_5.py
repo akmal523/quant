@@ -121,8 +121,7 @@ def test_backfill_writes_one_point_per_trading_day():
             conn.execute(
                 "INSERT OR REPLACE INTO market_history (Symbol, Date, Close) "
                 "VALUES (?, ?, ?)", [sym, str(d), close])
-        mtm.backfill(conn, fx_lookup=lambda _s: 1.0, start=date(2026, 7, 1),
-                     end=date(2026, 7, 3), source="test")
+        mtm.backfill(conn, fx_lookup=lambda _s: 1.0, source="test")
 
     series = read_value_series()
     assert len(series) == 3, "the series must have one point per trading day"

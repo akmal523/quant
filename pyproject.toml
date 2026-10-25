@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quant-ai"
-version = "10.8.10"
+version = "10.8.11"
 description = "A daily portfolio manager for one EUR-based investor on Trade Republic."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -112,7 +112,7 @@ known-first-party = ["quant"]
 "tests/test_institutional.py" = ["N806"]
 
 [tool.bumpversion]
-current_version = "10.8.10"
+current_version = "10.8.11"
 commit = true
 tag = true
 tag_name = "v{new_version}"
@@ -146,6 +146,10 @@ pytest_add_cli_args_test_selection = [
     "tests/test_stub_grid.py",
     "tests/test_advice_grid.py",
     "tests/test_decision_rules.py",
+    "tests/test_core_sizing_flows.py",
+    "tests/test_core_score_model.py",
+    "tests/test_core_action_taxonomy.py",
+    "tests/test_core_mtm.py",
     "tests/test_properties.py",
     "tests/test_regression_grid.py",
     "tests/test_fallback_registry.py",

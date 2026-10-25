@@ -230,8 +230,8 @@ def test_invariant_one_point_per_trading_day(valuation_store):
     """Invariant 2: one valuation point per trading day, no gaps, no flat fill."""
     from quant.engine import mtm
 
-    series = mtm.read_series(symbol="EUNL.DE", start=date(2026, 10, 1),
-                             end=date(2026, 10, 13))
+    series = [r for r in mtm.read_symbol_series()["EUNL.DE"]
+              if date(2026, 10, 1) <= r["date"] <= date(2026, 10, 13)]
     got = {str(r["date"])[:10] for r in series}
     expected = {str(d) for d in V_DAYS}
     assert got == expected, f"missing/extra days: {expected ^ got}"
@@ -273,8 +273,7 @@ def test_invariant_growth_view_has_portfolio_and_per_asset(valuation_store):
     from quant.engine import mtm
     from quant.reporting.artifacts import compute_growth_view
 
-    d = mtm.latest_price_date()
-    symbols = mtm.held_symbols(as_of=d)
+    symbols = list(mtm.read_symbol_series())
     assert set(symbols) == set(_V_SYMBOLS)
     growth = compute_growth_view(mtm.read_total_series(), mtm.read_symbol_series(),
                                  symbols)
@@ -295,7 +294,7 @@ def test_invariant_value_view_hover_lists_per_asset(valuation_store):
     from quant.reporting.artifacts import compute_value_view_hover
 
     d = mtm.latest_price_date()
-    symbols = mtm.held_symbols(as_of=d)
+    symbols = list(mtm.read_symbol_series())
     hover = compute_value_view_hover(d, mtm.read_total_series(),
                                      mtm.read_symbol_series(), symbols)
     assert "total" in hover and "cash" not in hover

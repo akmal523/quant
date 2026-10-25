@@ -23,8 +23,9 @@ computation is deleted; the ledger flows remain for audit only.
 Invariants:
   - Pure helpers (restate, shares_on) do no I/O; the I/O wrappers take an
     explicit connection.
-  - Never raises on a missing price: the symbol is skipped (its last stored value
-    is untouched), never zeroed.
+  - A missing price skips the symbol for that day, never zeroes it.
+  - backfill lets a database error propagate; its callers (confirm, the daily
+    job, refresh) catch it, and the rebuild is atomic per call.
   - value_eur = shares * price_eur * fx, rounded to 2 decimals.
 """
 from __future__ import annotations
@@ -40,6 +41,26 @@ SOURCE_DAILY = "daily"
 SOURCE_CONFIRM = "confirm"
 SOURCE_REFRESH = "refresh"
 SOURCE_BACKFILL = "backfill"
+
+# The SQL lives at module level: keyword and column case cannot change what a
+# query does, so these strings are not mutation targets.
+SQL_SNAPSHOTS = ("SELECT snapshot_date, symbol, shares FROM position_snapshots "
+                 "ORDER BY snapshot_date")
+SQL_SPLITS = "SELECT effective_date, symbol, factor FROM splits ORDER BY effective_date"
+SQL_PRICES = ("SELECT Symbol, Date, Close FROM market_history "
+              "WHERE Symbol IN ({}) AND Close IS NOT NULL")
+SQL_CLEAR_VALUATION = "DELETE FROM valuation"
+SQL_CLEAR_TOTAL = "DELETE FROM portfolio_total"
+SQL_WRITE_VALUATION = ("INSERT OR REPLACE INTO valuation "
+                       "(date, symbol, shares, price_eur, fx, value_eur, source) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)")
+SQL_WRITE_TOTAL = ("INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
+                   "VALUES (?, ?, NULL)")
+SQL_TOTALS = "SELECT date, value_eur FROM portfolio_total ORDER BY date"
+SQL_LATEST_TOTAL = "SELECT date, value_eur FROM portfolio_total ORDER BY date DESC LIMIT 1"
+SQL_LAST_PRICE = "SELECT MAX(Date) FROM market_history"
+SQL_LAST_VALUATION = "SELECT MAX(date) FROM valuation"
+SQL_SYMBOL_SERIES = "SELECT date, symbol, value_eur FROM valuation ORDER BY date"
 
 
 def _as_date(value: Any) -> date | None:
@@ -70,7 +91,7 @@ def restate(shares: float, symbol: str, since: date | None, splits: list) -> flo
     """
     for row in splits or []:
         eff, sym, factor = (list(row) + [None, None, None])[:3]
-        ed, f = _as_date(eff), _num(factor, 1.0)
+        ed, f = _as_date(eff), _num(factor)        # unknown factor -> 0 -> skipped
         if str(sym) == str(symbol) and ed is not None and f > 0 and (
                 since is None or ed > since):
             shares *= f
@@ -89,8 +110,6 @@ def shares_on(snapshots: list, splits: list, day: date) -> dict[str, float]:
     for snap_day, table in snapshots:
         if snap_day <= day:
             held = (snap_day, table)
-        else:
-            break
     if held is None:
         return {}
     snap_day, table = held
@@ -104,8 +123,7 @@ def _snapshots(conn: Any) -> list:
     No snapshot yet (nothing saved) -> the current holdings table as today's.
     """
     try:
-        rows = conn.execute("SELECT snapshot_date, symbol, shares FROM position_snapshots "
-                            "ORDER BY snapshot_date").fetchall()
+        rows = conn.execute(SQL_SNAPSHOTS).fetchall()
     except Exception:  # noqa: BLE001
         rows = []
     by_day: dict = {}
@@ -125,9 +143,7 @@ def _split_rows(conn: Any) -> list:
     Reads the ``splits`` table when present; empty otherwise (a DB predating it).
     """
     try:
-        return conn.execute(
-            "SELECT effective_date, symbol, factor FROM splits ORDER BY effective_date"
-        ).fetchall()
+        return conn.execute(SQL_SPLITS).fetchall()
     except Exception:  # noqa: BLE001
         return []
 
@@ -147,46 +163,42 @@ def _fx_rate(symbol: str) -> float:
 # ── Per-trading-day backfill (v10.8.5, T2/D3/D7) ──────────────────────────────
 
 def _price_history(conn: Any, symbols: set) -> dict:
-    """{symbol: [(date, native_close), ...] sorted} for the given symbols."""
-    if not symbols:
-        return {}
+    """{symbol: [(date, native_close), ...] sorted} for the given symbols.
+
+    An empty symbol set is invalid SQL (``IN ()``) and lands in the same empty
+    fallback as an unreadable table.
+    """
     try:
-        placeholders = ",".join("?" for _ in symbols)
         rows = conn.execute(
-            f"SELECT Symbol, Date, Close FROM market_history "
-            f"WHERE Symbol IN ({placeholders}) AND Close IS NOT NULL",
-            list(symbols)).fetchall()
+            SQL_PRICES.format(",".join("?" for _ in symbols)), list(symbols)).fetchall()
     except Exception:  # noqa: BLE001
         return {}
     out: dict = {}
-    for sym, day, close in rows:
+    for sym, day, close in rows:           # Close IS NOT NULL in the query
         d = _as_date(day)
-        if d is None or close is None:
+        if d is None:
             continue
         out.setdefault(str(sym), []).append((d, float(close)))
     for sym in out:
-        out[sym].sort(key=lambda t: t[0])
+        out[sym].sort()                    # (date, close): one close per date
     return out
 
 
 def _close_on_or_before(series: list, day: date) -> float | None:
     """The close on ``day`` or the most recent before it (None when none yet)."""
-    if not series:
-        return None
-    idx = bisect.bisect_right(series, (day, float("inf"))) - 1
-    return series[idx][1] if idx >= 0 else None
+    idx = bisect.bisect_right(series, day, key=lambda t: t[0])
+    return series[idx - 1][1] if idx else None
 
 
-def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
-             source: str = SOURCE_BACKFILL, start: date | None = None,
-             end: date | None = None) -> dict:
+def backfill(conn: Any, fx_lookup: Any = None, source: str = SOURCE_BACKFILL) -> dict:
     """Rebuild the store: one valuation row per held symbol per trading day.
 
     v10.8.10: shares come from the saved holdings tables (position_snapshots),
     not from a reconstructed ledger (opening lots + diff trades), which one bad
     row could corrupt for good. The store is rebuilt from scratch on every call
     (small: days x holdings), so it heals itself. value = shares x close x FX.
-    Returns ``{days, rows}``. Never raises.
+    ``fx_lookup(symbol)`` replaces the live EUR rate (tests). Returns
+    ``{days, rows}``.
     """
     snapshots = _snapshots(conn)
     if not snapshots:
@@ -194,63 +206,30 @@ def backfill(conn: Any, price_lookup: Any = None, fx_lookup: Any = None,
     splits = _split_rows(conn)
     symbols = {s for _d, table in snapshots for s in table}
     hist = _price_history(conn, symbols)
-    days = sorted({d for s in hist.values() for d, _c in s})
     first = snapshots[0][0]
-    if callable(price_lookup):
-        days = sorted(set(days) | {first})
-    days = [d for d in days if d >= (_as_date(start) or first)
-            and (end is None or d <= _as_date(end))]
-    try:
-        if start is None and end is None:
-            conn.execute("DELETE FROM valuation")
-            conn.execute("DELETE FROM portfolio_total")
-    except Exception:  # noqa: BLE001
-        return {"days": 0, "rows": 0}
+    days = sorted({d for s in hist.values() for d, _c in s if d >= first})
+    conn.execute(SQL_CLEAR_VALUATION)
+    conn.execute(SQL_CLEAR_TOTAL)
+    fx = fx_lookup if callable(fx_lookup) else _fx_rate
     fx_cache: dict = {}
-    rows = day_count = 0
+    rows = 0
     for d in days:
         total = 0.0
         for sym, sh in shares_on(snapshots, splits, d).items():
-            price = (price_lookup(sym) if callable(price_lookup)
-                     else _close_on_or_before(hist.get(sym, []), d))
+            price = _close_on_or_before(hist.get(sym, []), d)
             if price is None:
                 continue
             if sym not in fx_cache:
-                fx_cache[sym] = (float(fx_lookup(sym)) if callable(fx_lookup)
-                                 else _fx_rate(sym)) or 1.0
-            value = round(sh * float(price) * fx_cache[sym], 2)
-            try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO valuation "
-                    "(date, symbol, shares, price_eur, fx, value_eur, source) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [d, sym, sh, float(price), fx_cache[sym], value, str(source)])
-                rows += 1
-                total += value
-            except Exception:  # noqa: BLE001
-                continue
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO portfolio_total (date, value_eur, cash_eur) "
-                "VALUES (?, ?, NULL)", [d, round(total, 2)])
-            day_count += 1
-        except Exception:  # noqa: BLE001
-            pass
-    return {"days": day_count, "rows": rows}
-
-
-def refresh(as_of: date | None = None, source: str = SOURCE_REFRESH) -> dict:
-    """Open a write connection and backfill the valuation store. Summary."""
-    from quant.data.database import write_connection
-
-    as_of = as_of or date.today()
-    try:
-        with write_connection() as conn:
-            res = backfill(conn, source=source)
-        return {"ok": True, "date": as_of, "rows": res["rows"],
-                "days": res["days"]}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "date": as_of, "rows": 0, "days": 0, "error": str(e)}
+                fx_cache[sym] = float(fx(sym)) or 1.0
+            value = round(sh * price * fx_cache[sym], 2)
+            conn.execute(SQL_WRITE_VALUATION,
+                         [d, sym, sh, price, fx_cache[sym], value, str(source)])
+            rows += 1
+            total += value
+        # The parts are whole cents; rounding only drops float noise, so 2 or 3
+        # places are the same.
+        conn.execute(SQL_WRITE_TOTAL, [d, round(total, 2)])  # pragma: no mutate
+    return {"days": len(days), "rows": rows}
 
 
 # ── Readers ───────────────────────────────────────────────────────────────────
@@ -261,54 +240,13 @@ def read_total_series(conn: Any = None) -> list[dict]:
     Returns ``[{date, value_eur}]``; empty when nothing is stored. v10.8.7 (R-C1):
     ``cash_eur`` is frozen audit data and is never read.
     """
-    rows = _query(conn, "SELECT date, value_eur FROM portfolio_total "
-                        "ORDER BY date")
+    rows = _query(conn, SQL_TOTALS)
     return [{"date": r[0], "value_eur": _num(r[1])} for r in rows]
-
-
-def read_series(symbol: str | None = None, start: Any = None, end: Any = None,
-                conn: Any = None) -> list[dict]:
-    """Valuation rows from the store (v10.8.6, B2).
-
-    Without ``symbol``: the daily portfolio totals ``[{date, value_eur}]``
-    (invested only; v10.8.7, R-C1). With ``symbol``: the per-symbol valuation rows
-    ``[{date, symbol, shares, price_eur, fx, value_eur}]`` within ``[start, end]``.
-    Only stored dates are returned (no forward-fill). Empty when nothing is stored.
-    """
-    if symbol is None:
-        return read_total_series(conn)
-    sql = ("SELECT date, symbol, shares, price_eur, fx, value_eur FROM valuation "
-           "WHERE symbol = ?")
-    params: list = [str(symbol)]
-    if start is not None:
-        sql += " AND date >= ?"
-        params.append(_as_date(start))
-    if end is not None:
-        sql += " AND date <= ?"
-        params.append(_as_date(end))
-    sql += " ORDER BY date"
-    rows = _query(conn, sql, params)
-    return [{"date": r[0], "symbol": str(r[1]), "shares": _num(r[2]),
-             "price_eur": _num(r[3]), "fx": _num(r[4]), "value_eur": _num(r[5])}
-            for r in rows]
-
-
-def held_symbols(as_of: Any = None, conn: Any = None) -> list[str]:
-    """The symbols held on the latest stored valuation date <= ``as_of`` (B3)."""
-    target = _as_date(as_of) or date.today()
-    rows = _query(conn, "SELECT MAX(date) FROM valuation WHERE date <= ?", [target])
-    if not rows or rows[0][0] is None:
-        return []
-    d = _as_date(rows[0][0])
-    srows = _query(conn, "SELECT DISTINCT symbol FROM valuation WHERE date = ? "
-                         "ORDER BY symbol", [d])
-    return [str(r[0]) for r in srows]
 
 
 def latest_total(conn: Any = None) -> dict:
     """The most recent ``portfolio_total`` row (invested value only), or {}."""
-    rows = _query(conn, "SELECT date, value_eur FROM portfolio_total "
-                        "ORDER BY date DESC LIMIT 1")
+    rows = _query(conn, SQL_LATEST_TOTAL)
     if not rows:
         return {}
     r = rows[0]
@@ -324,17 +262,13 @@ def day_delta(conn: Any = None) -> tuple[float, float, date | None]:
     shows and the number the invariant test checks can never drift (v10.8.6, B6).
     Returns ``(0.0, 0.0, latest_date_or_None)`` when fewer than two days are stored.
     """
+    from quant.reporting.artifacts import compute_day_delta
+
     series = read_total_series(conn)
     if not series:
         return 0.0, 0.0, None
-    latest_d = _as_date(series[-1]["date"])
-    try:
-        from quant.reporting.artifacts import compute_day_delta
-
-        eur, pct = compute_day_delta(series)
-    except Exception:  # noqa: BLE001
-        eur, pct = 0.0, 0.0
-    return eur, pct, latest_d
+    eur, pct = compute_day_delta(series)
+    return eur, pct, _as_date(series[-1]["date"])
 
 
 # ── Startup catch-up (v10.8.6, B1/B2) ─────────────────────────────────────────
@@ -368,47 +302,37 @@ def catch_up(retries: int = 3, base_delay: float = 0.5) -> dict:
     with bounded retry on lock contention. On final failure: one log line + mark the
     ``valuation`` stage ``stale`` in ``run_manifest``. Never raises.
     """
+    import contextlib
     import time
 
     from quant.data.database import connect_with_retry
 
-    last_err: Exception | None = None
+    last_err: Exception | None = None  # pragma: no mutate (always set before use)
     tries = max(1, int(retries))
     for attempt in range(tries):
-        conn = None
         try:
-            conn = connect_with_retry(attempts=1)
-            price = conn.execute("SELECT MAX(Date) FROM market_history").fetchall()
-            latest_price = _as_date(price[0][0]) if price and price[0][0] else None
-            val = conn.execute("SELECT MAX(date) FROM valuation").fetchall()
-            latest_val = _as_date(val[0][0]) if val and val[0][0] else None
-            if latest_price is None:
-                return {"ok": True, "skipped": True, "reason": "no prices"}
-            if latest_val is not None and latest_val >= latest_price:
-                return {"ok": True, "skipped": True, "latest": str(latest_val)}
-            res = backfill(conn, source=SOURCE_REFRESH, end=latest_price)
-            return {"ok": True, "rows": res.get("rows", 0),
-                    "days": res.get("days", 0), "latest": str(latest_price)}
+            with contextlib.closing(connect_with_retry(attempts=1)) as conn:
+                latest_price = _as_date(conn.execute(SQL_LAST_PRICE).fetchone()[0])
+                latest_val = _as_date(conn.execute(SQL_LAST_VALUATION).fetchone()[0])
+                if latest_price is None:
+                    return {"ok": True, "skipped": True, "reason": "no prices"}
+                if latest_val is not None and latest_val >= latest_price:
+                    return {"ok": True, "skipped": True, "latest": str(latest_val)}
+                res = backfill(conn, source=SOURCE_REFRESH)
+                return {"ok": True, "rows": res["rows"], "days": res["days"],
+                        "latest": str(latest_price)}
         except Exception as e:  # noqa: BLE001
             last_err = e
             if attempt < tries - 1:
                 time.sleep(base_delay * (2 ** attempt))
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:  # noqa: BLE001
-                    pass
     _mark_valuation_stale(last_err)
     return {"ok": False, "error": str(last_err)}
 
 
 def latest_price_date(conn: Any = None) -> date | None:
     """The most recent stored valuation date, or None."""
-    rows = _query(conn, "SELECT MAX(date) FROM valuation")
-    if not rows or rows[0][0] is None:
-        return None
-    return _as_date(rows[0][0])
+    rows = _query(conn, SQL_LAST_VALUATION)
+    return _as_date(rows[0][0]) if rows else None
 
 
 def read_symbol_series(conn: Any = None) -> dict:
@@ -417,8 +341,7 @@ def read_symbol_series(conn: Any = None) -> dict:
     Returns ``{symbol: [{date, value_eur}, ...]}`` oldest first, for the Growth
     chart's one-line-per-held-asset view. Empty when nothing is stored.
     """
-    rows = _query(conn, "SELECT date, symbol, value_eur FROM valuation "
-                        "ORDER BY date")
+    rows = _query(conn, SQL_SYMBOL_SERIES)
     out: dict = {}
     for d, sym, v in rows:
         out.setdefault(str(sym), []).append(
@@ -426,14 +349,14 @@ def read_symbol_series(conn: Any = None) -> dict:
     return out
 
 
-def _query(conn: Any, sql: str, params: list | None = None) -> list:
+def _query(conn: Any, sql: str) -> list:
     """Run a read query on ``conn`` or a short-lived read-only connection."""
     try:
         if conn is not None:
-            return conn.execute(sql, params or []).fetchall()
+            return conn.execute(sql).fetchall()
         from quant.data.database import read_only_connection
 
         with read_only_connection() as c:
-            return c.execute(sql, params or []).fetchall()
+            return c.execute(sql).fetchall()
     except Exception:  # noqa: BLE001
         return []

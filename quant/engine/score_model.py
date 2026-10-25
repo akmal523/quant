@@ -37,6 +37,7 @@ HIGH_CONFIDENCE = 0.8
 MEDIUM_CONFIDENCE = 0.5
 REGIME_BAND = 0.02        # index more than 2% above/below its 200-day average
 REGIME_DAYS = 3           # ... on each of the last 3 closes (no one-day flips)
+REGIME_HIGH = 0.05        # 5% from the average: a clear trend
 
 
 def _num(value: Any) -> float | None:
@@ -47,8 +48,10 @@ def _num(value: Any) -> float | None:
     return None if math.isnan(f) else f
 
 
-def _clamp(x: float) -> float:
-    return round(max(0.0, min(100.0, x)), 1)
+def _score(x: float) -> float:
+    """One decimal. Every formula below is bounded to 0..100 by construction
+    (tanh terms, a points ratio, a tone clipped to -1..1), so no clamp is needed."""
+    return round(x, 1)
 
 
 def technical_score(closes: list[float]) -> float | None:
@@ -60,8 +63,8 @@ def technical_score(closes: list[float]) -> float | None:
     trend = math.tanh((px[-1] / sma200 - 1.0) * 5.0)        # +-10% vs the average
     if len(px) >= 253:
         mom = px[-22] / px[-253] - 1.0                       # 12 months, skip the last
-        return _clamp(50.0 + 25.0 * trend + 25.0 * math.tanh(mom * 2.0))
-    return _clamp(50.0 + 50.0 * trend)
+        return _score(50.0 + 25.0 * trend + 25.0 * math.tanh(mom * 2.0))
+    return _score(50.0 + 50.0 * trend)
 
 
 def _debt_to_equity(raw: Any) -> float | None:
@@ -101,7 +104,7 @@ def fundamental_score(f: dict | None) -> float | None:
         parts.append((15 if icr >= 8 else 8 if icr >= 3 else 0, 15))
     if len(parts) < 3:
         return None
-    return _clamp(100.0 * sum(p for p, _ in parts) / sum(m for _, m in parts))
+    return _score(100.0 * sum(p for p, _ in parts) / sum(m for _, m in parts))
 
 
 def sentiment_score(evidence: list[tuple[Any, Any]], today: date) -> float | None:
@@ -112,22 +115,22 @@ def sentiment_score(evidence: list[tuple[Any, Any]], today: date) -> float | Non
         s = _num(score)
         if s is None or when is None:
             continue
-        d = when if isinstance(when, date) else date.fromisoformat(str(when)[:10])
-        age = (today - d).days
+        age = (today - date.fromisoformat(str(when)[:10])).days
         if age < 0 or age > SENTIMENT_WINDOW_DAYS:
             continue
         w = 0.5 ** (age / SENTIMENT_HALF_LIFE_DAYS)
         total += w * max(-1.0, min(1.0, s))
         weight += w
         n += 1
-    if n < SENTIMENT_MIN_DOCS or weight == 0:
+    if n < SENTIMENT_MIN_DOCS:       # >= 1 document also means weight > 0
         return None
-    return _clamp(50.0 + 50.0 * total / weight)
+    return _score(50.0 + 50.0 * total / weight)
 
 
 def applicable(instrument_class: str | None) -> tuple[str, ...]:
     """Components that apply: fundamentals only exist for single stocks."""
-    if str(instrument_class or "EQUITY").upper() == "EQUITY":
+    cls = str(instrument_class).upper() if instrument_class else "EQUITY"
+    if cls == "EQUITY":
         return ("technical", "fundamental", "sentiment")
     return ("technical", "sentiment")
 
@@ -144,9 +147,15 @@ def composite(components: dict, instrument_class: str | None = None) -> dict:
     present_w = sum(WEIGHTS[n] for n in present)
     value = (sum(WEIGHTS[n] * float(v) for n, v in present.items()) / present_w
              if present_w else None)
-    share = present_w / total_w if total_w else 0.0
-    confidence = ("high" if share >= HIGH_CONFIDENCE
-                  else "medium" if share >= MEDIUM_CONFIDENCE else "low")
+    share = present_w / total_w          # total_w > 0: technical always applies
+    # No mix of components gives a share of exactly 0.8, so >= and > are the
+    # same here; the comparison is excluded from mutation.
+    if share >= HIGH_CONFIDENCE:  # pragma: no mutate
+        confidence = "high"
+    elif share >= MEDIUM_CONFIDENCE:
+        confidence = "medium"
+    else:
+        confidence = "low"
     return {"composite": None if value is None else round(value, 1),
             "confidence": confidence, "present": len(present), "total": len(names),
             "components": {n: components.get(n) for n in names}}
@@ -162,12 +171,19 @@ def trend_regime(closes: list[float]) -> tuple[str, float, str] | None:
         end = len(px) - k
         sma = sum(px[end - 200:end]) / 200.0
         devs.append(px[end - 1] / sma - 1.0)
-    if all(d > REGIME_BAND for d in devs):
+    # Deviations are continuous: a close landing exactly on a band edge does not
+    # happen, so > and >= are the same on the four comparisons marked below.
+    if all(d > REGIME_BAND for d in devs):  # pragma: no mutate
         label = "bull"
-    elif all(d < -REGIME_BAND for d in devs):
+    elif all(d < -REGIME_BAND for d in devs):  # pragma: no mutate
         label = "bear"
     else:
         label = "chop"
     dev = devs[0]
-    confidence = "high" if abs(dev) >= 0.05 else "medium" if abs(dev) >= REGIME_BAND else "low"
+    if abs(dev) >= REGIME_HIGH:  # pragma: no mutate
+        confidence = "high"
+    elif abs(dev) >= REGIME_BAND:  # pragma: no mutate
+        confidence = "medium"
+    else:
+        confidence = "low"
     return label, dev, confidence

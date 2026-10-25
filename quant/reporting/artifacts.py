@@ -120,7 +120,7 @@ def read_portfolio_total() -> pd.DataFrame:
     try:
         from quant.engine import mtm
 
-        series = mtm.read_series()
+        series = mtm.read_total_series()
     except Exception:  # noqa: BLE001
         return empty
     if not series:

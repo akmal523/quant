@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.8.11] - 2026-10-25
+
+"Every mutant killed." The weekly mutation job had failed since October: it
+crashed before testing anything, its report always read 0 percent, and the real
+score was 50.5 percent. It now runs, and the math core is at **100 percent
+(1461/1461 mutants killed)**; the gate is raised from 90 to 100 percent.
+
+### Fixed
+
+- **Tests started the real daily job.** Rendering the dashboard in AppTest
+  launched `quant.cli daily` (network, database writes) in the background; under
+  mutmut the stray process crashed its worker pool. A conftest fixture stubs that
+  one command at the process boundary.
+- **The mutation report always said 0 percent** (`mutmut results` hides killed
+  mutants unless `--all true`), and printed nothing when mutmut itself failed.
+- **CI:** the HMM library test (hmmlearn is not installed in CI) is gone; the
+  archived ruling log no longer breaks the strict docs build.
+
+### Changed
+
+- New exact-value suites for the math core: `test_core_score_model.py`,
+  `test_core_action_taxonomy.py`, `test_core_mtm.py`,
+  `test_core_sizing_flows.py`. Every threshold is probed on both sides and every
+  item, row and reason text is compared in full.
+- Code that no test could distinguish from a changed version was simplified
+  rather than excluded, without changing what the user sees:
+  - `score_model`: no clamp (each score is bounded by its formula), no dead
+    guards, one date parse.
+  - `action_taxonomy`: labels come straight from `label_for`; Today/This month
+    ordering is a plain stable sort; sells use the untouchable and size laws
+    directly (Long-term holdings never reach that path).
+  - `sizing`: no redundant guard in `sell_amount`.
+  - `flows`: a flow without a type is a buy via one named constant.
+  - `mtm`: SQL in module-level constants; `backfill` lets a database error reach
+    its callers (all three already catch it) instead of skipping rows silently;
+    the startup catch-up always rebuilds the whole store and closes its
+    connection with `contextlib.closing`.
+- The 13 remaining equivalent comparisons (SQL text in `flows`, `>` vs `>=` on
+  continuous measures, whole-10-EUR buys against the 25 EUR minimum) carry
+  `# pragma: no mutate` with the reason. Policy: `docs/stub_policy.md`.
+
+### Removed
+
+- Unused: `sizing.can_sell`, `mtm.refresh`, `mtm.held_symbols`,
+  `mtm.read_series` (the chart reads `read_total_series`), and the unused
+  `price_lookup` / `start` / `end` parameters of `mtm.backfill`.
+
 ## [10.8.10] - 2026-10-23
 
 "Make the code do what the docs say." An audit of CONTEXT.md against the code

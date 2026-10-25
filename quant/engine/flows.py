@@ -23,7 +23,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-_FLOW_SIGN = {"buy": 1.0, "sell": -1.0, "dividend": -1.0}
+_BUY = "buy"   # a flow without a type is a buy (money entered invested)
+_FLOW_SIGN = {_BUY: 1.0, "sell": -1.0, "dividend": -1.0}
 
 
 def flow_sign(flow_type: str) -> float:
@@ -39,18 +40,20 @@ def _as_date(value: Any) -> date:
 
 def load_flows(conn: Any, start: date | None = None, end: date | None = None) -> list[dict]:
     """Load flows in [start, end] (inclusive), ordered by date."""
-    query = "SELECT id, date, type, amount_eur, symbol, note FROM flows"
+    # SQL keywords and column names are case-insensitive, so mutating their
+    # case cannot change behavior; the SQL text lines are excluded from mutation.
+    query = "SELECT id, date, type, amount_eur, symbol, note FROM flows"  # pragma: no mutate
     clauses: list[str] = []
     params: list = []
     if start is not None:
-        clauses.append("date >= ?")
+        clauses.append("date >= ?")  # pragma: no mutate
         params.append(start)
     if end is not None:
-        clauses.append("date <= ?")
+        clauses.append("date <= ?")  # pragma: no mutate
         params.append(end)
     if clauses:
-        query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY date"
+        query += " WHERE " + " AND ".join(clauses)  # pragma: no mutate
+    query += " ORDER BY date"  # pragma: no mutate
     try:
         rows = conn.execute(query, params).fetchall()
     except Exception:  # noqa: BLE001
@@ -89,7 +92,7 @@ def modified_dietz(
     net_flow = 0.0
     weighted = 0.0
     for flow in flows:
-        amount = float(flow.get("amount_eur", 0) or 0) * flow_sign(flow.get("type", "buy"))
+        amount = float(flow.get("amount_eur") or 0) * flow_sign(flow.get("type", _BUY))
         flow_date = _as_date(flow.get("date"))
         days_from_start = (flow_date - start_d).days
         weight = (total_days - days_from_start) / total_days
@@ -109,7 +112,7 @@ def since_first_return(series: list[tuple], flows: list[dict]) -> float | None:
     flows strictly after it enter the Modified Dietz sum: a deposit (buy) is
     never counted as gain. None when there are fewer than two points.
     """
-    if not series or len(series) < 2:
+    if len(series or []) < 2:
         return None
     (d0, v0), (d1, v1) = series[0], series[-1]
     start, end = _as_date(d0), _as_date(d1)

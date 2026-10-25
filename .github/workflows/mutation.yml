@@ -26,5 +26,5 @@ jobs:
           pip install -e ".[test,dashboard,dev]"
 
       - name: Mutation score on the math core
-        # 90 percent kill threshold; survivors are allowlisted.
+        # 100 percent: every mutant of the math core is killed by a test.
         run: python scripts/mutation_report.py

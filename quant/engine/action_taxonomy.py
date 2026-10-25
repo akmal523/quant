@@ -46,6 +46,7 @@ from quant.config import (
     THREAT_DRAWDOWN,
 )
 from quant.engine import sizing
+from quant.ui.search import label_for
 
 VERB_SELL = "sell_part"
 VERB_BUY = "buy"
@@ -69,14 +70,9 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 
 def _label(item: dict) -> str:
-    try:
-        from quant.ui.search import label_for
-
-        name = str(item.get("name") or item.get("symbol") or "")
-        symbol = str(item.get("symbol") or "")
-        return label_for(name, symbol) if symbol else name
-    except Exception:  # noqa: BLE001
-        return str(item.get("symbol") or "")
+    symbol = str(item.get("symbol") or "")
+    name = str(item.get("name") or symbol)
+    return label_for(name, symbol) if symbol else name
 
 
 def _item(verb, symbol, label, amount, reason, horizon, cls, evidence) -> dict:
@@ -105,13 +101,16 @@ def rebalance_items(holdings: list[dict] | None, regime: Any = None,
     out: list[dict] = []
     for h in holdings:
         tier, tgt = _tier(h), h.get("target_weight")
-        if tier not in _ACTIVE_TIERS or tgt is None or total <= 0:
+        if tier not in _ACTIVE_TIERS or tgt is None:
             continue
         cur, tgt = _num(h.get("current_weight")), _num(tgt)
         drift = cur - tgt
         sym, value = str(h.get("symbol")), _num(h.get("value_eur"))
         if drift > threshold:
-            amount = sizing.can_sell(tier, value, drift * total)
+            # Never a Long-term holding here (_ACTIVE_TIERS), so only the
+            # untouchable and size laws apply.
+            amount = (None if sizing.is_untouchable(value)
+                      else sizing.sell_amount(drift * total, value))
             if amount is not None:
                 out.append(_item(
                     VERB_SELL, sym, _label(h), amount,
@@ -119,7 +118,8 @@ def rebalance_items(holdings: list[dict] | None, regime: Any = None,
                     HORIZON_TODAY, tier, "Holdings analysis"))
         elif -drift > threshold and not (tier == "ALPHA" and _is_bear(regime)):
             amount = sizing.round_buy(-drift * total)
-            if amount >= sizing.SELL_MIN_EUR:
+            # Buys are whole 10 EUR steps, so >= 25 and > 25 are the same.
+            if amount >= sizing.SELL_MIN_EUR:  # pragma: no mutate
                 out.append(_item(
                     VERB_BUY, sym, _label(h), amount,
                     f"{-drift * 100:.0f}pp below its {tgt * 100:.0f}% target.",
@@ -188,7 +188,7 @@ def threat_items(holdings: list[dict] | None, scores: dict | None = None,
             if (comp is not None and trusted and tier != "FORTRESS"
                     and _num(comp) < SCORE_FLOOR):
                 reason = f"score {_num(comp):.0f} below the {SCORE_FLOOR:.0f} floor."
-        if reason:
+        if reason is not None:
             out.append(_item(VERB_THREAT, sym, _label(h), None, reason,
                              HORIZON_TODAY, tier, "Holdings analysis"))
     total = sum(_num(h.get("value_eur")) for h in holdings)
@@ -196,7 +196,7 @@ def threat_items(holdings: list[dict] | None, scores: dict | None = None,
     if total > 0 and spec / total > BETS_MAX:
         out.append(_item(VERB_THREAT, None, "the Speculative part", None,
                          f"{spec / total * 100:.0f}% of your money, above the "
-                         f"{BETS_MAX * 100:.0f}% cap.", HORIZON_TODAY, "SPECULATIVE",
+                         f"{BETS_MAX:.0%} cap.", HORIZON_TODAY, "SPECULATIVE",
                          "Holdings analysis"))
     if _is_bear(regime):
         out.append(_item(VERB_THREAT, None, "the Active part", None,
@@ -223,7 +223,7 @@ def swap_items(holdings: list[dict] | None, ideas: list[dict] | None,
         if held is None:
             continue  # an unscored holding is never swapped on a fake 0
         best = max((i for i in ideas if str(i.get("symbol")) != sym),
-                   key=lambda i: _num(_score_of(i), float("-inf")), default=None)
+                   key=lambda i: _num(_score_of(i)), default=None)
         if best is None:
             continue
         best_score = _num(_score_of(best))
@@ -251,6 +251,5 @@ def build(holdings: list[dict] | None, scores: dict | None = None,
     items += plan_change_items(holdings)
     items += threat_items(holdings, scores, regime)
     items += swaps
-    order = {HORIZON_TODAY: 0, HORIZON_MONTH: 1}
-    items.sort(key=lambda i: order.get(i.get("horizon"), 2))
+    items.sort(key=lambda i: i["horizon"] != HORIZON_TODAY)   # stable: Today first
     return items

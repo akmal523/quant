@@ -59,10 +59,22 @@ The auditor exits nonzero on any blocking finding. It runs in CI.
 
 ## Mutation testing
 
-`mutmut` mutates only the math core. The kill threshold is 90 percent. Survivors
-are listed in `tests/mutation_survivors_allowlist.txt` with a reason; the file may
-only shrink. A survivor that touches a user-facing number is blocking and must be
-killed by a test, not allowlisted.
+`mutmut` mutates the math core (`pyproject.toml` `[tool.mutmut]`: score_model,
+flows, sizing, action_taxonomy, mtm) and runs only the tests listed there. The
+weekly job (`.github/workflows/mutation.yml`, `scripts/mutation_report.py`)
+requires **100 percent**: every mutant is killed by a test.
+
+A mutant that no test can tell apart from the original (an *equivalent* mutant)
+is removed at the source, in this order:
+
+1. Delete the code that cannot matter (an unreachable guard, a default no caller
+   relies on, a clamp a formula never exceeds).
+2. Move constant text out of function bodies (SQL lives in module-level
+   constants; keyword case cannot change a query).
+3. Only then mark the one line `# pragma: no mutate`, with a comment that says
+   why the mutant is equivalent (e.g. `>` vs `>=` on a continuous measure).
+
+`tests/mutation_survivors_allowlist.txt` stays empty; the file may only shrink.
 
 ## Mock boundary
 

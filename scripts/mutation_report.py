@@ -1,7 +1,7 @@
 """mutation_report.py — mutation score and survivors (v10.7.5, Part 4).
 
 Runs mutmut over the math core (configured in pyproject ``[tool.mutmut]``) and
-prints the kill score and the survivor list. The CI threshold is 90 percent; any
+prints the kill score and the survivor list. The CI threshold is 100 percent; any
 survivor that touches a user-facing number is blocking and must be killed by a
 test, not allowlisted.
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ALLOWLIST = ROOT / "tests" / "mutation_survivors_allowlist.txt"
-THRESHOLD = 90.0
+THRESHOLD = 100.0
 
 
 def _run(cmd: list[str]) -> str:

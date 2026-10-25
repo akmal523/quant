@@ -19,7 +19,14 @@ from quant.engine import daily, notify, scheduler, sizing
 # ── Sizing laws (Section 6) ───────────────────────────────────────────────────
 
 def test_fortress_never_sells():
-    assert sizing.can_sell("FORTRESS", 1000.0, 200.0) is None
+    from quant.engine import action_taxonomy
+
+    over = [{"symbol": "LT", "tier": "FORTRESS", "current_weight": 0.9,
+             "target_weight": 0.5, "value_eur": 900.0},
+            {"symbol": "ACT", "tier": "ALPHA", "current_weight": 0.1,
+             "target_weight": 0.5, "value_eur": 100.0}]
+    assert not [i for i in action_taxonomy.build(over)
+                if i["verb"] == action_taxonomy.VERB_SELL]
 
 
 def test_sell_amount_sanity_and_rounding():
@@ -35,7 +42,6 @@ def test_historical_failure_no_sell_for_small_drift():
 
 def test_small_positions_untouchable():
     assert sizing.is_untouchable(50.0)
-    assert sizing.can_sell("ALPHA", 50.0, 200.0) is None
 
 
 # ── Notifications (Section 4) ─────────────────────────────────────────────────

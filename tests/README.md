@@ -73,6 +73,7 @@ one release usually touched several features. This index is the feature view
 | Telegram digest, daily job, scheduler | `test_v10_8_2_notify.py`, `test_v10_7_0_phase3.py` |
 | FX, rates, splits, tiers and targets | `test_v10_8_0_fx.py`, `test_v10_8_0_rates.py`, `test_v10_8_10.py`, `test_three_tier.py` |
 | Stubs, fallbacks, mock boundary | `test_audit_stubs.py`, `test_fallback_registry.py`, `test_mock_boundary.py` |
+| Math core, exact values (mutation suite, 100%) | `test_core_score_model.py`, `test_core_action_taxonomy.py`, `test_core_mtm.py`, `test_core_sizing_flows.py` |
 
 New tests go into the file of the feature they guard when one fits; a release
 that adds a new rule may add `test_v<version>.py` and a row here.
