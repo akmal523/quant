@@ -32,9 +32,10 @@ _STATUS_RE = re.compile(
 def _parse_results() -> tuple[int, int, list[str]]:
     """Parse ``mutmut results`` into (killed, total, survivors).
 
-    mutmut 3.x prints one line per mutant: ``<name>: <status>``.
+    mutmut 3.x prints one line per mutant: ``<name>: <status>``; without
+    ``--all true`` it hides the killed ones and every score reads 0.
     """
-    out = _run(["mutmut", "results"])
+    out = _run(["mutmut", "results", "--all", "true"])
     killed = 0
     survived = 0
     survivors: list[str] = []
@@ -64,11 +65,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="do not run mutmut; parse the existing results")
     args = parser.parse_args(argv)
 
+    run_output = ""
     if not args.results_only:
         print("running mutmut (this is slow)...")
-        _run(["mutmut", "run"])
+        run_output = _run(["mutmut", "run"])
 
     killed, total, survivors = _parse_results()
+    if total == 0 and run_output:
+        # No mutant was tested: mutmut itself failed. Show why, not just "0/0".
+        print("mutmut produced no results; the end of its output:")
+        print("\n".join(run_output.replace("\r", "\n").splitlines()[-20:]))
     score = (killed / total * 100.0) if total else 0.0
     allowed = _allowlist()
 

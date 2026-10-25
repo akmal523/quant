@@ -109,3 +109,37 @@ def _offline_metadata(monkeypatch):
         raise RuntimeError("offline")
 
     monkeypatch.setattr(news, "_default_fetcher", _offline_fetch, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_background_daily(monkeypatch):
+    """Never start the real daily job from a test.
+
+    The dashboard's staleness check launches ``quant.cli daily`` in the
+    background (network fetches, database writes). An AppTest render would do
+    that from inside the test run, and the stray child also breaks mutmut,
+    which reaps every child of its process. Stub the process boundary only for
+    that command; every other subprocess call is real.
+    """
+    import subprocess
+
+    real_popen = subprocess.Popen
+
+    class _Done:
+        returncode = 0
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        def poll(self):
+            return 0
+
+        def wait(self, *_a, **_k):
+            return 0
+
+    def _popen(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and "quant.cli" in cmd and "daily" in cmd:
+            return _Done()
+        return real_popen(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
