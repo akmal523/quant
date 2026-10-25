@@ -3,6 +3,11 @@ site_description: A daily portfolio manager for one investor on Trade Republic
 repo_url: https://github.com/akmal523/quant
 site_url: https://akmal523.github.io/quant/
 
+# The archived ruling log links into the repository; it is read on GitHub,
+# not built into the site.
+exclude_docs: |
+  history/
+
 theme:
   name: material
   features:

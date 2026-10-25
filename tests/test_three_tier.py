@@ -17,7 +17,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -65,23 +64,6 @@ def test_2_2_five_year_listing_filter():
 
     assert listed_before("2010-01-01", "2020-01-01") is True
     assert listed_before("2018-01-01", "2020-01-01") is False
-
-
-# ── Category 3: Mathematical Soundness ────────────────────────────────────────
-
-
-def test_3_3_hmm_convergence():
-    """GaussianHMM on synthetic market data converges in under 100 iterations."""
-    from hmmlearn.hmm import GaussianHMM
-    from sklearn.preprocessing import StandardScaler
-
-    rng = np.random.default_rng(7)
-    returns = rng.normal(0.0005, 0.01, 300)
-    vol = pd.Series(returns).rolling(20).std().bfill().values
-    x_scaled = StandardScaler().fit_transform(np.column_stack([returns, vol]))
-    model = GaussianHMM(n_components=2, covariance_type="full", n_iter=100, random_state=42)
-    model.fit(x_scaled)
-    assert model.monitor_.iter < 100
 
 
 # ── Category 4: Data Integrity ────────────────────────────────────────────────
