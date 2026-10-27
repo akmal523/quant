@@ -1,5 +1,5 @@
 """
-telegram_bot.py — update holdings and log actions from Telegram (v10.9.0).
+telegram_bot.py — update holdings and log actions from Telegram (v10.9.0; v10.9.1).
 
 Intent: the digest arrives on the phone, next to Trade Republic; the answer
 should go back the same way. The bot reads commands from the ONE configured
@@ -13,16 +13,25 @@ chat and turns them into the actions the app already has:
   /todo                         the ONE list, numbered
   /done N                       Mark done item N of the last /todo
   /history                      the latest trades and done actions
+  /commands  /help              this list (also the "/" menu in Telegram)
 
 A table change is only a proposal until /confirm: the bot shows the same
 Review diff as Update holdings, and /confirm runs Confirm and save (the table,
 the snapshot, the ledger, the valuation store, the ONE list). /done runs Mark
 done. No new writer exists (R-C4).
 
+The bot runs on the computer that holds the data folder, so every change is
+saved there. While that computer is off or asleep, Telegram keeps the messages
+(for up to 24 hours) and the bot answers them in order when it starts again;
+an answer to a message that waited says so (v10.9.1). The pending change and
+the last /todo are kept in the state file, so a restart between /buy and
+/confirm loses nothing.
+
 Invariants:
   - Messages from any chat other than ``telegram_chat_id`` are ignored.
   - :func:`handle` never raises; every reply is plain text.
   - The update offset is persisted, so a restart never replays a /confirm.
+  - The pending change and the last /todo survive a restart.
   - The bot token never appears in any log or reply.
 """
 from __future__ import annotations
@@ -32,6 +41,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from typing import Any
 
 from quant import paths
@@ -40,6 +50,21 @@ STATE_NAME = "telegram_bot_state.json"
 POLL_TIMEOUT = 30          # seconds; Telegram long polling
 ERROR_BACKOFF = 15         # seconds after a failed poll
 HISTORY_ROWS = 10
+LATE_SECONDS = 120         # an answer to an older message says it waited
+
+# The "/" menu Telegram shows in the chat (setMyCommands), in this order.
+COMMANDS = [
+    ("portfolio", "Holdings, value, profit, now vs target"),
+    ("todo", "What to do, numbered"),
+    ("done", "N: mark item N of the last /todo done"),
+    ("buy", "SYMBOL EUR [PRICE]: add a buy"),
+    ("sell", "SYMBOL EUR|all [PRICE]: record a sell"),
+    ("set", "SYMBOL VALUE PROFIT [COST]: broker numbers"),
+    ("confirm", "Save the pending change"),
+    ("cancel", "Drop the pending change"),
+    ("history", "Latest trades and done actions"),
+    ("commands", "All commands with examples"),
+]
 
 HELP = (
     "Quant-AI commands:\n"
@@ -54,7 +79,9 @@ HELP = (
     "/todo - what to do, numbered\n"
     "/done N - mark item N of the last /todo done\n"
     "/history - latest trades and done actions\n"
-    "Decimals may use a comma: 12,5"
+    "/commands - this list\n"
+    "Decimals may use a comma: 12,5\n"
+    "Examples: /buy EUNL.DE 100 | /sell AMZN all | /set AMZN 180 30 150"
 )
 NO_PENDING = "Nothing to confirm. Change a holding first with /set, /buy or /sell."
 CANCELLED = "Change dropped. Nothing was written."
@@ -62,7 +89,7 @@ SAVED = "Saved. {n} change(s) recorded."
 SAVE_FAILED = "Could not save. Nothing was written."
 NO_CHANGES = "No changes against the saved table."
 PENDING_HINT = "Send /confirm to save or /cancel to drop it."
-UNKNOWN = "Unknown command. Send /help for the list."
+UNKNOWN = "Unknown command. Send /commands for the list."
 NO_HOLDINGS = "No holdings saved yet."
 NOT_HELD = "{sym} is not in your holdings."
 NO_PRICE = "No price for {sym} yet. Add the price per share: {example}"
@@ -74,6 +101,7 @@ TODO_RANGE = "No item {n} in the last list (1 to {last})."
 DONE = "Marked done: {line}"
 DONE_FAILED = "Could not save. Nothing was written."
 HISTORY_EMPTY = "No trades or done actions yet."
+LATE = "Sent {when} while the computer was off; answered now."
 
 
 # ── Telegram API ──────────────────────────────────────────────────────────────
@@ -96,19 +124,25 @@ def _state_path() -> str:
     return os.path.join(str(paths.OUTPUTS_DIR), STATE_NAME)
 
 
-def _read_offset() -> int:
+def _read_state() -> dict:
+    """``{offset, pending, todo}`` from the state file; {} when absent."""
     try:
         with open(_state_path(), encoding="utf-8") as f:
-            return int(json.load(f).get("offset") or 0)
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
     except Exception:  # noqa: BLE001
-        return 0
+        return {}
 
 
-def _write_offset(offset: int) -> None:
+def _write_state(offset: int, session: Session) -> None:
+    """Atomically write the offset, the pending change and the last /todo."""
     try:
         os.makedirs(str(paths.OUTPUTS_DIR), exist_ok=True)
-        with open(_state_path(), "w", encoding="utf-8") as f:
-            json.dump({"offset": int(offset)}, f)
+        tmp = _state_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"offset": int(offset), "pending": session.pending,
+                       "todo": session.todo}, f, default=str)
+        os.replace(tmp, _state_path())
     except Exception:  # noqa: BLE001
         pass
 
@@ -288,11 +322,14 @@ def _clean(rows: list[dict]):
 # ── Session ───────────────────────────────────────────────────────────────────
 
 class Session:
-    """What the bot remembers between two messages of one process."""
+    """What the bot remembers between two messages (kept in the state file)."""
 
-    def __init__(self) -> None:
-        self.pending: dict | None = None   # {"rows": [...], "diff": {...}}
-        self.todo: list[dict] = []         # the items of the last /todo
+    def __init__(self, state: dict | None = None) -> None:
+        state = state or {}
+        pending = state.get("pending")
+        todo = state.get("todo")
+        self.pending: dict | None = pending if isinstance(pending, dict) else None
+        self.todo: list[dict] = todo if isinstance(todo, list) else []
 
 
 def _propose(session: Session, rows: list[dict]) -> str:
@@ -425,7 +462,7 @@ def handle(text: str, session: Session) -> str:
     cmd = parts[0].split("@", 1)[0].lower()   # "/todo@MyBot" in a group
     args = parts[1:]
     try:
-        if cmd in ("/start", "/help"):
+        if cmd in ("/start", "/help", "/commands"):
             return HELP
         if cmd == "/portfolio":
             return _cmd_portfolio()
@@ -453,8 +490,21 @@ def handle(text: str, session: Session) -> str:
 
 # ── The polling loop ──────────────────────────────────────────────────────────
 
+def _late_note(message: dict, now: float) -> str:
+    """The prefix for a message that waited (the computer was off), else ""."""
+    try:
+        sent = float(message.get("date") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if not sent or now - sent < LATE_SECONDS:
+        return ""
+    from quant.ui import copy as C
+
+    return LATE.format(when=C.fmt_ts(datetime.fromtimestamp(sent))) + "\n"
+
+
 def poll_once(cfg: dict, session: Session, offset: int,
-              api: Any = None) -> int:
+              api: Any = None, now: float | None = None) -> int:
     """Fetch and answer one batch of updates. Returns the next offset."""
     api = api or _api
     token = str(cfg.get("telegram_bot_token") or "")
@@ -466,15 +516,27 @@ def poll_once(cfg: dict, session: Session, offset: int,
         raise ConnectionError("getUpdates failed")
     for update in body.get("result") or []:
         offset = max(offset, int(update.get("update_id", 0)) + 1)
-        _write_offset(offset)   # before acting: a crash never replays a command
+        _write_state(offset, session)   # before acting: a crash never replays one
         message = update.get("message") or {}
         if str((message.get("chat") or {}).get("id")) != chat_id:
             continue
         text = message.get("text")
         if not text:
             continue
-        api(token, "sendMessage", {"chat_id": chat_id, "text": handle(text, session)}, 10)
+        reply = _late_note(message, time.time() if now is None else now) + handle(
+            text, session)
+        _write_state(offset, session)   # the pending change / last /todo
+        api(token, "sendMessage", {"chat_id": chat_id, "text": reply}, 10)
     return offset
+
+
+def set_menu(cfg: dict, api: Any = None) -> bool:
+    """Publish :data:`COMMANDS` as the chat's "/" menu. Never raises."""
+    api = api or _api
+    body = api(str(cfg.get("telegram_bot_token") or ""), "setMyCommands",
+               {"commands": json.dumps([{"command": c, "description": d}
+                                        for c, d in COMMANDS])}, 10)
+    return bool(body and body.get("ok"))
 
 
 def run(config: dict | None = None) -> int:
@@ -486,9 +548,11 @@ def run(config: dict | None = None) -> int:
             or not cfg.get("telegram_bot_token") or not cfg.get("telegram_chat_id")):
         print("Telegram is not set up; run quant notify-setup first.")
         return 2
-    session = Session()
-    offset = _read_offset()
-    print("Telegram bot running. Send /help to your bot. Ctrl+C stops it.")
+    state = _read_state()
+    session = Session(state)
+    offset = int(state.get("offset") or 0)
+    set_menu(cfg)
+    print("Telegram bot running. Send /commands to your bot. Ctrl+C stops it.")
     try:
         while True:
             try:
@@ -499,4 +563,4 @@ def run(config: dict | None = None) -> int:
         return 0
 
 
-__all__ = ["Session", "handle", "poll_once", "run", "HELP"]
+__all__ = ["COMMANDS", "HELP", "Session", "handle", "poll_once", "run", "set_menu"]

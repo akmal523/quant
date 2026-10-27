@@ -91,11 +91,15 @@ FALLBACKS: dict[str, dict] = {
     # ── Telegram bot (v10.9.0) ────────────────────────────────────────────────
     "telegram_bot._api": _e("Bot API unreachable", None, "none (the poll loop "
                             "backs off and retries)", "test_fallback_telegram_bot_api"),
-    "telegram_bot._read_offset": _e("missing or unreadable bot state", 0, "none",
-                                    "test_fallback_telegram_bot_read_offset"),
+    "telegram_bot._read_state": _e("missing or unreadable bot state", {}, "none",
+                                   "test_fallback_telegram_bot_read_state"),
     "telegram_bot._live_price": _e("price lookup raised", None, "the reply asks for "
                                    "the price", "test_fallback_telegram_bot_live_price"),
     "telegram_bot.run": _e("Ctrl+C", 0, "none", "test_fallback_telegram_bot_run"),
+    "telegram_bot._late_note": _e("unparseable message date", "", "none",
+                                  "test_fallback_telegram_bot_late_note"),
+    "scheduler.bot_running": _e("systemctl missing or hung", False, "the status line "
+                                "says stopped", "test_fallback_scheduler_bot_running"),
 }
 
 

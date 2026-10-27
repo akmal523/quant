@@ -428,10 +428,19 @@ def _cmd_notify_setup(_args: argparse.Namespace) -> int:
 
 def _cmd_bot(args: argparse.Namespace) -> int:
     """The Telegram bot (v10.9.0): update holdings and mark actions done by chat."""
-    if getattr(args, "install", False) or getattr(args, "off", False):
-        from quant.engine import scheduler
+    from quant.engine import scheduler
 
-        print(scheduler.install_bot() if args.install else scheduler.uninstall_bot())
+    if getattr(args, "install", False):
+        print(scheduler.install_bot())
+        return 0
+    if getattr(args, "off", False):
+        print(scheduler.uninstall_bot())
+        return 0
+    if getattr(args, "restart", False):
+        print(scheduler.restart_bot())
+        return 0
+    if getattr(args, "status", False):
+        print(f"bot: {scheduler.bot_status_line()}")
         return 0
     from quant.data.bootstrap import seed_user_data
     from quant.engine import telegram_bot
@@ -510,6 +519,9 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--install", action="store_true",
                      help="run the bot as a background service (systemd)")
     bot.add_argument("--off", action="store_true", help="remove the background service")
+    bot.add_argument("--restart", action="store_true",
+                     help="restart the background service (runs the current code)")
+    bot.add_argument("--status", action="store_true", help="report the background service")
 
     # argparse lists every subparser in --help; keep only the six user commands
     # (hidden subparsers remain dispatachable, used by the scheduler and tests).
@@ -567,6 +579,11 @@ def _cmd_upgrade(args) -> int:
     from quant import __version__ as new_version
 
     output.reporter.line(f"Updated {old} to {new_version}.")
+    # v10.9.1: a running bot keeps the old code until it restarts.
+    from quant.engine import scheduler
+
+    if scheduler.is_bot_installed():
+        output.reporter.line(f"Telegram bot: {scheduler.restart_bot()}.")
     return 0
 
 

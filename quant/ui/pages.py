@@ -1067,6 +1067,23 @@ def page_settings() -> None:
                 st.error("Saved, but the test message failed. Check the token and "
                          "chat id.")
 
+    # v10.9.1: the command bot runs on this computer and saves here.
+    from quant.engine import scheduler as _sched
+
+    st.write(f"Telegram bot: {_sched.bot_status_line()}")
+    with st.expander("Telegram bot"):
+        st.caption("Update holdings and mark actions done from the chat. Send "
+                   "/commands to your bot for the list. The bot runs on this "
+                   "computer; while it is off, Telegram keeps your messages for "
+                   "24 hours and the bot answers them when it starts again.")
+        b1, b2 = st.columns(2)
+        if b1.button("Run the bot in the background", width="stretch",
+                     disabled=_notify.status_line() == "off"):
+            st.write(_sched.install_bot())
+        if b2.button("Stop the bot", width="stretch",
+                     disabled=not _sched.is_bot_installed()):
+            st.write(_sched.uninstall_bot())
+
     st.subheader("Actions")
     c1, c2, c3 = st.columns(3)
     if c1.button("Refresh prices", width="stretch"):

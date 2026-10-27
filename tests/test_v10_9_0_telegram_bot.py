@@ -1,4 +1,4 @@
-"""test_v10_9_0_telegram_bot.py — holdings and actions from Telegram (v10.9.0).
+"""test_v10_9_0_telegram_bot.py — holdings and actions from Telegram (v10.9.0; v10.9.1).
 
 The bot proposes a table change with the Review diff, saves it only on /confirm
 (through Confirm and save), marks ONE-list items done through Mark done, and
@@ -7,6 +7,8 @@ boundary; the table, ledger and advice log are the real ones (isolated session
 DB, tmp data files).
 """
 from __future__ import annotations
+
+import json
 
 import pandas as pd
 import pytest
@@ -173,7 +175,7 @@ def test_poll_answers_only_the_configured_chat(tmp_path, monkeypatch):
     cfg = {"telegram_bot_token": "T", "telegram_chat_id": "42"}
     assert B.poll_once(cfg, B.Session(), 0, api=api) == 9
     assert sent == [{"chat_id": "42", "text": B.HELP}]
-    assert B._read_offset() == 9
+    assert B._read_state()["offset"] == 9
 
 
 def test_poll_failure_raises_for_the_backoff():
@@ -185,6 +187,65 @@ def test_unknown_command_and_help():
     s = B.Session()
     assert B.handle("hello", s) == B.UNKNOWN
     assert B.handle("/help@QuantBot", s) == B.HELP
+    assert B.handle("/commands", s) == B.HELP
+
+
+# ── v10.9.1: the "/" menu, restarts, messages that waited ─────────────────────
+
+def test_menu_lists_every_command_in_the_help():
+    calls = []
+
+    def api(token, method, params, timeout):
+        calls.append((method, json.loads(params["commands"])))
+        return {"ok": True}
+
+    assert B.set_menu({"telegram_bot_token": "T"}, api=api) is True
+    method, commands = calls[0]
+    assert method == "setMyCommands"
+    names = [c["command"] for c in commands]
+    assert "commands" in names and "todo" in names
+    for name in names:
+        assert f"/{name}" in B.HELP
+        assert B.handle(f"/{name}", B.Session()) != B.UNKNOWN
+    assert all(len(c["description"]) <= 256 for c in commands)
+
+
+def test_pending_change_survives_a_restart(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, [_row("TGB4", 10.0, 100.0, 0.0)])
+
+    def api_with(text, update_id):
+        def api(token, method, params, timeout):
+            if method == "getUpdates":
+                return {"ok": True, "result": [{"update_id": update_id, "message": {
+                    "chat": {"id": 42}, "date": 1000, "text": text}}]}
+            return {"ok": True}
+        return api
+
+    cfg = {"telegram_bot_token": "T", "telegram_chat_id": "42"}
+    B.poll_once(cfg, B.Session(), 0, api=api_with("/buy TGB4 50 10", 1), now=1000)
+    restarted = B.Session(B._read_state())          # a new process
+    assert restarted.pending is not None
+    assert restarted.pending["diff"]["changes"][0]["symbol"] == "TGB4"
+    B.handle("/cancel", restarted)
+
+
+def test_a_message_that_waited_says_so():
+    msg = {"date": 1_000_000}
+    assert B._late_note(msg, 1_000_000 + B.LATE_SECONDS - 1) == ""
+    note = B._late_note(msg, 1_000_000 + 3600)
+    assert note.startswith("Sent ") and "while the computer was off" in note
+    assert B._late_note({}, 5.0) == ""
+
+
+def test_bot_status_without_systemd(tmp_path, monkeypatch):
+    from quant.engine import scheduler
+
+    monkeypatch.setattr(scheduler, "systemd_user_dir", lambda: str(tmp_path))
+    assert scheduler.bot_status_line() == "not running in the background"
+    assert scheduler.restart_bot() == "not installed; run quant bot --install"
+    (tmp_path / scheduler.BOT_SERVICE_NAME).write_text("x", encoding="utf-8")
+    monkeypatch.setattr(scheduler, "bot_running", lambda: False)
+    assert scheduler.bot_status_line() == "installed but stopped"
 
 
 def test_run_refuses_without_telegram_setup(capsys):

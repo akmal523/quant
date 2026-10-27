@@ -48,10 +48,20 @@ target, notable news and any problems. Mail is not supported.
 
 ## Telegram bot: update holdings and log actions from your phone
 
-Once Telegram is set up (Settings → Set up Telegram, or `notify-setup`), run
-`bot` to answer commands from your chat (`bot --install` runs it in the
-background as a systemd user service; `bot --off` removes it). Only the chat id
-saved in Settings is answered.
+Set up Telegram first (Settings → Set up Telegram, or `notify-setup`). Then
+start the bot on the computer that holds your data, either way:
+
+- **Settings → Telegram bot → Run the bot in the background** (or
+  `bot --install`): a systemd user service that starts with the computer and
+  restarts itself after an error. **Stop the bot** (`bot --off`) removes it.
+- `bot` in a terminal, for a try-out (Ctrl+C stops it).
+
+`bot --status` says whether it runs; `bot --restart` restarts it; `upgrade`
+restarts it for you, so after an update it runs the new code. Its log:
+`journalctl --user -u quant-bot`.
+
+Send `/commands` (or tap "/" in the chat for the menu). Only the chat id saved
+in Settings is answered.
 
 | Command | What it does |
 |---------|--------------|
@@ -62,10 +72,18 @@ saved in Settings is answered.
 | `/confirm`, `/cancel` | save or drop the pending change |
 | `/todo`, `/done N` | the ONE list, numbered; mark item N done |
 | `/history` | the latest trades and done actions |
+| `/commands`, `/help` | the list with examples |
 
 A change is shown as the same review as **Update holdings** and is written only
 on `/confirm`, through **Confirm and save** (table, ledger, value chart, the ONE
-list). `/done` is **Mark done**. Decimals may use a comma (`12,5`).
+list), into the data folder on this computer. `/done` is **Mark done**.
+Decimals may use a comma (`12,5`).
+
+**While the computer is off or asleep**, Telegram keeps your messages for up to
+24 hours; when the bot starts again it answers them in order, and each such
+answer says when you sent it. A pending change (sent `/buy`, not yet
+`/confirm`) survives a restart. Messages older than 24 hours are dropped by
+Telegram; for an always-on bot, run the app on a machine that stays on.
 
 ## Where your data lives
 

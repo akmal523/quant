@@ -35,6 +35,7 @@ def _triggers() -> dict[str, tuple]:
         analysis,
         flows,
         mtm,
+        scheduler,
         score_model,
         sizing,
         telegram_bot,
@@ -64,9 +65,9 @@ def _triggers() -> dict[str, tuple]:
         with mock.patch("urllib.request.urlopen", side_effect=_raise):
             return telegram_bot._api("T", "getMe", {}, 1)
 
-    def _read_offset_broken():
+    def _read_state_broken():
         with mock.patch("builtins.open", side_effect=_raise):
-            return telegram_bot._read_offset()
+            return telegram_bot._read_state()
 
     def _live_price_broken():
         with mock.patch("quant.data.currency.price_in_eur", side_effect=_raise):
@@ -75,8 +76,13 @@ def _triggers() -> dict[str, tuple]:
     def _run_interrupted():
         cfg = {"channel": "telegram", "telegram_bot_token": "T", "telegram_chat_id": "1"}
         with mock.patch.object(telegram_bot, "poll_once", side_effect=KeyboardInterrupt), \
-                mock.patch.object(telegram_bot, "_read_offset", return_value=0):
+                mock.patch.object(telegram_bot, "_read_state", return_value={}), \
+                mock.patch.object(telegram_bot, "set_menu", return_value=True):
             return telegram_bot.run(cfg)
+
+    def _bot_running_broken():
+        with mock.patch("subprocess.run", side_effect=_raise):
+            return scheduler.bot_running()
 
     return {
         "flows.load_flows": (lambda: flows.load_flows(_BrokenConn()), []),
@@ -120,9 +126,11 @@ def _triggers() -> dict[str, tuple]:
         "mtm._price_history": (lambda: mtm._price_history(_BrokenConn(), {"X"}), {}),
         "mtm._query": (lambda: mtm._query(_BrokenConn(), "SELECT 1"), []),
         "telegram_bot._api": (_api_broken, None),
-        "telegram_bot._read_offset": (_read_offset_broken, 0),
+        "telegram_bot._read_state": (_read_state_broken, {}),
         "telegram_bot._live_price": (_live_price_broken, None),
         "telegram_bot.run": (_run_interrupted, 0),
+        "telegram_bot._late_note": (lambda: telegram_bot._late_note({"date": "x"}, 0), ""),
+        "scheduler.bot_running": (_bot_running_broken, False),
     }
 
 def test_every_registry_entry_has_a_trigger():

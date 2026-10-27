@@ -1,6 +1,6 @@
 # CONTEXT.md — Vocabulary, Architecture & Binding Rules
 
-The current state of Quant-AI (v10.9.0). Keep terminology consistent across
+The current state of Quant-AI (v10.9.1). Keep terminology consistent across
 code, docs and AI agents. This file states what is true **now**; superseded
 rulings are not repeated here. The version-by-version rulings up to v10.8.9 are
 archived verbatim in
@@ -272,7 +272,11 @@ pence.
   `confirm.confirm_save`. `/done N` calls `advice_state.mark_item_done` on item
   N of the last `/todo`. It adds no writer (R-C4). The update offset is persisted
   in `outputs/telegram_bot_state.json` before a command runs, so a restart never
-  replays one.
+  replays one; the pending change and the last `/todo` are kept there too. It
+  runs on the computer with the data folder (systemd user service
+  `quant-bot.service`, `quant bot --install`, or Settings); Telegram holds
+  messages for 24 hours while it is off, and a reply to one older than two
+  minutes says when it was sent. `upgrade` restarts the service.
 
 ### UI and copy
 

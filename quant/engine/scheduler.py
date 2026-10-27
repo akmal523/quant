@@ -150,6 +150,36 @@ def uninstall_bot() -> str:
     return "uninstalled"
 
 
+def is_bot_installed() -> bool:
+    """True when the bot service unit file exists."""
+    return os.path.exists(os.path.join(systemd_user_dir(), BOT_SERVICE_NAME))
+
+
+def bot_running() -> bool:
+    """True when systemd reports the bot service active. Never raises."""
+    try:
+        res = subprocess.run(["systemctl", "--user", "is-active", BOT_SERVICE_NAME],
+                             capture_output=True, text=True, timeout=5)
+        return res.stdout.strip() == "active"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def restart_bot() -> str:
+    """Restart the bot service so it runs the current code (after an update)."""
+    if not is_bot_installed():
+        return "not installed; run quant bot --install"
+    _run(["systemctl", "--user", "restart", BOT_SERVICE_NAME])
+    return "restarted" if bot_running() else "restart failed; see journalctl --user -u quant-bot"
+
+
+def bot_status_line() -> str:
+    """One plain line: running in the background, stopped, or not installed."""
+    if not is_bot_installed():
+        return "not running in the background"
+    return "running in the background" if bot_running() else "installed but stopped"
+
+
 def is_installed() -> bool:
     """True when the timer unit file exists."""
     return os.path.exists(os.path.join(systemd_user_dir(), TIMER_NAME))

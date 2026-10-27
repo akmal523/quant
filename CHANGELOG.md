@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.9.1] - 2026-10-27
+
+"Run it, find it, trust it." The bot from 10.9.0 only answered while
+`quant bot` ran in a terminal, which nothing told you; a restart also forgot a
+change waiting for `/confirm`.
+
+### Added
+
+- **`/commands`** lists every command with examples, and the bot publishes the
+  chat's "/" menu (`setMyCommands`) when it starts.
+- **Settings → Telegram bot**: whether it runs, **Run the bot in the
+  background** and **Stop the bot**.
+- `quant bot --status` and `quant bot --restart`; `quant upgrade` restarts an
+  installed bot so it runs the new code.
+
+### Changed
+
+- **Messages sent while the computer was off** are answered when the bot
+  starts again (Telegram keeps them for 24 hours), and the answer says when the
+  message was sent.
+- **The pending change and the last `/todo` survive a restart**: they are kept
+  in `outputs/telegram_bot_state.json` (written atomically).
+
 ## [10.9.0] - 2026-10-27
 
 "Answer the digest from the phone." The Telegram bot no longer only sends: it
