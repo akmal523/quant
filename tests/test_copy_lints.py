@@ -106,7 +106,7 @@ def test_copy_module_strings_have_no_bad_patterns():
 
 # ── Source 3: the Telegram message builders ───────────────────────────────────
 
-@pytest.mark.parametrize("rel", ["engine/notify.py"])
+@pytest.mark.parametrize("rel", ["engine/notify.py", "engine/telegram_bot.py"])
 def test_telegram_builders_have_no_bad_patterns(rel):
     """R-F3: no banned pattern in a Telegram/Discord message builder string."""
     offenders = _scan_constants(_QUANT / rel)

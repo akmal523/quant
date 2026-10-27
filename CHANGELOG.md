@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [10.9.0] - 2026-10-27
+
+"Answer the digest from the phone." The Telegram bot no longer only sends: it
+takes commands from your chat, so holdings can be updated and actions logged
+without opening the app.
+
+### Added
+
+- **Telegram commands** (`quant bot`, [`telegram_bot.py`](quant/engine/telegram_bot.py)):
+  `/portfolio`, `/set SYMBOL VALUE PROFIT [COST]`, `/buy SYMBOL EUR [PRICE]`,
+  `/sell SYMBOL EUR|all [PRICE]`, `/confirm`, `/cancel`, `/todo`, `/done N`,
+  `/history`, `/help`. A table change replies with the same review as Update
+  holdings and is saved only on `/confirm`, through Confirm and save; `/done`
+  is Mark done. Only the chat id saved in Settings is answered; the update
+  offset is stored before a command runs, so a restart never repeats a
+  `/confirm`.
+- `quant bot --install` / `--off`: run the bot as a systemd user service
+  (`quant-bot.service`, restarted on failure).
+
+### Fixed
+
+- **An order-dependent chart test.** Every AppTest render re-runs the
+  dashboard's startup valuation catch-up; when an earlier test on the same
+  worker had left newer prices, it rebuilt the store and wiped the two points
+  the `seeded_chart` fixture had stored, so `test_v10_8_9_phase2.py` failed
+  depending on how the tests were spread over the workers. The fixture now
+  stubs the catch-up.
+
+### Changed
+
+- The fallback registry declares the bot's four error paths, each with a
+  triggering test; the copy lint also scans the bot's replies.
+
 ## [10.8.11] - 2026-10-25
 
 "Every mutant killed." The weekly mutation job had failed since October: it

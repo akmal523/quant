@@ -426,6 +426,20 @@ def _cmd_notify_setup(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bot(args: argparse.Namespace) -> int:
+    """The Telegram bot (v10.9.0): update holdings and mark actions done by chat."""
+    if getattr(args, "install", False) or getattr(args, "off", False):
+        from quant.engine import scheduler
+
+        print(scheduler.install_bot() if args.install else scheduler.uninstall_bot())
+        return 0
+    from quant.data.bootstrap import seed_user_data
+    from quant.engine import telegram_bot
+
+    seed_user_data()
+    return telegram_bot.run()
+
+
 def _cmd_daily(_args: argparse.Namespace) -> int:
     """Run the daily job (used by the timer). One line to stdout (Section 3.2)."""
     from quant.engine import daily
@@ -492,6 +506,10 @@ def build_parser() -> argparse.ArgumentParser:
     sched.add_argument("--off", action="store_true")
     sched.add_argument("--status", action="store_true")
     sub.add_parser("notify-setup", help=hidden)
+    bot = sub.add_parser("bot", help=hidden)
+    bot.add_argument("--install", action="store_true",
+                     help="run the bot as a background service (systemd)")
+    bot.add_argument("--off", action="store_true", help="remove the background service")
 
     # argparse lists every subparser in --help; keep only the six user commands
     # (hidden subparsers remain dispatachable, used by the scheduler and tests).
@@ -586,6 +604,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "backup": _cmd_backup,
         "schedule": _cmd_schedule,
         "notify-setup": _cmd_notify_setup,
+        "bot": _cmd_bot,
         "daily": _cmd_daily,
     }
     try:

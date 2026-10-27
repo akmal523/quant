@@ -37,6 +37,7 @@ def _triggers() -> dict[str, tuple]:
         mtm,
         score_model,
         sizing,
+        telegram_bot,
         today_list,
     )
     from quant.portfolio import account, portfolio, tier_manager
@@ -58,6 +59,24 @@ def _triggers() -> dict[str, tuple]:
     def _analysis_regime_broken():
         with mock.patch("quant.data.database.read_only_connection", side_effect=_raise):
             return artifacts._analysis_regime()
+
+    def _api_broken():
+        with mock.patch("urllib.request.urlopen", side_effect=_raise):
+            return telegram_bot._api("T", "getMe", {}, 1)
+
+    def _read_offset_broken():
+        with mock.patch("builtins.open", side_effect=_raise):
+            return telegram_bot._read_offset()
+
+    def _live_price_broken():
+        with mock.patch("quant.data.currency.price_in_eur", side_effect=_raise):
+            return telegram_bot._live_price("X")
+
+    def _run_interrupted():
+        cfg = {"channel": "telegram", "telegram_bot_token": "T", "telegram_chat_id": "1"}
+        with mock.patch.object(telegram_bot, "poll_once", side_effect=KeyboardInterrupt), \
+                mock.patch.object(telegram_bot, "_read_offset", return_value=0):
+            return telegram_bot.run(cfg)
 
     return {
         "flows.load_flows": (lambda: flows.load_flows(_BrokenConn()), []),
@@ -100,6 +119,10 @@ def _triggers() -> dict[str, tuple]:
         "mtm._fx_rate": (_fx_rate_broken, 1.0),
         "mtm._price_history": (lambda: mtm._price_history(_BrokenConn(), {"X"}), {}),
         "mtm._query": (lambda: mtm._query(_BrokenConn(), "SELECT 1"), []),
+        "telegram_bot._api": (_api_broken, None),
+        "telegram_bot._read_offset": (_read_offset_broken, 0),
+        "telegram_bot._live_price": (_live_price_broken, None),
+        "telegram_bot.run": (_run_interrupted, 0),
     }
 
 def test_every_registry_entry_has_a_trigger():

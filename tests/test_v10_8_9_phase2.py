@@ -33,12 +33,17 @@ def seeded_chart(tmp_path, monkeypatch):
     control) actually renders."""
     from quant import paths
     from quant.data.database import write_connection
+    from quant.engine import mtm
 
     csv = tmp_path / "portfolio.csv"
     csv.write_text(
         "Symbol,Avg_Entry_Price,Current_Value_EUR,Broker_PnL_EUR\n"
         "EUNL.DE,100.0,102.0,2.0\n", encoding="utf-8")
     monkeypatch.setattr(paths, "DATA_PORTFOLIO", str(csv))
+    # Every AppTest run re-executes the dashboard, so its startup valuation
+    # catch-up runs too; with newer prices left by an earlier test it rebuilds
+    # the store and wipes the two seeded points (order-dependent failure).
+    monkeypatch.setattr(mtm, "catch_up", lambda *a, **k: {"ok": True, "skipped": True})
     with write_connection() as conn:
         conn.execute("DELETE FROM portfolio_total")
         conn.execute(

@@ -88,6 +88,14 @@ FALLBACKS: dict[str, dict] = {
     "mtm._price_history": _e("unreadable market_history", {}, "empty",
                              "test_fallback_mtm_price_history"),
     "mtm._query": _e("unreadable valuation store", [], "empty", "test_fallback_mtm_query"),
+    # ── Telegram bot (v10.9.0) ────────────────────────────────────────────────
+    "telegram_bot._api": _e("Bot API unreachable", None, "none (the poll loop "
+                            "backs off and retries)", "test_fallback_telegram_bot_api"),
+    "telegram_bot._read_offset": _e("missing or unreadable bot state", 0, "none",
+                                    "test_fallback_telegram_bot_read_offset"),
+    "telegram_bot._live_price": _e("price lookup raised", None, "the reply asks for "
+                                   "the price", "test_fallback_telegram_bot_live_price"),
+    "telegram_bot.run": _e("Ctrl+C", 0, "none", "test_fallback_telegram_bot_run"),
 }
 
 

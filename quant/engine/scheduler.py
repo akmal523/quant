@@ -22,6 +22,7 @@ from quant.config import SCHEDULE_DAILY_SLOT, SCHEDULE_MORNING_SLOT
 
 SERVICE_NAME = "quant-daily.service"
 TIMER_NAME = "quant-daily.timer"
+BOT_SERVICE_NAME = "quant-bot.service"
 
 
 def systemd_user_dir() -> str:
@@ -40,6 +41,25 @@ def build_service_unit(python_path: str, project_dir: str) -> str:
         "Type=oneshot\n"
         f"WorkingDirectory={project_dir}\n"
         f"ExecStart={python_path} -m quant.cli daily\n"
+    )
+
+
+def build_bot_unit(python_path: str, project_dir: str) -> str:
+    """The Telegram bot service (v10.9.0): long-running, restarted on failure."""
+    return (
+        "[Unit]\n"
+        "Description=Quant-AI Telegram bot\n"
+        "After=network-online.target\n"
+        "\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"WorkingDirectory={project_dir}\n"
+        f"ExecStart={python_path} -m quant.cli bot\n"
+        "Restart=on-failure\n"
+        "RestartSec=30\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
     )
 
 
@@ -98,6 +118,34 @@ def uninstall() -> str:
             os.remove(os.path.join(unit_dir, name))
         except Exception:  # noqa: BLE001
             pass
+    _run(["systemctl", "--user", "daemon-reload"])
+    return "uninstalled"
+
+
+def install_bot() -> str:
+    """Install and start the Telegram bot service. Returns a status line."""
+    unit_dir = systemd_user_dir()
+    try:
+        os.makedirs(unit_dir, exist_ok=True)
+        with open(os.path.join(unit_dir, BOT_SERVICE_NAME), "w", encoding="utf-8") as f:
+            f.write(build_bot_unit(sys.executable, str(paths.CODE_ROOT)))
+    except Exception as e:  # noqa: BLE001
+        return f"install failed: {type(e).__name__}"
+    _run(["systemctl", "--user", "daemon-reload"])
+    _run(["systemctl", "--user", "enable", "--now", BOT_SERVICE_NAME])
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    if user:
+        _run(["loginctl", "enable-linger", user])
+    return f"installed: {BOT_SERVICE_NAME}"
+
+
+def uninstall_bot() -> str:
+    """Stop and remove the Telegram bot service. Returns a status line."""
+    _run(["systemctl", "--user", "disable", "--now", BOT_SERVICE_NAME])
+    try:
+        os.remove(os.path.join(systemd_user_dir(), BOT_SERVICE_NAME))
+    except Exception:  # noqa: BLE001
+        pass
     _run(["systemctl", "--user", "daemon-reload"])
     return "uninstalled"
 

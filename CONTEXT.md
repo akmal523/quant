@@ -1,6 +1,6 @@
 # CONTEXT.md — Vocabulary, Architecture & Binding Rules
 
-The current state of Quant-AI (v10.8.10). Keep terminology consistent across
+The current state of Quant-AI (v10.9.0). Keep terminology consistent across
 code, docs and AI agents. This file states what is true **now**; superseded
 rulings are not repeated here. The version-by-version rulings up to v10.8.9 are
 archived verbatim in
@@ -56,7 +56,7 @@ ONE list in the broker → repeat.**
 - **CLI** ([`quant/cli/__init__.py`](quant/cli/__init__.py)): `dash`, `refresh`,
   `daily`, `upgrade`, `backup`, `doctor` (plus hidden maintenance commands:
   `run` = the analysis chain, `all` = refresh + run, `schedule`,
-  `notify-setup`). Without an activated venv: `.venv/bin/python -m quant.cli`.
+  `notify-setup`, `bot` = the Telegram command bot). Without an activated venv: `.venv/bin/python -m quant.cli`.
 - **Paths** ([`quant/paths.py`](quant/paths.py)): `CODE_ROOT` is the checkout,
   `PROJECT_ROOT` the data folder. A one-time, copy-only migration
   ([`quant/data/user_data.py`](quant/data/user_data.py)) brought pre-10.8.1 repo
@@ -266,6 +266,13 @@ pence.
   mail), one daily digest from the morning slot, at most once per price date
   (`outputs/notify_state.json`). Settings → Telegram saves the bot token and
   chat id and sends a test.
+- **Telegram bot** ([`telegram_bot.py`](quant/engine/telegram_bot.py), `quant
+  bot`): answers only the saved chat id. `/set`, `/buy`, `/sell` build a
+  proposed table and reply with the Review diff; only `/confirm` writes, through
+  `confirm.confirm_save`. `/done N` calls `advice_state.mark_item_done` on item
+  N of the last `/todo`. It adds no writer (R-C4). The update offset is persisted
+  in `outputs/telegram_bot_state.json` before a command runs, so a restart never
+  replays one.
 
 ### UI and copy
 

@@ -46,6 +46,27 @@ prices and re-evaluates the list on trading days, and each morning sends one
 Telegram digest: value, day change, the market trend, what to do, holdings vs
 target, notable news and any problems. Mail is not supported.
 
+## Telegram bot: update holdings and log actions from your phone
+
+Once Telegram is set up (Settings → Set up Telegram, or `notify-setup`), run
+`bot` to answer commands from your chat (`bot --install` runs it in the
+background as a systemd user service; `bot --off` removes it). Only the chat id
+saved in Settings is answered.
+
+| Command | What it does |
+|---------|--------------|
+| `/portfolio` | holdings, value, profit, now vs target |
+| `/set SYMBOL VALUE PROFIT [COST]` | the broker numbers for one holding (COST is needed for a new one) |
+| `/buy SYMBOL EUR [PRICE]` | add a buy; the price per share defaults to the latest close |
+| `/sell SYMBOL EUR\|all [PRICE]` | record a sell |
+| `/confirm`, `/cancel` | save or drop the pending change |
+| `/todo`, `/done N` | the ONE list, numbered; mark item N done |
+| `/history` | the latest trades and done actions |
+
+A change is shown as the same review as **Update holdings** and is written only
+on `/confirm`, through **Confirm and save** (table, ledger, value chart, the ONE
+list). `/done` is **Mark done**. Decimals may use a comma (`12,5`).
+
 ## Where your data lives
 
 Your positions, settings, database and backups live in your per-user data folder
